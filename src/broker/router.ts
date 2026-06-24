@@ -4,6 +4,7 @@ import { ChatGPTAdapter } from '../providers/chatgpt';
 import { GeminiAdapter } from '../providers/gemini';
 import { QwenAdapter } from '../providers/qwen';
 import { ZaiAdapter } from '../providers/zai';
+import { KimiAdapter } from '../providers/kimi';
 
 export class PromptRouter {
     private adapters: Map<string, BaseBrowserAdapter> = new Map();
@@ -15,6 +16,7 @@ export class PromptRouter {
         this.adapters.set('qwen', new QwenAdapter());
         this.adapters.set('zai', new ZaiAdapter());
         this.adapters.set('z.ai', new ZaiAdapter()); // Alias for zai
+        this.adapters.set('kimi', new KimiAdapter());
     }
 
     public getAdapter(providerId: string): BaseBrowserAdapter | undefined {
