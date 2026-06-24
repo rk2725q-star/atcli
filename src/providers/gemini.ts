@@ -38,17 +38,24 @@ export class GeminiAdapter extends BaseBrowserAdapter {
             await this.page!.keyboard.press('Backspace');
             await this.page!.waitForTimeout(500); // Wait for send button to become active
 
-            // Press Enter to send. If multi-line text is used, Enter might not work, so we try clicking the send button if Enter fails.
-            await this.page!.keyboard.press('Enter');
-            
-            // Fallback: Gemini rich text area sometimes just adds a newline on Enter.
-            // Click the send button to be safe.
+            // Try to find and click the exact Send button. 
+            // If we can't find it, fallback to Enter.
             try {
-                const sendBtn = this.page!.locator('button[aria-label*="Send"], .send-button').first();
+                const sendBtn = this.page!.locator('button[aria-label="Send message"], button[aria-label="Send prompt"]').first();
                 if (await sendBtn.isVisible({ timeout: 1000 })) {
-                    await sendBtn.click();
+                    // Check if it's not disabled
+                    const isDisabled = await sendBtn.isDisabled();
+                    if (!isDisabled) {
+                        await sendBtn.click();
+                    } else {
+                        await this.page!.keyboard.press('Enter');
+                    }
+                } else {
+                    await this.page!.keyboard.press('Enter');
                 }
-            } catch (e) {}
+            } catch (e) {
+                await this.page!.keyboard.press('Enter');
+            }
 
             await this.page!.waitForTimeout(1000);
             const responseText = await this.pollForResponse(() => {
