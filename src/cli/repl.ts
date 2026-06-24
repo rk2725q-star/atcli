@@ -24,6 +24,12 @@ const rl = readline.createInterface({
     rl.resume();
 };
 
+rl.on('SIGINT', () => {
+    console.log('\\n[ATCLI] User interrupted. Type /help or continue typing.');
+    // We don't call promptLoop() here because if the AI is generating, it will mess up the loop.
+    // We just prevent readline from completely closing.
+});
+
 const state: AppState = {
     currentProvider: 'deepseek',
     currentModel: 'default'
