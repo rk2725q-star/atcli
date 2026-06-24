@@ -28,7 +28,10 @@ export class AgentLoop {
             const response = await this.provider.sendMessage(currentMessage);
             
             if (response.error) {
-                console.log(`❌ Provider Error: ${response.error}`);
+                // Suppress expected errors during graceful shutdown
+                if (!response.error.includes('Target page, context or browser has been closed')) {
+                    console.log(`❌ Provider Error: ${response.error}`);
+                }
                 break;
             }
 
