@@ -92,7 +92,8 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
 
     const atcliSkillsDir = path.resolve(process.cwd(), '.atcli-skills');
     const skillsShDir = path.resolve(process.cwd(), '.agents', 'skills');
-    const globalKnowledgeDir = path.resolve(__dirname, 'knowledge', '.agents', 'skills');
+    // Resolve project root (from src/agent or dist/agent) and point to src/agent/knowledge
+    const globalKnowledgeDir = path.resolve(__dirname, '..', '..', 'src', 'agent', 'knowledge', '.agents', 'skills');
     
     await scanDirForMarkdown(atcliSkillsDir);
     await scanDirForMarkdown(skillsShDir);
