@@ -28,10 +28,10 @@ let sigintCount = 0;
 rl.on('SIGINT', () => {
     sigintCount++;
     if (sigintCount >= 2) {
-        console.log('\\n[ATCLI] Exiting ATCLI... Bye! 👋');
+        console.log('\n[ATCLI] Exiting ATCLI... Bye! 👋');
         process.exit(0);
     }
-    console.log('\\n[ATCLI] User interrupted. Press Ctrl+C again to exit, or continue typing.');
+    console.log('\n[ATCLI] User interrupted. Press Ctrl+C again to exit, or continue typing.');
     
     // Reset the count after 3 seconds so they have to be consecutive
     setTimeout(() => { sigintCount = 0; }, 3000);
