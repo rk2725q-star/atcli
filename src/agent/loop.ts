@@ -1,0 +1,88 @@
+import { BaseBrowserAdapter } from '../providers/baseBrowser';
+import { generateSystemPrompt } from './prompts';
+import { SkillManager } from './skillManager';
+
+export class AgentLoop {
+    private maxIterations = 250;
+    private skillManager: SkillManager;
+
+    constructor(private provider: BaseBrowserAdapter, private isFirstMessage: boolean = false) {
+        this.skillManager = new SkillManager();
+    }
+
+    public async run(userMessage: string): Promise<void> {
+        console.log(`\n🤖 Starting Autonomous Agent Loop (Max Iterations: ${this.maxIterations})...`);
+        
+        // Dynamically load all built-in and user workspace skills
+        await this.skillManager.loadAllSkills();
+
+        // Construct the initial prompt injecting the system instructions
+        const systemPrompt = await generateSystemPrompt(this.skillManager);
+        let currentMessage = this.isFirstMessage 
+            ? `${systemPrompt}\n\nUser Request:\n${userMessage}`
+            : `${userMessage}\n\n[SYSTEM REMINDER: DO NOT ASK FOR PERMISSION. DO NOT WRITE JAVASCRIPT CODE BLOCKS. YOU MUST IMMEDIATELY OUTPUT THE EXACT <tool_call> XML BLOCK. DO NOT CONVERSE.]`;
+
+        for (let i = 1; i <= this.maxIterations; i++) {
+            console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);
+            
+            const response = await this.provider.sendMessage(currentMessage);
+            
+            if (response.error) {
+                console.log(`❌ Provider Error: ${response.error}`);
+                break;
+            }
+
+            const aiText = response.text;
+            console.log(`\n[AI RESPONSE]:\n${aiText}`);
+
+            // Parse tool call
+            const toolCall = this.parseToolCall(aiText);
+            
+            if (!toolCall) {
+                // No tool call found, meaning the AI has finished its task
+                console.log(`\n✅ Agent task completed or requires user feedback.`);
+                break;
+            }
+
+            console.log(`\n⚙️ Executing Skill: ${toolCall.action}`);
+            let result = await this.skillManager.executeSkill(toolCall.action, toolCall);
+            
+            // Global safety truncation to prevent web UI crashes from massive outputs
+            if (result.length > 30000) {
+                console.log(`[Warning]: Tool output truncated from ${result.length} to 30000 chars.`);
+                result = result.substring(0, 30000) + "\n\n...[TRUNCATED: Output too large. Use read_lines or grep_search to read specific parts]...";
+            }
+            
+            console.log(`[Skill Output]:\n${result.substring(0, 1000)}${result.length > 1000 ? '...' : ''}`);
+
+            // Format the result to send back to the AI
+            currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. DO NOT CONVERSE.]`;
+        }
+    }
+
+    private parseToolCall(text: string): any | null {
+        // Look for <tool_call> ... </tool_call>
+        const match = text.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
+        if (!match) return null;
+
+        try {
+            // Remove markdown code block syntax if the AI included it (e.g., ```json ... ```)
+            let jsonStr = match[1].trim();
+            if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7);
+            else if (jsonStr.startsWith('```')) jsonStr = jsonStr.substring(3);
+            if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
+            
+            jsonStr = jsonStr.trim();
+            
+            // Auto-fix unescaped backslashes (common when AI outputs Windows paths like C:\Users)
+            // This regex replaces \ with \\ ONLY if it's not part of a valid JSON escape sequence like \n or \t
+            jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
+            
+            const parsed = JSON.parse(jsonStr);
+            return parsed;
+        } catch (e) {
+            console.log(`⚠️ Failed to parse tool call JSON: ${e}`);
+            return null;
+        }
+    }
+}

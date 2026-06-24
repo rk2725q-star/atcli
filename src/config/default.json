@@ -1,0 +1,21 @@
+{
+  "mcp": {
+    "host": "localhost",
+    "port": 3456
+  },
+  "providers": {
+    "deepseek": {
+      "url": "https://chat.deepseek.com"
+    },
+    "chatgpt": {
+      "url": "https://chatgpt.com"
+    },
+    "gemini": {
+      "url": "https://gemini.google.com/app"
+    }
+  },
+  "browser": {
+    "headless": false,
+    "profileDir": "browser_profile"
+  }
+}

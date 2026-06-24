@@ -1,0 +1,16 @@
+import { AgentSkill } from './base';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+export const WriteFileSkill: AgentSkill = {
+    name: 'write_file',
+    description: 'Overwrites or creates a file with new content. Replaces the entire file.',
+    example: `<tool_call>\n{"action": "write_file", "path": "src/index.js", "content": "console.log('Hello');"}\n</tool_call>`,
+    execute: async (args: any) => {
+        if (!args.path || args.content === undefined) return "Error: path and content are required";
+        const targetPath = path.resolve(process.cwd(), args.path);
+        await fs.mkdir(path.dirname(targetPath), { recursive: true });
+        await fs.writeFile(targetPath, args.content, 'utf8');
+        return `Success: Wrote to ${args.path}`;
+    }
+};
