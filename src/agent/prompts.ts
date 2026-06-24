@@ -92,9 +92,11 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
 
     const atcliSkillsDir = path.resolve(process.cwd(), '.atcli-skills');
     const skillsShDir = path.resolve(process.cwd(), '.agents', 'skills');
+    const globalKnowledgeDir = path.resolve(__dirname, 'knowledge', '.agents', 'skills');
     
     await scanDirForMarkdown(atcliSkillsDir);
     await scanDirForMarkdown(skillsShDir);
+    await scanDirForMarkdown(globalKnowledgeDir);
 
     if (customKnowledge) {
         customKnowledge = `\n# PROJECT SPECIFIC KNOWLEDGE & SKILLS${customKnowledge}`;
