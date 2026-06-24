@@ -24,10 +24,17 @@ const rl = readline.createInterface({
     rl.resume();
 };
 
+let sigintCount = 0;
 rl.on('SIGINT', () => {
-    console.log('\\n[ATCLI] User interrupted. Type /help or continue typing.');
-    // We don't call promptLoop() here because if the AI is generating, it will mess up the loop.
-    // We just prevent readline from completely closing.
+    sigintCount++;
+    if (sigintCount >= 2) {
+        console.log('\\n[ATCLI] Exiting ATCLI... Bye! 👋');
+        process.exit(0);
+    }
+    console.log('\\n[ATCLI] User interrupted. Press Ctrl+C again to exit, or continue typing.');
+    
+    // Reset the count after 3 seconds so they have to be consecutive
+    setTimeout(() => { sigintCount = 0; }, 3000);
 });
 
 const state: AppState = {

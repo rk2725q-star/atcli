@@ -36,7 +36,14 @@ export class AgentLoop {
             console.log(`\n[AI RESPONSE]:\n${aiText}`);
 
             // Parse tool call
-            const toolCall = this.parseToolCall(aiText);
+            let toolCall;
+            try {
+                toolCall = this.parseToolCall(aiText);
+            } catch (err: any) {
+                console.log(`\n⚠️ Tool Parsing Error: ${err.message}`);
+                currentMessage = `<tool_result>\nFailed to parse JSON inside <tool_call>: ${err.message}. Please fix your JSON syntax (e.g. escape inner double quotes with \\\") and try again.\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                continue;
+            }
             
             if (!toolCall) {
                 // No tool call found, meaning the AI has finished its task
@@ -63,26 +70,22 @@ export class AgentLoop {
     private parseToolCall(text: string): any | null {
         // Look for <tool_call> ... </tool_call>
         const match = text.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
-        if (!match) return null;
+        if (!match) return null; // No tool call means conversational response
 
-        try {
-            // Remove markdown code block syntax if the AI included it (e.g., ```json ... ```)
-            let jsonStr = match[1].trim();
-            if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7);
-            else if (jsonStr.startsWith('```')) jsonStr = jsonStr.substring(3);
-            if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
-            
-            jsonStr = jsonStr.trim();
-            
-            // Auto-fix unescaped backslashes (common when AI outputs Windows paths like C:\Users)
-            // This regex replaces \ with \\ ONLY if it's not part of a valid JSON escape sequence like \n or \t
-            jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
-            
-            const parsed = JSON.parse(jsonStr);
-            return parsed;
-        } catch (e) {
-            console.log(`⚠️ Failed to parse tool call JSON: ${e}`);
-            return null;
-        }
+        // Remove markdown code block syntax if the AI included it (e.g., ```json ... ```)
+        let jsonStr = match[1].trim();
+        if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7);
+        else if (jsonStr.startsWith('```')) jsonStr = jsonStr.substring(3);
+        if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
+        
+        jsonStr = jsonStr.trim();
+        
+        // Auto-fix unescaped backslashes (common when AI outputs Windows paths like C:\Users)
+        // This regex replaces \ with \\ ONLY if it's not part of a valid JSON escape sequence like \n or \t
+        jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
+        
+        // Let JSON.parse throw if invalid, so the loop can catch it and feed it back to the AI
+        const parsed = JSON.parse(jsonStr);
+        return parsed;
     }
 }
