@@ -31,8 +31,8 @@ export class KimiAdapter extends BaseBrowserAdapter {
                 return "";
             });
 
-            // Focus and clear input just to be safe
-            await this.page!.click(inputSelector);
+            // Focus and clear input just to be safe. Use force: true to bypass any overlays/masks
+            await this.page!.click(inputSelector, { force: true });
             await this.page!.waitForTimeout(200);
             await this.page!.keyboard.press('Control+A');
             await this.page!.keyboard.press('Backspace');
