@@ -14,9 +14,8 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
         await this.ensurePage();
         
         try {
-            // 1. Wait for textarea (using a highly robust selector for chat inputs)
-            const textareaSelector = '#chat-input:visible, textarea:visible, [contenteditable="true"]:visible, .ant-input:visible'; 
-            await this.page!.waitForSelector(textareaSelector);
+            const inputSelector = '#chat-input, textarea[placeholder*="message" i], textarea, [contenteditable="true"]';
+            await this.page!.waitForSelector(inputSelector);
 
             const previousTextToIgnore = await this.page!.evaluate(() => {
                 const elements = document.querySelectorAll('.ds-markdown, .markdown-body, div[class*="markdown"]');
@@ -27,10 +26,20 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 return "";
             });
 
-            await this.page!.fill(textareaSelector, message);
+            // Focus the input safely to trigger event listeners
+            const inputLocator = this.page!.locator(inputSelector).locator('visible=true').first();
+            await inputLocator.click();
+            await this.page!.waitForTimeout(200);
+            
+            // Clear existing text if any
+            await this.page!.keyboard.press('Control+A');
+            await this.page!.keyboard.press('Backspace');
+            
+            // Insert the message text directly
+            await this.page!.keyboard.insertText(message);
+            await this.page!.waitForTimeout(500);
 
-            // 2. Wait for and click send button
-            // Usually it's a div/button adjacent to textarea, or we can just press Enter
+            // 2. Wait for and click send button (usually Enter works)
             await this.page!.keyboard.press('Enter');
 
             // 3. Wait for response generation
