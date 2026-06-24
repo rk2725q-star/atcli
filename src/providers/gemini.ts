@@ -30,9 +30,25 @@ export class GeminiAdapter extends BaseBrowserAdapter {
                 return "";
             });
 
-            // Fill the input. If it's contenteditable, fill might not work perfectly, but Playwright handles it well.
+            // Fill the input safely to trigger event listeners in contenteditable
             await this.page!.fill(inputSelector, message);
+            await this.page!.waitForTimeout(200);
+            await this.page!.click(inputSelector);
+            await this.page!.keyboard.press('Space');
+            await this.page!.keyboard.press('Backspace');
+            await this.page!.waitForTimeout(500); // Wait for send button to become active
+
+            // Press Enter to send. If multi-line text is used, Enter might not work, so we try clicking the send button if Enter fails.
             await this.page!.keyboard.press('Enter');
+            
+            // Fallback: Gemini rich text area sometimes just adds a newline on Enter.
+            // Click the send button to be safe.
+            try {
+                const sendBtn = this.page!.locator('button[aria-label*="Send"], .send-button').first();
+                if (await sendBtn.isVisible({ timeout: 1000 })) {
+                    await sendBtn.click();
+                }
+            } catch (e) {}
 
             await this.page!.waitForTimeout(1000);
             const responseText = await this.pollForResponse(() => {
