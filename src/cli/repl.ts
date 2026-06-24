@@ -2,6 +2,7 @@ import * as readline from 'readline';
 import { handleSlashCommand } from './commands';
 import { PromptRouter } from '../broker/router';
 import { AgentLoop } from '../agent/loop';
+import { BrowserManager } from '../browser/manager';
 
 interface AppState {
     currentProvider: string;
@@ -25,10 +26,13 @@ const rl = readline.createInterface({
 };
 
 let sigintCount = 0;
-rl.on('SIGINT', () => {
+rl.on('SIGINT', async () => {
     sigintCount++;
     if (sigintCount >= 2) {
         console.log('\n[ATCLI] Exiting ATCLI... Bye! 👋');
+        try {
+            await BrowserManager.getInstance().closeAll();
+        } catch (e) {}
         process.exit(0);
     }
     console.log('\n[ATCLI] User interrupted. Press Ctrl+C again to exit, or continue typing.');

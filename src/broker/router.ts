@@ -14,6 +14,7 @@ export class PromptRouter {
         this.adapters.set('gemini', new GeminiAdapter());
         this.adapters.set('qwen', new QwenAdapter());
         this.adapters.set('zai', new ZaiAdapter());
+        this.adapters.set('z.ai', new ZaiAdapter()); // Alias for zai
     }
 
     public getAdapter(providerId: string): BaseBrowserAdapter | undefined {
