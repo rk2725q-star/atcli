@@ -21,7 +21,7 @@ export class KimiAdapter extends BaseBrowserAdapter {
             
             // Capture the current last response so we can ignore it during polling
             const previousTextToIgnore = await this.page!.evaluate(() => {
-                const blocks = document.querySelectorAll('.markdown-body, .markdown, [class*="markdown"], .prose');
+                const blocks = document.querySelectorAll('.markdown-body, .markdown, [class*="markdown"], .prose, [class*="message"], [class*="Message"], [data-role="assistant"], .chat-item');
                 if (blocks.length > 0) {
                     const validBlocks = Array.from(blocks).filter(el => (el as HTMLElement).innerText.trim().length > 0);
                     if (validBlocks.length > 0) {
@@ -59,7 +59,7 @@ export class KimiAdapter extends BaseBrowserAdapter {
 
             // Poll for the response to finish generating
             const responseText = await this.pollForResponse(() => {
-                const blocks = document.querySelectorAll('.markdown-body, .markdown, [class*="markdown"], .prose');
+                const blocks = document.querySelectorAll('.markdown-body, .markdown, [class*="markdown"], .prose, [class*="message"], [class*="Message"], [data-role="assistant"], .chat-item');
                 if (blocks.length > 0) {
                     const validBlocks = Array.from(blocks).filter(el => (el as HTMLElement).innerText.trim().length > 0);
                     if (validBlocks.length > 0) {
