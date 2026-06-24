@@ -30,12 +30,16 @@ export class GeminiAdapter extends BaseBrowserAdapter {
                 return "";
             });
 
-            // Fill the input safely to trigger event listeners in contenteditable
-            await this.page!.fill(inputSelector, message);
-            await this.page!.waitForTimeout(200);
+            // Focus the input safely to trigger event listeners in contenteditable
             await this.page!.click(inputSelector);
-            await this.page!.keyboard.press('Space');
+            await this.page!.waitForTimeout(200);
+            
+            // Clear existing text if any
+            await this.page!.keyboard.press('Control+A');
             await this.page!.keyboard.press('Backspace');
+            
+            // Insert the message text directly
+            await this.page!.keyboard.insertText(message);
             await this.page!.waitForTimeout(500); // Wait for send button to become active
 
             // Try to find and click the exact Send button. 
