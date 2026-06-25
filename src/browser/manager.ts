@@ -51,7 +51,11 @@ export class BrowserManager {
         console.log(`[Browser] Opening new tab for ${id}...`);
         const page = await this.context!.newPage();
         try {
-            await page.goto(url, { waitUntil: 'commit', timeout: 30000 });
+            // Guarantee we don't hang if Playwright's internal timeout fails during network stalls
+            await Promise.race([
+                page.goto(url, { waitUntil: 'domcontentloaded' }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Manual Timeout')), 15000))
+            ]);
         } catch (e: any) {
             console.log(`[Browser] Note: goto timed out or failed, but continuing (${e.message})`);
         }
