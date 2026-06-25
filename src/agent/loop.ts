@@ -132,7 +132,7 @@ export class AgentLoop {
             // Context Refresh & Episodic Memory Checkpoint every 8 iterations
             if (i > 0 && i % 8 === 0) {
                 const refreshPrompt = await generateSystemPrompt(this.skillManager);
-                currentMessage += `\n\n[SYSTEM CONTEXT REFRESH: You have been running for ${i} iterations. To prevent you from forgetting your core instructions due to context window limits, here is your core programming again:\n${refreshPrompt}]\n\n[EPISODIC MEMORY CHECKPOINT: You MUST immediately use the \`write_file\` tool to write a summary of the user's original goal, what you have accomplished so far, and what remains to be done into a file named \`.atcli-memory.md\` in the root directory. This ensures you do not forget your task! Do this BEFORE your next actual coding step!]`;
+                currentMessage += `\n\n[SYSTEM CONTEXT REFRESH: You have been running for ${i} iterations. To prevent you from forgetting your core instructions due to context window limits, here is your core programming again:\n${refreshPrompt}]\n\n[EPISODIC MEMORY CHECKPOINT: You MUST immediately use the \`write_file\` tool to write a summary of the user's original goal, what you have accomplished so far, the current architecture, and what remains to be done into a file named \`ATCLI_MEMORY.md\` in the root directory. This ensures you do not forget your task and future sessions can recall the project state! Do this BEFORE your next actual coding step!]`;
             }
         }
     }

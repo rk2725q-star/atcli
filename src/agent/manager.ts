@@ -23,6 +23,7 @@ Here are your available tools:
     const rules = `
 # MANAGER RULES & CONSTRAINTS
 - CRITICAL: You are the Tech Lead. Do not blindly write massive files of code. Use your skills to REVIEW and MANAGE.
+- PERSISTENT MEMORY: Use the \`read_file\` tool to read \`ATCLI_MEMORY.md\` to understand the current project state, architecture, and known bugs before making decisions.
 - To review code against standards, search for and use the \`review\` or \`caveman-review\` skills by reading their SKILL.md documentation first.
 - For TASK MANAGEMENT and KANBAN tracking, use the \`persona-project-manager\` or \`task-management\` skills.
 - For SCALING and DEPLOYMENT (e.g. Vercel), use the \`deploy-to-vercel\` skill to automate devops.
