@@ -217,3 +217,35 @@ export const KillBackgroundTaskSkill: AgentSkill = {
         return `Failed to kill task ${args.taskId}. It may not exist or is already stopped.`;
     }
 };
+
+export const SendInputToTaskSkill: AgentSkill = {
+    name: 'send_input_to_task',
+    description: 'Sends text input (like "y" or "n" or a password) to the stdin of a running background task. Use this to respond to interactive prompts (like "Ok to proceed? (y)") that are blocking a background command.',
+    example: `<tool_call>\n{"action": "send_input_to_task", "taskId": "a1b2c3d4", "input": "y"}\n</tool_call>`,
+    execute: async (args: any) => {
+        if (!args.taskId) return "Error: taskId is required";
+        if (args.input === undefined) return "Error: input is required";
+        
+        // We need to access the underlying tasks map to write to stdin
+        // Let's use a workaround since tasks map is private in BackgroundTaskManager
+        const tm = (taskManager as any);
+        const task = tm.tasks.get(args.taskId);
+        
+        if (!task || task.status !== 'running') {
+            return `Error: Task ${args.taskId} is not running.`;
+        }
+        
+        if (!task.process.stdin) {
+            return `Error: Task ${args.taskId} does not have an open stdin.`;
+        }
+        
+        // Send input with a newline
+        task.process.stdin.write(args.input + '\n');
+        
+        // Wait a second to capture any new output
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const status = tm.getTaskStatus(args.taskId);
+        return `Successfully sent input to task ${args.taskId}.\n\n--- LATEST OUTPUT AFTER INPUT ---\n${status.output}\n---------------------------------`;
+    }
+};
