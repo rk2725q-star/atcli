@@ -30,11 +30,13 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 return "";
             });
 
+            console.log(`[DeepSeek] Attempting to click input field...`);
             // Focus the input safely to trigger event listeners
             const inputLocator = this.page!.locator(inputSelector).first();
-            await inputLocator.click();
+            await inputLocator.click({ force: true });
             await this.page!.waitForTimeout(200);
             
+            console.log(`[DeepSeek] Typing message...`);
             // Clear existing text if any
             await this.page!.keyboard.press('Control+A');
             await this.page!.keyboard.press('Backspace');
@@ -43,7 +45,8 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             await this.page!.keyboard.insertText(message);
             await this.page!.waitForTimeout(500);
 
-            // 2. Wait for and click send button (usually Enter works)
+            console.log(`[DeepSeek] Sending message...`);
+            // Wait for and click send button
             await this.page!.keyboard.press('Enter');
 
             // 3. Wait for response generation
