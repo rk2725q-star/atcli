@@ -70,7 +70,7 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
 `;
 
     // Look for custom procedural knowledge (.atcli-skills/*.md or .agents/skills/**/*.md)
-    let customKnowledge = "";
+    let customKnowledgeList = "";
     
     async function scanDirForMarkdown(dir: string) {
         try {
@@ -80,9 +80,8 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
                 if (entry.isDirectory()) {
                     await scanDirForMarkdown(fullPath);
                 } else if (entry.isFile() && entry.name.endsWith('.md')) {
-                    // Prevent loading massive files, read up to first 50000 chars
-                    const content = await fs.readFile(fullPath, 'utf8');
-                    customKnowledge += `\n\n--- Custom Workflow Knowledge (${entry.name}) ---\n${content.substring(0, 50000)}\n`;
+                    // Lazy load: Just provide the name and path. AI can use read_file to learn more.
+                    customKnowledgeList += `- ${entry.name} (File path: ${fullPath})\n`;
                 }
             }
         } catch (e) {
@@ -92,15 +91,23 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
 
     const atcliSkillsDir = path.resolve(process.cwd(), '.atcli-skills');
     const skillsShDir = path.resolve(process.cwd(), '.agents', 'skills');
-    // Resolve project root (from src/agent or dist/agent) and point to src/agent/knowledge
     const globalKnowledgeDir = path.resolve(__dirname, '..', '..', 'src', 'agent', 'knowledge', '.agents', 'skills');
     
     await scanDirForMarkdown(atcliSkillsDir);
     await scanDirForMarkdown(skillsShDir);
     await scanDirForMarkdown(globalKnowledgeDir);
 
-    if (customKnowledge) {
-        customKnowledge = `\n# PROJECT SPECIFIC KNOWLEDGE & SKILLS${customKnowledge}`;
+    let customKnowledge = "";
+    if (customKnowledgeList) {
+        customKnowledge = `
+# PROJECT SPECIFIC KNOWLEDGE & SKILLS (LAZY LOADED)
+We have 40+ custom skills available. To save context space, only their file paths are listed below.
+If you need to use one of these skills, or if the user asks for something related to them, you MUST use the \`read_file\` tool to read the corresponding markdown file first to understand how it works.
+Additionally, you can fetch from the skills.sh website to get our AI skills and use your search capabilities to learn about tools commonly.
+
+Available Documentation Files:
+${customKnowledgeList}
+`;
     }
 
     return basePrompt + dynamicSkills + rules + customKnowledge;
