@@ -35,17 +35,34 @@ export const InstallSkillSkill: AgentSkill = {
     example: `<tool_call>\n{"action": "install_skill", "identifier": "vercel-labs/agent-skills@vercel-react-best-practices"}\n</tool_call>`,
     execute: async (args: any) => {
         if (!args.identifier) return "Error: identifier is required (e.g., owner/repo@skill-name)";
-        try {
-            console.log(`\n[ATCLI] Installing skill '${args.identifier}' from skills.sh...`);
-            const { stdout, stderr } = await execAsync(`npx -y skills add ${args.identifier}`, { cwd: process.cwd() });
+        return new Promise((resolve) => {
+            console.log(`\n[ATCLI] Installing skill '${args.identifier}' from skills.sh...\n`);
+            const { spawn } = require('child_process');
+            const child = spawn(`npx -y skills add ${args.identifier}`, { shell: true, cwd: process.cwd() });
             
-            if (stderr && stderr.toLowerCase().includes('err!')) {
-                return `Error installing skill: ${stderr}`;
-            }
-
-            return `Successfully installed skill '${args.identifier}'.\n\nOutput:\n${stdout}\n\nThe knowledge from this skill has been added to your workspace. You may proceed with the task using this new knowledge.`;
-        } catch (error: any) {
-            return `Execution error: ${error.message}`;
-        }
+            let output = '';
+            
+            child.stdout.on('data', (data: Buffer) => {
+                process.stdout.write(data);
+                output += data.toString();
+            });
+            
+            child.stderr.on('data', (data: Buffer) => {
+                process.stdout.write(data);
+                output += data.toString();
+            });
+            
+            child.on('close', (code: number) => {
+                if (code === 0) {
+                    resolve(`Successfully installed skill '${args.identifier}'.\n\nThe knowledge from this skill has been added to your workspace. You may proceed with the task using this new knowledge.`);
+                } else {
+                    resolve(`Error installing skill: Exit code ${code}\nOutput: ${output}`);
+                }
+            });
+            
+            child.on('error', (err: any) => {
+                resolve(`Execution error: ${err.message}`);
+            });
+        });
     }
 };
