@@ -18,9 +18,41 @@ export class AgentLoop {
 
         // Construct the initial prompt injecting the system instructions
         const systemPrompt = await generateSystemPrompt(this.skillManager);
-        let currentMessage = this.isFirstMessage 
-            ? `${systemPrompt}\n\nUser Request:\n${userMessage}`
-            : `${userMessage}\n\n[SYSTEM REMINDER: DO NOT ASK FOR PERMISSION. DO NOT WRITE JAVASCRIPT CODE BLOCKS. YOU MUST IMMEDIATELY OUTPUT THE EXACT <tool_call> XML BLOCK. DO NOT CONVERSE.]`;
+        let currentMessage = "";
+
+        if (this.isFirstMessage) {
+            const MAX_CHUNK_LENGTH = 12000; // Safe threshold to prevent Chrome/React freezing
+            
+            if (systemPrompt.length > MAX_CHUNK_LENGTH) {
+                console.log(`\n[Agent] System prompt is massive (${systemPrompt.length} chars). Intelligently splitting into chunks...`);
+                
+                const numChunks = Math.ceil(systemPrompt.length / MAX_CHUNK_LENGTH);
+                for (let i = 0; i < numChunks; i++) {
+                    const isLastChunk = i === numChunks - 1;
+                    const chunkText = systemPrompt.substring(i * MAX_CHUNK_LENGTH, (i + 1) * MAX_CHUNK_LENGTH);
+                    
+                    let messageToSend = `[System Knowledge Base Part ${i + 1}/${numChunks}]\n${chunkText}`;
+                    
+                    if (!isLastChunk) {
+                        messageToSend += `\n\n[SYSTEM INSTRUCTION: This is a partial knowledge base. Do not execute the user request yet. Just reply "Received part ${i + 1}".]`;
+                        console.log(`[Agent] Sending system knowledge chunk ${i + 1}/${numChunks}...`);
+                        const chunkResponse = await this.provider.sendMessage(messageToSend);
+                        if (chunkResponse.error) {
+                            console.log(`❌ Provider Error during chunking: ${chunkResponse.error}`);
+                            return;
+                        }
+                    } else {
+                        // The final chunk will be passed into the main loop along with the actual user request
+                        console.log(`[Agent] Sending final chunk ${i + 1}/${numChunks} with actual user request...`);
+                        currentMessage = `${messageToSend}\n\nUser Request:\n${userMessage}`;
+                    }
+                }
+            } else {
+                currentMessage = `${systemPrompt}\n\nUser Request:\n${userMessage}`;
+            }
+        } else {
+            currentMessage = `${userMessage}\n\n[SYSTEM REMINDER: DO NOT ASK FOR PERMISSION. DO NOT WRITE JAVASCRIPT CODE BLOCKS. YOU MUST IMMEDIATELY OUTPUT THE EXACT <tool_call> XML BLOCK. DO NOT CONVERSE.]`;
+        }
 
         for (let i = 1; i <= this.maxIterations; i++) {
             console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);
