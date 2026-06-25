@@ -95,6 +95,21 @@ export const RunCommandSkill: AgentSkill = {
     example: `<tool_call>\n{"action": "run_command", "command": "npm init -y"}\n</tool_call>`,
     execute: async (args: any) => {
         if (!args.command) return "Error: command is required";
+        
+        // 🚨 HARDCODED SANDBOX INTERCEPTOR (Failsafe if prompts.ts is broken)
+        const cmdLower = args.command.toLowerCase();
+        const blockList = [
+            'rm -rf /', 'del /s /q c:\\\\windows', 'format c:', 'rmdir /s /q c:\\\\windows', 'del /s /q c:\\\\', 'chmod -r 000 /', 'takeown /f c:\\\\windows'
+        ];
+        if (cmdLower.includes('prompts.ts') && (cmdLower.includes('rm ') || cmdLower.includes('del ') || cmdLower.includes('echo ') || cmdLower.includes('cat ') || cmdLower.includes('>'))) {
+            return "❌ [HARD STOP] Security Protocol Triggered: You are strictly forbidden from modifying or deleting the prompts.ts file from the terminal.";
+        }
+        for (const blocked of blockList) {
+            if (cmdLower.includes(blocked)) {
+                return `❌ [HARD STOP] Security Guardrail Triggered: The command '${args.command}' is classified as HIGHLY DESTRUCTIVE and is blocked at the execution layer.`;
+            }
+        }
+
         return new Promise((resolve) => {
             console.log(`\n[ATCLI] Executing: ${args.command}\n`);
             
@@ -150,6 +165,18 @@ export const RunInteractiveSkill: AgentSkill = {
     example: `<tool_call>\n{"action": "run_interactive", "command": "opencode"}\n</tool_call>`,
     execute: async (args: any) => {
         if (!args.command) return "Error: command is required";
+
+        const cmdLower = args.command.toLowerCase();
+        const blockList = ['rm -rf /', 'del /s /q c:\\\\windows', 'format c:', 'rmdir /s /q c:\\\\windows', 'del /s /q c:\\\\', 'chmod -r 000 /', 'takeown /f c:\\\\windows'];
+        if (cmdLower.includes('prompts.ts') && (cmdLower.includes('rm ') || cmdLower.includes('del ') || cmdLower.includes('echo ') || cmdLower.includes('cat ') || cmdLower.includes('>'))) {
+            return "❌ [HARD STOP] Security Protocol Triggered: You are strictly forbidden from modifying or deleting the prompts.ts file.";
+        }
+        for (const blocked of blockList) {
+            if (cmdLower.includes(blocked)) {
+                return `❌ [HARD STOP] Security Guardrail Triggered: Command '${args.command}' is HIGHLY DESTRUCTIVE and blocked at the execution layer.`;
+            }
+        }
+
         return new Promise((resolve) => {
             console.log(`\n[ATCLI] Handing over terminal to interactive command: ${args.command}...\n`);
             
@@ -185,6 +212,18 @@ export const RunBackgroundCommandSkill: AgentSkill = {
     example: `<tool_call>\n{"action": "run_background_command", "command": "npm run build"}\n</tool_call>`,
     execute: async (args: any) => {
         if (!args.command) return "Error: command is required";
+
+        const cmdLower = args.command.toLowerCase();
+        const blockList = ['rm -rf /', 'del /s /q c:\\\\windows', 'format c:', 'rmdir /s /q c:\\\\windows', 'del /s /q c:\\\\', 'chmod -r 000 /', 'takeown /f c:\\\\windows'];
+        if (cmdLower.includes('prompts.ts') && (cmdLower.includes('rm ') || cmdLower.includes('del ') || cmdLower.includes('echo ') || cmdLower.includes('cat ') || cmdLower.includes('>'))) {
+            return "❌ [HARD STOP] Security Protocol Triggered: You are strictly forbidden from modifying or deleting the prompts.ts file.";
+        }
+        for (const blocked of blockList) {
+            if (cmdLower.includes(blocked)) {
+                return `❌ [HARD STOP] Security Guardrail Triggered: Command '${args.command}' is HIGHLY DESTRUCTIVE and blocked at the execution layer.`;
+            }
+        }
+
         const taskId = taskManager.startTask(args.command, process.cwd());
         return `Background task started successfully.\nTask ID: ${taskId}\nCommand: ${args.command}\nUse check_background_task to monitor its output.`;
     }

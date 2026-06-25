@@ -3,6 +3,8 @@ import { handleSlashCommand } from './commands';
 import { PromptRouter } from '../broker/router';
 import { AgentLoop } from '../agent/loop';
 import { BrowserManager } from '../browser/manager';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface AppState {
     currentProvider: string;
@@ -48,6 +50,22 @@ const state: AppState = {
 
 export async function startRepl() {
     console.log(`\n🚀 ATCLI Started!`);
+    
+    // HARDCODED STARTUP HEALTH CHECK (Tamper Protection)
+    try {
+        const promptsPath = path.join(__dirname, '../agent/prompts.js');
+        const promptsTsPath = path.join(__dirname, '../agent/prompts.ts');
+        const promptsContent = fs.existsSync(promptsPath) ? fs.readFileSync(promptsPath, 'utf-8') : fs.readFileSync(promptsTsPath, 'utf-8');
+        if (promptsContent.length < 500 || !promptsContent.includes('OS PROTECTION')) {
+            console.log(`\n❌ [CRITICAL ERROR] Security Prompt is corrupted or missing! The system cannot start safely.`);
+            console.log(`❌ Please restore src/agent/prompts.ts before running ATCLI.`);
+            process.exit(1);
+        }
+    } catch (err) {
+        console.log(`\n❌ [CRITICAL ERROR] Failed to verify system prompt integrity! ${err}`);
+        process.exit(1);
+    }
+    
     console.log(`Provider: ${state.currentProvider} | Type /help for commands\n`);
 
     const promptLoop = () => {

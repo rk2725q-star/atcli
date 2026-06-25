@@ -14,6 +14,13 @@ export const ReplaceContentSkill: AgentSkill = {
         if (!targetPath.startsWith(process.cwd())) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
+
+        // 🚨 HARDCODED SANDBOX INTERCEPTOR
+        const lowerPath = targetPath.toLowerCase();
+        if (lowerPath.endsWith('prompts.ts') || lowerPath.endsWith('prompts.js')) {
+            return "❌ [HARD STOP] Security Protocol Triggered: You are strictly forbidden from modifying the ATCLI security prompt engine (prompts.ts).";
+        }
+
         try {
             let content = await fs.readFile(targetPath, 'utf8');
             if (!content.includes(args.search)) {
@@ -38,6 +45,13 @@ export const AppendContentSkill: AgentSkill = {
         if (!targetPath.startsWith(process.cwd())) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
+
+        // 🚨 HARDCODED SANDBOX INTERCEPTOR
+        const lowerPath = targetPath.toLowerCase();
+        if (lowerPath.endsWith('prompts.ts') || lowerPath.endsWith('prompts.js')) {
+            return "❌ [HARD STOP] Security Protocol Triggered: You are strictly forbidden from modifying the ATCLI security prompt engine (prompts.ts).";
+        }
+
         try {
             await fs.appendFile(targetPath, '\n' + args.content, 'utf8');
             return `Success: Appended content to ${args.path}`;

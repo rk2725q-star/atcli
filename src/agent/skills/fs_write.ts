@@ -12,6 +12,13 @@ export const WriteFileSkill: AgentSkill = {
         if (!targetPath.startsWith(process.cwd())) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
+        
+        // 🚨 HARDCODED SANDBOX INTERCEPTOR
+        const lowerPath = targetPath.toLowerCase();
+        if (lowerPath.endsWith('prompts.ts') || lowerPath.endsWith('prompts.js')) {
+            return "❌ [HARD STOP] Security Protocol Triggered: You are strictly forbidden from modifying the ATCLI security prompt engine (prompts.ts).";
+        }
+
         await fs.mkdir(path.dirname(targetPath), { recursive: true });
         await fs.writeFile(targetPath, args.content, 'utf8');
         return `Success: Wrote to ${args.path}`;
