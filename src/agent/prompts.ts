@@ -90,10 +90,12 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
     const atcliSkillsDir = path.resolve(process.cwd(), '.atcli-skills');
     const skillsShDir = path.resolve(process.cwd(), '.agents', 'skills');
     const globalKnowledgeDir = path.resolve(__dirname, '..', '..', 'src', 'agent', 'knowledge', '.agents', 'skills');
+    const osGlobalSkillsDir = path.resolve(require('os').homedir(), '.agents', 'skills');
     
     await scanForSkillDirectories(atcliSkillsDir);
     await scanForSkillDirectories(skillsShDir);
     await scanForSkillDirectories(globalKnowledgeDir);
+    await scanForSkillDirectories(osGlobalSkillsDir);
 
     let customKnowledge = "";
     if (customKnowledgeList) {
