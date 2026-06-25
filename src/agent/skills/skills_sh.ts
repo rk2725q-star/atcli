@@ -38,7 +38,8 @@ export const InstallSkillSkill: AgentSkill = {
         return new Promise((resolve) => {
             console.log(`\n[ATCLI] Installing skill '${args.identifier}' from skills.sh...\n`);
             const { spawn } = require('child_process');
-            const child = spawn(`npx -y skills add ${args.identifier}`, { shell: true, cwd: process.cwd() });
+            // Pass -y to skills CLI to skip the interactive agents prompt
+            const child = spawn(`npx -y skills add ${args.identifier} -y`, { shell: true, cwd: process.cwd() });
             
             let output = '';
             
