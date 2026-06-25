@@ -13,11 +13,35 @@
       "skillPath": "skills/frameworks/clerk-nextjs-patterns/SKILL.md",
       "computedHash": "cdcb9f08d567058fca7563ad8c67a4a2a2f3b9f286294e1caeb1ea5407dfebc6"
     },
+    "docker-expert": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-expert/SKILL.md",
+      "computedHash": "7be30b1c18b91628dcd8437a89e7e20acce76bae4349533e4ebdeb376a660bcb"
+    },
     "expo-tailwind-setup": {
       "source": "expo/skills",
       "sourceType": "github",
       "skillPath": "plugins/expo/skills/expo-tailwind-setup/SKILL.md",
       "computedHash": "6a3faa984445c88c4a034f5443ed4c3be8091ca57a1c5ec345c995c7201fcfaa"
+    },
+    "fix-errors": {
+      "source": "microsoft/vscode",
+      "sourceType": "github",
+      "skillPath": ".github/skills/fix-errors/SKILL.md",
+      "computedHash": "356d24d2637dd0db3a783381929755dcf7ae563564cd62032bbc0a6d69eb404c"
+    },
+    "lsp-code-analysis": {
+      "source": "lsp-client/lsp-skill",
+      "sourceType": "github",
+      "skillPath": "skills/lsp-code-analysis/SKILL.md",
+      "computedHash": "5f9d0472aa5af03d5b495fe89336b967390cb908fca2be87b3f494783a058123"
+    },
+    "lsp-setup": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/lsp-setup/SKILL.md",
+      "computedHash": "3e7d2ab00279e79810d42dbedf1acb2985dc3e1dbc38e52b4c67dd948a441c89"
     },
     "nextjs-app-router-patterns": {
       "source": "wshobson/agents",
@@ -48,6 +72,12 @@
       "sourceType": "github",
       "skillPath": "skills/nextjs-turbopack/SKILL.md",
       "computedHash": "6fcbad503f4c7f2c8353ccadef4dc60e980dccbf6725cc41cc9d32e9d87c8753"
+    },
+    "pgvector-semantic-search": {
+      "source": "timescale/pg-aiguide",
+      "sourceType": "github",
+      "skillPath": "skills/pgvector-semantic-search/SKILL.md",
+      "computedHash": "4f462624190efaee82f7b32d74c2ae46475a805c8e87ef090da6a7999c329723"
     },
     "prisma-client-api": {
       "source": "prisma/skills",
@@ -103,6 +133,18 @@
       "skillPath": "skills/react-native-best-practices/SKILL.md",
       "computedHash": "9583e7bb38bfc018ff2252a6649a569cff185f01894e24b015f5adcd63ed04e5"
     },
+    "sandbox-sdk": {
+      "source": "cloudflare/skills",
+      "sourceType": "github",
+      "skillPath": "skills/sandbox-sdk/SKILL.md",
+      "computedHash": "684861194888ff4ff36d32273c2ad73b5148c4ff1e45c216c9ed38d0e72db1da"
+    },
+    "semantic-kernel": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/semantic-kernel/SKILL.md",
+      "computedHash": "c880316506a42e2730e9e6e970d5450ab3c3125662e8d790fa5c6dc202815c51"
+    },
     "supabase": {
       "source": "supabase/agent-skills",
       "sourceType": "github",
@@ -150,6 +192,12 @@
       "sourceType": "github",
       "skillPath": "skills/react-native-skills/SKILL.md",
       "computedHash": "41d24eafa7c3d82e270439808f7cfbc4d51aeb2d14f2809a2267c16275784d06"
+    },
+    "vscode-ext-commands": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/vscode-ext-commands/SKILL.md",
+      "computedHash": "26c40c1adb82b80a88e2e4b11307924e9f5cdc19c5c0cbb2a96aa02535034f70"
     },
     "web-design-guidelines": {
       "source": "vercel-labs/agent-skills",
