@@ -60,7 +60,22 @@ export async function startRepl() {
             }
 
             if (trimmed.startsWith('/')) {
-                handleSlashCommand(trimmed, state);
+                const result = handleSlashCommand(trimmed, state);
+                if (result.action === 'manage' && result.args) {
+                    console.log(`\n[ATCLI] Spawning Tech Lead Manager on ${state.currentProvider}...`);
+                    try {
+                        const adapter = router.getAdapter(state.currentProvider);
+                        if (!adapter) {
+                            console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
+                        } else {
+                            const { ManagerLoop } = require('../agent/manager');
+                            const manager = new ManagerLoop(adapter, true);
+                            await manager.run(result.args);
+                        }
+                    } catch (error: any) {
+                        console.log(`\n❌ Error: ${error.message}`);
+                    }
+                }
                 promptLoop();
             } else {
                 console.log(`\n[ATCLI] Sending to ${state.currentProvider}...`);
