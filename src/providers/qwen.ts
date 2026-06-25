@@ -12,15 +12,15 @@ export class QwenAdapter extends BaseBrowserAdapter {
 
     public async sendMessage(message: string): Promise<ProviderResponse> {
         await this.ensurePage();
-        
+
         try {
-            const textareaSelector = 'textarea, [contenteditable="true"]'; 
+            const textareaSelector = 'textarea, [contenteditable="true"]';
             console.log(`[Qwen] Waiting for input field to appear...`);
             const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
             await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
                 throw new Error("Could not find Qwen input field. Are you logged in?");
             });
-            
+
             // Capture the current last response so we can ignore it during polling
             const previousTextToIgnore = await this.page!.evaluate(() => {
                 const blocks = document.querySelectorAll('.markdown-body, .markdown, [class*="markdown"]');
@@ -34,7 +34,7 @@ export class QwenAdapter extends BaseBrowserAdapter {
             });
 
             console.log(`[Qwen] Typing message...`);
-            
+
             // 1. Force click the verified visible element to ensure physical focus
             await inputLocator.click({ force: true });
             await this.page!.waitForTimeout(200);
@@ -44,10 +44,10 @@ export class QwenAdapter extends BaseBrowserAdapter {
 
             // 3. Inject massive text natively via Playwright. This emits TRUSTED input events
             await this.page!.keyboard.insertText(message);
-            
+
             // Give the site's React state a moment to realize text was entered
             await this.page!.waitForTimeout(500);
-            
+
             console.log(`[Qwen] Sending message...`);
             await this.page!.keyboard.press('Enter');
 
@@ -83,7 +83,7 @@ export class QwenAdapter extends BaseBrowserAdapter {
                         return (validBlocks[validBlocks.length - 1] as HTMLElement).innerText;
                     }
                 }
-                
+
                 // Fallback to content blocks
                 const contentBlocks = document.querySelectorAll('[class*="message-content"], [class*="chat-content"]');
                 const validBlocks = Array.from(contentBlocks).filter(el => {
@@ -92,16 +92,18 @@ export class QwenAdapter extends BaseBrowserAdapter {
                     const hasParagraph = el.querySelector('p') !== null;
                     return t.length > 0 && hasParagraph && !t.includes("AI-generated content");
                 });
-                
+
                 if (validBlocks.length > 0) {
                     return (validBlocks[validBlocks.length - 1] as HTMLElement).innerText;
                 }
                 return "";
             }, 45, 3, previousTextToIgnore);
-            
+
             return { text: responseText.trim() };
         } catch (error: any) {
-            return { text: '', error: error.message };
+            console.error(`[Qwen] 🚨 Encountered error during message send. Falling back to Doomsday Healer!`);
+            await this.handleDomFailure(error);
+            return { text: '', error: `Qwen provider failed: ${error.message}. Initiating autonomous healing...` };
         }
     }
 }

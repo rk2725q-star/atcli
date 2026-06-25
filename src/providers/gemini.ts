@@ -12,7 +12,7 @@ export class GeminiAdapter extends BaseBrowserAdapter {
 
     public async sendMessage(message: string): Promise<ProviderResponse> {
         await this.ensurePage();
-        
+
         try {
             const inputSelector = 'rich-textarea p, rich-textarea, .ql-editor, textarea, [contenteditable="true"]';
             console.log(`[Gemini] Waiting for input field to appear...`);
@@ -20,7 +20,7 @@ export class GeminiAdapter extends BaseBrowserAdapter {
             await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
                 throw new Error("Could not find Gemini input field. Are you logged in?");
             });
-            
+
             const previousTextToIgnore = await this.page!.evaluate(() => {
                 const responseBlocks = document.querySelectorAll('.model-response-text, message-content, [data-test-id="model-message"]');
                 if (responseBlocks.length > 0) {
@@ -34,7 +34,7 @@ export class GeminiAdapter extends BaseBrowserAdapter {
             });
 
             console.log(`[Gemini] Typing message...`);
-            
+
             // 1. Force click the verified visible element to ensure physical focus
             await inputLocator.click({ force: true });
             await this.page!.waitForTimeout(200);
@@ -77,7 +77,7 @@ export class GeminiAdapter extends BaseBrowserAdapter {
                 if (responseBlocks.length > 0) {
                     return (responseBlocks[responseBlocks.length - 1] as HTMLElement).innerText;
                 }
-                
+
                 // Fallback
                 const markdownBlocks = document.querySelectorAll('.markdown');
                 if (markdownBlocks.length > 0) {
@@ -86,10 +86,12 @@ export class GeminiAdapter extends BaseBrowserAdapter {
 
                 return "";
             }, 60, 3, previousTextToIgnore);
-            
+
             return { text: responseText.trim() };
         } catch (error: any) {
-            return { text: '', error: error.message };
+            console.error(`[Gemini] 🚨 Encountered error during message send. Falling back to Doomsday Healer!`);
+            await this.handleDomFailure(error);
+            return { text: '', error: `Gemini provider failed: ${error.message}. Initiating autonomous healing...` };
         }
     }
 }

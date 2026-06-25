@@ -64,6 +64,39 @@ export abstract class BaseBrowserAdapter {
             }
         }
 
-        return finalResponse || `❌ Could not extract text from ${this.id}. Still thinking or DOM changed.`;
+        if (!finalResponse) {
+            console.error(`❌ Could not extract text from ${this.id}. DOM changed or still thinking. Triggering Doomsday Protocol...`);
+            const { Healer } = await import('../agent/healer');
+            await Healer.triggerDoomsdayProtocol(this.id, this.page!);
+            return `❌ Could not extract text from ${this.id}. Still thinking or DOM changed.`;
+        }
+
+        return finalResponse;
+    }
+
+    /**
+     * Helper to trigger healing if an explicit DOM action (like click or fill) fails.
+     * Tries Level 1 (SmartLocator) first. If it fails, falls back to Level 2 (Doomsday Protocol).
+     * Returns true if successfully healed and message sent.
+     */
+    protected async handleDomFailure(error: any, messageToSend?: string): Promise<boolean> {
+        console.error(`[${this.id.toUpperCase()}] DOM interaction failed:`, error.message);
+        
+        if (this.page && messageToSend) {
+            // Level 1: Zero-AI Heuristic Locator
+            const { SmartLocator } = await import('../agent/smartLocator');
+            const recovered = await SmartLocator.attemptSmartAction(this.page, messageToSend);
+            if (recovered) {
+                console.log(`[${this.id.toUpperCase()}] 🟢 Recovered via Level 1 SmartLocator!`);
+                return true;
+            }
+        }
+
+        // Level 2: AI OpenClaw Healer
+        const { Healer } = await import('../agent/healer');
+        if (this.page) {
+            await Healer.triggerDoomsdayProtocol(this.id, this.page);
+        }
+        return false;
     }
 }

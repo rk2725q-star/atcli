@@ -12,15 +12,15 @@ export class ZaiAdapter extends BaseBrowserAdapter {
 
     public async sendMessage(message: string): Promise<ProviderResponse> {
         await this.ensurePage();
-        
+
         try {
-            const textareaSelector = 'textarea, [contenteditable="true"]'; 
+            const textareaSelector = 'textarea, [contenteditable="true"]';
             console.log(`[Z.ai] Waiting for input field to appear...`);
             const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
             await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
                 throw new Error("Could not find Z.ai input field. Are you logged in?");
             });
-            
+
             const previousTextToIgnore = await this.page!.evaluate(() => {
                 const markdownBlocks = document.querySelectorAll('.prose, .markdown-body, div[class*="markdown"]');
                 if (markdownBlocks.length > 0) {
@@ -30,7 +30,7 @@ export class ZaiAdapter extends BaseBrowserAdapter {
             });
 
             console.log(`[Z.ai] Typing message...`);
-            
+
             // 1. Force click the verified visible element to ensure physical focus
             await inputLocator.click({ force: true });
             await this.page!.waitForTimeout(200);
@@ -40,12 +40,12 @@ export class ZaiAdapter extends BaseBrowserAdapter {
 
             // 3. Inject massive text natively via Playwright. This emits TRUSTED input events
             await this.page!.keyboard.insertText(message);
-            
+
             await this.page!.waitForTimeout(500);
 
             console.log(`[Z.ai] Sending message...`);
             await this.page!.keyboard.press('Enter');
-            
+
             // Fallback click on send button
             await this.page!.evaluate(() => {
                 const sendBtn = Array.from(document.querySelectorAll('button')).find(el => el.innerHTML.includes('send') || (el as any).innerText.includes('Send')) as HTMLElement;
@@ -60,10 +60,12 @@ export class ZaiAdapter extends BaseBrowserAdapter {
                 }
                 return "";
             }, 60, 3, previousTextToIgnore);
-            
+
             return { text: responseText.trim() };
         } catch (error: any) {
-            return { text: '', error: error.message };
+            console.error(`[Zai] 🚨 Encountered error during message send. Falling back to Doomsday Healer!`);
+            await this.handleDomFailure(error);
+            return { text: '', error: `Zai provider failed: ${error.message}. Initiating autonomous healing...` };
         }
     }
 }

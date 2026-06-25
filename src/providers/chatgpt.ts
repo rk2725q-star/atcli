@@ -12,12 +12,12 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
 
     public async sendMessage(message: string): Promise<ProviderResponse> {
         await this.ensurePage();
-        
+
         try {
             console.log(`[ChatGPT] Waiting for input field to appear...`);
             const textareaSelector = '#prompt-textarea, textarea, [contenteditable="true"]';
             const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
-            
+
             await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
                 throw new Error("Could not find ChatGPT input field. Are you logged in?");
             });
@@ -35,7 +35,7 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
             });
 
             console.log(`[ChatGPT] Typing message...`);
-            
+
             // 1. Force click the verified visible element to ensure it has physical focus
             await inputLocator.click({ force: true });
             await this.page!.waitForTimeout(200);
@@ -74,7 +74,7 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
                     const lastMessage = assistantMessages[assistantMessages.length - 1] as HTMLElement;
                     return lastMessage.innerText;
                 }
-                
+
                 // Fallback: look for markdown blocks
                 const markdownBlocks = document.querySelectorAll('.markdown');
                 if (markdownBlocks.length > 0) {
@@ -84,10 +84,12 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
 
                 return "";
             }, 60, 3, previousTextToIgnore);
-            
+
             return { text: responseText.trim() };
         } catch (error: any) {
-            return { text: '', error: error.message };
+            console.error(`[ChatGPT] 🚨 Encountered error during message send. Falling back to Doomsday Healer!`);
+            await this.handleDomFailure(error);
+            return { text: '', error: `ChatGPT provider failed: ${error.message}. Initiating autonomous healing...` };
         }
     }
 }
