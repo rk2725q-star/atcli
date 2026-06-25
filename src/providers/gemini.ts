@@ -35,17 +35,25 @@ export class GeminiAdapter extends BaseBrowserAdapter {
 
             console.log(`[Gemini] Typing message...`);
             await this.page!.evaluate((msg) => {
-                const el = document.querySelector('rich-textarea p, rich-textarea, .ql-editor, textarea') as any;
+                const el = document.querySelector('rich-textarea p, rich-textarea, .ql-editor, textarea, [contenteditable="true"]') as HTMLElement;
                 if (el) {
                     el.focus();
-                    if (el.value !== undefined) {
-                        el.value = msg;
-                    } else {
-                        el.innerHTML = `<p>${msg}</p>`;
-                        el.innerText = msg;
-                    }
+                    
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.setData('text/plain', msg);
+                    const pasteEvent = new ClipboardEvent('paste', {
+                        clipboardData: dataTransfer,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    
+                    el.dispatchEvent(pasteEvent);
+                    
+                    const textEvent = new Event('textInput', { bubbles: true }) as any;
+                    textEvent.data = msg;
+                    el.dispatchEvent(textEvent);
+                    
                     el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
                 }
             }, message);
 

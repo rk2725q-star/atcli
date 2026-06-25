@@ -35,20 +35,32 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
 
             console.log(`[ChatGPT] Typing message...`);
             
-            // Use evaluate to guarantee the value is set even if Playwright keyboard hangs
+            // Use evaluate to guarantee the value is set. ChatGPT uses ProseMirror which ignores direct .value mutations.
+            // Dispatching a synthetic 'paste' event is the most robust way to insert massive prompts into rich-text editors.
             await this.page!.evaluate((msg) => {
-                const el = document.querySelector('#prompt-textarea, textarea, [contenteditable="true"]') as any;
+                const el = document.querySelector('#prompt-textarea, [contenteditable="true"]') as HTMLElement;
                 if (el) {
                     el.focus();
-                    if (el.value !== undefined) {
-                        el.value = msg;
-                    } else {
-                        el.innerHTML = `<p>${msg}</p>`; // ChatGPT specific workaround for Prosemirror
-                        el.innerText = msg;
-                    }
-                    // Dispatch events for React
+                    
+                    // Create synthetic paste event
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.setData('text/plain', msg);
+                    const pasteEvent = new ClipboardEvent('paste', {
+                        clipboardData: dataTransfer,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    
+                    // Dispatch paste
+                    el.dispatchEvent(pasteEvent);
+                    
+                    // Fallback to textInput event if paste was ignored
+                    const textEvent = new Event('textInput', { bubbles: true }) as any;
+                    textEvent.data = msg;
+                    el.dispatchEvent(textEvent);
+                    
+                    // Trigger input event to be safe
                     el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
                 }
             }, message);
 

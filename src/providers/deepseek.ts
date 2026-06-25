@@ -46,17 +46,25 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             
             // Use evaluate to guarantee the value is set even if Playwright keyboard hangs
             await this.page!.evaluate((msg) => {
-                const el = document.querySelector('#chat-input, textarea[placeholder*="Message" i], [contenteditable="true"]') as any;
+                const el = document.querySelector('#chat-input, textarea[placeholder*="Message" i], [contenteditable="true"]') as HTMLElement;
                 if (el) {
                     el.focus();
-                    if (el.value !== undefined) {
-                        el.value = msg;
-                    } else {
-                        el.innerText = msg;
-                    }
-                    // Dispatch events for React
+                    
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.setData('text/plain', msg);
+                    const pasteEvent = new ClipboardEvent('paste', {
+                        clipboardData: dataTransfer,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    
+                    el.dispatchEvent(pasteEvent);
+                    
+                    const textEvent = new Event('textInput', { bubbles: true }) as any;
+                    textEvent.data = msg;
+                    el.dispatchEvent(textEvent);
+                    
                     el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
                 }
             }, message);
 
