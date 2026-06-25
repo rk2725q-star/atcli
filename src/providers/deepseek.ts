@@ -32,11 +32,12 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
 
             console.log(`[DeepSeek] Attempting to click input field...`);
             
-            // Look specifically for DeepSeek's textarea or a visible contenteditable
-            const inputLocator = this.page!.locator('textarea:visible, [contenteditable="true"]:visible').last();
+            // 1. Intelligently find the real visible input field
+            const textareaSelector = '#chat-input, textarea, [contenteditable="true"]';
+            const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
             
             try {
-                // Try normal click
+                // Force click to ensure it has physical focus
                 await inputLocator.click({ force: true, timeout: 5000 });
             } catch (e) {
                 console.log(`[DeepSeek] Click timeout. Forcing focus via evaluate...`);
@@ -44,27 +45,21 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
 
             console.log(`[DeepSeek] Typing message...`);
             
-            // Use evaluate to guarantee the value is set even if Playwright keyboard hangs
+            // 2. Clear existing text
+            await this.page!.keyboard.press('Control+A');
+            await this.page!.keyboard.press('Backspace');
+            
+            // 3. Inject massive text instantaneously using native execCommand
             await this.page!.evaluate((msg) => {
-                const el = document.querySelector('#chat-input, textarea[placeholder*="Message" i], [contenteditable="true"]') as HTMLElement;
-                if (el) {
-                    el.focus();
-                    
-                    const dataTransfer = new DataTransfer();
-                    dataTransfer.setData('text/plain', msg);
-                    const pasteEvent = new ClipboardEvent('paste', {
-                        clipboardData: dataTransfer,
-                        bubbles: true,
-                        cancelable: true
-                    });
-                    
-                    el.dispatchEvent(pasteEvent);
-                    
-                    const textEvent = new Event('textInput', { bubbles: true }) as any;
-                    textEvent.data = msg;
-                    el.dispatchEvent(textEvent);
-                    
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                const success = document.execCommand('insertText', false, msg);
+                
+                if (!success) {
+                    const el = document.activeElement as any;
+                    if (el) {
+                        if (el.value !== undefined) el.value = msg;
+                        else el.innerText = msg;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
                 }
             }, message);
 

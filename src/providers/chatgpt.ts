@@ -14,10 +14,11 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
         await this.ensurePage();
         
         try {
-            const textareaSelector = '#prompt-textarea, textarea, [contenteditable="true"]'; 
-            
             console.log(`[ChatGPT] Waiting for input field to appear...`);
-            await this.page!.waitForSelector(textareaSelector, { timeout: 15000 }).catch(e => {
+            const textareaSelector = '#prompt-textarea, textarea, [contenteditable="true"]';
+            const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
+            
+            await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
                 throw new Error("Could not find ChatGPT input field. Are you logged in?");
             });
 
@@ -35,32 +36,26 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
 
             console.log(`[ChatGPT] Typing message...`);
             
-            // Use evaluate to guarantee the value is set. ChatGPT uses ProseMirror which ignores direct .value mutations.
-            // Dispatching a synthetic 'paste' event is the most robust way to insert massive prompts into rich-text editors.
+            // 1. Force click the verified visible element to ensure it has physical focus
+            await inputLocator.click({ force: true });
+            await this.page!.waitForTimeout(200);
+
+            // 2. Clear existing text
+            await this.page!.keyboard.press('Control+A');
+            await this.page!.keyboard.press('Backspace');
+
+            // 3. Inject massive text instantaneously using native execCommand 
             await this.page!.evaluate((msg) => {
-                const el = document.querySelector('#prompt-textarea, [contenteditable="true"]') as HTMLElement;
-                if (el) {
-                    el.focus();
-                    
-                    // Create synthetic paste event
-                    const dataTransfer = new DataTransfer();
-                    dataTransfer.setData('text/plain', msg);
-                    const pasteEvent = new ClipboardEvent('paste', {
-                        clipboardData: dataTransfer,
-                        bubbles: true,
-                        cancelable: true
-                    });
-                    
-                    // Dispatch paste
-                    el.dispatchEvent(pasteEvent);
-                    
-                    // Fallback to textInput event if paste was ignored
-                    const textEvent = new Event('textInput', { bubbles: true }) as any;
-                    textEvent.data = msg;
-                    el.dispatchEvent(textEvent);
-                    
-                    // Trigger input event to be safe
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                // Native insertion at the cursor (works perfectly on ProseMirror and avoids React crashes)
+                const success = document.execCommand('insertText', false, msg);
+                
+                if (!success) {
+                    const el = document.activeElement as any;
+                    if (el) {
+                        if (el.value !== undefined) el.value = msg;
+                        else el.innerText = msg;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
                 }
             }, message);
 
@@ -68,14 +63,14 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
 
             console.log(`[ChatGPT] Sending message...`);
             try {
-                // Click the send button instead of pressing Enter
-                await this.page!.waitForSelector('[data-testid="send-button"]', { state: 'visible', timeout: 3000 });
-                await this.page!.click('[data-testid="send-button"]', { force: true });
+                const sendBtn = this.page!.locator('[data-testid="send-button"]').filter({ visible: true }).first();
+                await sendBtn.waitFor({ state: 'visible', timeout: 3000 });
+                await sendBtn.click({ force: true });
             } catch (e) {
                 // Fallback
                 await this.page!.evaluate(() => {
-                    const sendBtn = document.querySelector('[data-testid="send-button"]') as HTMLElement;
-                    if (sendBtn) sendBtn.click();
+                    const btn = document.querySelector('[data-testid="send-button"]') as HTMLElement;
+                    if (btn) btn.click();
                 });
                 await this.page!.keyboard.press('Enter');
             }

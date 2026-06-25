@@ -16,7 +16,8 @@ export class ZaiAdapter extends BaseBrowserAdapter {
         try {
             const textareaSelector = 'textarea, [contenteditable="true"]'; 
             console.log(`[Z.ai] Waiting for input field to appear...`);
-            await this.page!.waitForSelector(textareaSelector, { timeout: 15000 }).catch(e => {
+            const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
+            await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
                 throw new Error("Could not find Z.ai input field. Are you logged in?");
             });
             
@@ -29,26 +30,26 @@ export class ZaiAdapter extends BaseBrowserAdapter {
             });
 
             console.log(`[Z.ai] Typing message...`);
+            
+            // 1. Force click the verified visible element to ensure physical focus
+            await inputLocator.click({ force: true });
+            await this.page!.waitForTimeout(200);
+
+            // 2. Clear existing text
+            await this.page!.keyboard.press('Control+A');
+            await this.page!.keyboard.press('Backspace');
+
+            // 3. Inject massive text instantaneously using native execCommand
             await this.page!.evaluate((msg) => {
-                const el = document.querySelector('textarea, [contenteditable="true"]') as HTMLElement;
-                if (el) {
-                    el.focus();
-                    
-                    const dataTransfer = new DataTransfer();
-                    dataTransfer.setData('text/plain', msg);
-                    const pasteEvent = new ClipboardEvent('paste', {
-                        clipboardData: dataTransfer,
-                        bubbles: true,
-                        cancelable: true
-                    });
-                    
-                    el.dispatchEvent(pasteEvent);
-                    
-                    const textEvent = new Event('textInput', { bubbles: true }) as any;
-                    textEvent.data = msg;
-                    el.dispatchEvent(textEvent);
-                    
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                const success = document.execCommand('insertText', false, msg);
+                
+                if (!success) {
+                    const el = document.activeElement as any;
+                    if (el) {
+                        if (el.value !== undefined) el.value = msg;
+                        else el.innerText = msg;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
                 }
             }, message);
             
