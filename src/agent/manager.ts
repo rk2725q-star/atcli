@@ -88,7 +88,7 @@ ${customKnowledgeList}
 }
 
 export class ManagerLoop {
-    private maxIterations = 50;
+    private maxIterations = 500;
     private skillManager: SkillManager;
 
     constructor(private provider: BaseBrowserAdapter, private isFirstMessage: boolean = true) {

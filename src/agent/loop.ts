@@ -3,7 +3,7 @@ import { generateSystemPrompt } from './prompts';
 import { SkillManager } from './skillManager';
 
 export class AgentLoop {
-    private maxIterations = 250;
+    private maxIterations = 500;
     private skillManager: SkillManager;
 
     constructor(private provider: BaseBrowserAdapter, private isFirstMessage: boolean = false) {
