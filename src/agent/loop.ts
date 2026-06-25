@@ -99,6 +99,12 @@ export class AgentLoop {
 
             // Format the result to send back to the AI
             currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. DO NOT CONVERSE.]`;
+            
+            // Context Refresh & Episodic Memory Checkpoint every 8 iterations
+            if (i > 0 && i % 8 === 0) {
+                const refreshPrompt = await generateSystemPrompt(this.skillManager);
+                currentMessage += `\n\n[SYSTEM CONTEXT REFRESH: You have been running for ${i} iterations. To prevent you from forgetting your core instructions due to context window limits, here is your core programming again:\n${refreshPrompt}]\n\n[EPISODIC MEMORY CHECKPOINT: You MUST immediately use the \`write_file\` tool to write a summary of the user's original goal, what you have accomplished so far, and what remains to be done into a file named \`.atcli-memory.md\` in the root directory. This ensures you do not forget your task! Do this BEFORE your next actual coding step!]`;
+            }
         }
     }
 
