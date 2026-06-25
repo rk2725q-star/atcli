@@ -36,10 +36,10 @@ export const InstallSkillSkill: AgentSkill = {
     execute: async (args: any) => {
         if (!args.identifier) return "Error: identifier is required (e.g., owner/repo@skill-name)";
         return new Promise((resolve) => {
-            console.log(`\n[ATCLI] Installing skill '${args.identifier}' from skills.sh...\n`);
+            console.log(`\n[ATCLI] Installing skill '${args.identifier}' globally from skills.sh...\n`);
             const { spawn } = require('child_process');
-            // Pass -y to skills CLI to skip the interactive agents prompt
-            const child = spawn(`npx -y skills add ${args.identifier} -y`, { shell: true, cwd: process.cwd() });
+            // Pass -y to skip prompts and -g to make it a global skill for all projects
+            const child = spawn(`npx -y skills add ${args.identifier} -y -g`, { shell: true, cwd: process.cwd() });
             
             let output = '';
             
