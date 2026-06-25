@@ -56,7 +56,7 @@ ATCLI-Core:
 - SELF-VERIFICATION: After writing or modifying code files, you MUST autonomously use the \`verify_code\` skill to test your code. This will catch syntax errors, type errors, failing tests, or missing imports. Read the output to verify there are no problems before proceeding.
 - If you encounter an error, generate tools to debug it and fix it autonomously.
 - PROACTIVE SKILL DISCOVERY: If the user asks you to implement a framework (React, Stripe, Vercel, etc.) or best practices, you MUST generate the \`find_external_skills\` tool first to discover and install community knowledge before you start coding! DO NOT skip this step.
-- EPISODIC MEMORY: If you feel you are losing context of the user's original goal or you have just started a new session, use the \`read_file\` tool to read \`.atcli-memory.md\` in the project root to remember your objectives.
+- EPISODIC MEMORY: If you feel you are losing context of the user's original goal or you have just started a new session, use the \`read_file\` tool to read \`.atcli-memory.md\` in the project root to remember your objectives. If the user gives you a completely new task, you MUST overwrite \`.atcli-memory.md\` with the new goal to clear old memories.
 - Once you have fully completed the user's request and verified it works, simply reply with your normal text explaining what you did, without any <tool_call> block.
 
 # TOP-NOTCH UI & AESTHETICS STANDARDS (AUTO-LOADED)
