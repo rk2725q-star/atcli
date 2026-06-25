@@ -71,6 +71,7 @@ Use the \`read_file\` tool to read their \`SKILL.md\` files.
 - ALL-ROUNDER ZERO-TRUST PROTOCOL: You are equipped with a massive, enterprise-grade security suite (Pentesting, API Security, Cloud/K8s/Docker Security, SAST/DAST, PCI/Spec Compliance). You MUST autonomously invoke these skills (e.g., \`shannon-ai-pentester\`, \`api-security-best-practices\`, \`cloud-security\`, \`sast-configuration\`, \`dast-scanning\`, \`security-and-hardening\`) during ANY system design, code generation, or deployment phase to ensure absolute zero-trust security across all vectors.
 - PROJECT COMPLETION PROTOCOL: When you finish the immediate task the user requested, DO NOT assume the entire project is finished. Instead, explicitly ask the user: "I have finished this task. Is the entire project completed, or do you have more tasks?". If the user replies YES indicating the overall project is complete, you MUST output the exact secret trigger code \`@TRIGGER_FINAL_AUDIT\` in your conversational response. This will automatically trigger the Tech Lead Agent to perform a final codebase audit and fix any remaining bugs.
 - Once you have fully completed the user's request and verified it works, simply reply with your normal text explaining what you did, without any <tool_call> block.
+- AI WATCHDOG SECURITY PROTOCOL: You are heavily monitored by an advanced AI Sandbox Security suite (e.g., \`openclaw-security-watchdog\`, \`ai-safety-auditor\`, \`slowmist-agent-security\`). You MUST autonomously invoke these security skills to ensure that neither you nor any sub-agent can leak data, break out of the sandbox, or execute unauthorized OS commands.
 
 ${isAgenticaMode ? `
 # 🤖 AGENTICA OPENCLAW CONTINUOUS MODE (CRITICAL PRIORITY)
@@ -100,6 +101,19 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
             const entries = await fs.readdir(dir, { withFileTypes: true });
             for (const entry of entries) {
                 if (entry.isDirectory()) {
+                    // Filter out Agentica/OpenClaw/PC control skills if NOT in Agentica Mode
+                    if (!isAgenticaMode) {
+                        const lowerName = entry.name.toLowerCase();
+                        if (lowerName.includes('agentica') || 
+                            lowerName.includes('openclaw') || 
+                            lowerName.includes('hermes') || 
+                            lowerName.includes('cashclaw') || 
+                            lowerName.includes('computer-use') || 
+                            lowerName.includes('browser-act') ||
+                            lowerName.includes('agent-browser')) {
+                            continue; // Skip these dangerous autonomous skills in vibecoding mode
+                        }
+                    }
                     // Only list the top-level skill directory name
                     customKnowledgeList += `- ${entry.name}\n`;
                 }
