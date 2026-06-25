@@ -3,12 +3,15 @@ export interface AppState {
     currentModel: string;
 }
 
-export function handleSlashCommand(input: string, state: AppState): { handled: boolean, action?: 'manage', args?: string } {
+export function handleSlashCommand(input: string, state: AppState): { handled: boolean, action?: 'manage' | 'upload', args?: string } {
     const parts = input.trim().split(' ');
     const command = parts[0];
     const args = parts.slice(1);
 
     switch (command) {
+        case '/upload':
+            return { handled: true, action: 'upload', args: args.length > 0 ? args.join(' ') : 'Analyze the uploaded file(s).' };
+            
         case '/audit':
             return { handled: true, action: 'manage', args: args.length > 0 ? args.join(' ') : 'Perform a full deep architectural and bug audit on the entire codebase using all your available auditing skills.' };
             
@@ -49,6 +52,7 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
             console.log('  /model <name>     - Switch the current model');
             console.log('  /manage <task>    - Spawn the Tech Lead Agent to manage/review code');
             console.log('  /review <task>    - Alias for /manage');
+            console.log('  /upload <prompt>  - Pause terminal so you can manually upload an image in the browser');
             console.log('  /audit            - Perform a full codebase scaling and bug audit');
             console.log('  /exit             - Exit ATCLI');
             console.log('  /help             - Show this help message');

@@ -75,8 +75,32 @@ export async function startRepl() {
                     } catch (error: any) {
                         console.log(`\n❌ Error: ${error.message}`);
                     }
+                } else if (result.action === 'upload' && result.args) {
+                    console.log(`\n[ATCLI] 🖼️  Vision Mode Initiated!`);
+                    console.log(`[ATCLI] Please go to the open browser window, manually upload your files, and DO NOT hit send.`);
+                    rl.question(`[ATCLI] Press ENTER here when you are done uploading... `, async () => {
+                        console.log(`\n[ATCLI] Sending prompt along with your uploaded files to ${state.currentProvider}...`);
+                        try {
+                            const adapter = router.getAdapter(state.currentProvider);
+                            if (!adapter) {
+                                console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
+                            } else {
+                                const isFirstForProvider = !initializedProviders.has(state.currentProvider);
+                                const agent = new AgentLoop(adapter, isFirstForProvider);
+                                await agent.run(result.args!); // Uses the parsed prompt string
+                                initializedProviders.add(state.currentProvider);
+                            }
+                        } catch (error: any) {
+                            console.log(`\n❌ Error: ${error.message}`);
+                        }
+                        promptLoop();
+                    });
+                    return; // Prevent the default promptLoop() at the end from running immediately
                 }
-                promptLoop();
+                
+                if (result.action !== 'upload') {
+                    promptLoop();
+                }
             } else {
                 console.log(`\n[ATCLI] Sending to ${state.currentProvider}...`);
                 try {
