@@ -12,7 +12,7 @@ export const FindExternalSkillsSkill: AgentSkill = {
         if (!args.query) return "Error: query is required";
         try {
             console.log(`\n[ATCLI] Searching skills.sh for '${args.query}'...`);
-            const { stdout, stderr } = await execAsync(`npx skills search ${args.query}`, { cwd: process.cwd() });
+            const { stdout, stderr } = await execAsync(`npx -y skills search ${args.query}`, { cwd: process.cwd() });
             
             if (stderr && stderr.toLowerCase().includes('err!')) {
                 return `Error searching skills: ${stderr}`;
@@ -37,7 +37,7 @@ export const InstallSkillSkill: AgentSkill = {
         if (!args.identifier) return "Error: identifier is required (e.g., owner/repo@skill-name)";
         try {
             console.log(`\n[ATCLI] Installing skill '${args.identifier}' from skills.sh...`);
-            const { stdout, stderr } = await execAsync(`npx skills add ${args.identifier}`, { cwd: process.cwd() });
+            const { stdout, stderr } = await execAsync(`npx -y skills add ${args.identifier}`, { cwd: process.cwd() });
             
             if (stderr && stderr.toLowerCase().includes('err!')) {
                 return `Error installing skill: ${stderr}`;
