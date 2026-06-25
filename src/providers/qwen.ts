@@ -14,9 +14,11 @@ export class QwenAdapter extends BaseBrowserAdapter {
         await this.ensurePage();
         
         try {
-            // 1. Wait for textarea
-            const textareaSelector = 'textarea:visible, [contenteditable="true"]:visible'; 
-            await this.page!.waitForSelector(textareaSelector);
+            const textareaSelector = 'textarea, [contenteditable="true"]'; 
+            console.log(`[Qwen] Waiting for input field to appear...`);
+            await this.page!.waitForSelector(textareaSelector, { timeout: 15000 }).catch(e => {
+                throw new Error("Could not find Qwen input field. Are you logged in?");
+            });
             
             // Capture the current last response so we can ignore it during polling
             const previousTextToIgnore = await this.page!.evaluate(() => {
@@ -30,13 +32,25 @@ export class QwenAdapter extends BaseBrowserAdapter {
                 return "";
             });
 
-            await this.page!.fill(textareaSelector, message);
+            console.log(`[Qwen] Typing message...`);
+            await this.page!.evaluate((msg) => {
+                const el = document.querySelector('textarea, [contenteditable="true"]') as any;
+                if (el) {
+                    el.focus();
+                    if (el.value !== undefined) {
+                        el.value = msg;
+                    } else {
+                        el.innerText = msg;
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }, message);
             
             // Give the site's React state a moment to realize text was entered
             await this.page!.waitForTimeout(500);
             
-            // Ensure focus is on textarea and press Enter
-            await this.page!.focus(textareaSelector);
+            console.log(`[Qwen] Sending message...`);
             await this.page!.keyboard.press('Enter');
 
             // Fallback: forcefully click the likely "Send" button (usually the last button in the DOM)

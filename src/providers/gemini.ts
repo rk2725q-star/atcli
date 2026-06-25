@@ -16,7 +16,10 @@ export class GeminiAdapter extends BaseBrowserAdapter {
         try {
             // Gemini uses a contenteditable div for input (rich-textarea)
             const inputSelector = 'rich-textarea p, rich-textarea, .ql-editor, textarea';
-            await this.page!.waitForSelector(inputSelector);
+            console.log(`[Gemini] Waiting for input field to appear...`);
+            await this.page!.waitForSelector(inputSelector, { timeout: 15000 }).catch(e => {
+                throw new Error("Could not find Gemini input field. Are you logged in?");
+            });
             
             const previousTextToIgnore = await this.page!.evaluate(() => {
                 const responseBlocks = document.querySelectorAll('.model-response-text, message-content, [data-test-id="model-message"]');
@@ -30,18 +33,25 @@ export class GeminiAdapter extends BaseBrowserAdapter {
                 return "";
             });
 
-            // Focus the input safely to trigger event listeners in contenteditable
-            await this.page!.click(inputSelector);
-            await this.page!.waitForTimeout(200);
-            
-            // Clear existing text if any
-            await this.page!.keyboard.press('Control+A');
-            await this.page!.keyboard.press('Backspace');
-            
-            // Insert the message text directly
-            await this.page!.keyboard.insertText(message);
+            console.log(`[Gemini] Typing message...`);
+            await this.page!.evaluate((msg) => {
+                const el = document.querySelector('rich-textarea p, rich-textarea, .ql-editor, textarea') as any;
+                if (el) {
+                    el.focus();
+                    if (el.value !== undefined) {
+                        el.value = msg;
+                    } else {
+                        el.innerHTML = `<p>${msg}</p>`;
+                        el.innerText = msg;
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }, message);
+
             await this.page!.waitForTimeout(500); // Wait for send button to become active
 
+            console.log(`[Gemini] Sending message...`);
             // Try to find and click the exact Send button. 
             // If we can't find it, fallback to Enter.
             try {
@@ -50,7 +60,7 @@ export class GeminiAdapter extends BaseBrowserAdapter {
                     // Check if it's not disabled
                     const isDisabled = await sendBtn.isDisabled();
                     if (!isDisabled) {
-                        await sendBtn.click();
+                        await sendBtn.click({ force: true });
                     } else {
                         await this.page!.keyboard.press('Enter');
                     }
@@ -58,6 +68,10 @@ export class GeminiAdapter extends BaseBrowserAdapter {
                     await this.page!.keyboard.press('Enter');
                 }
             } catch (e) {
+                await this.page!.evaluate(() => {
+                    const sendBtn = document.querySelector('button[aria-label="Send message"], button[aria-label="Send prompt"]') as HTMLElement;
+                    if (sendBtn) sendBtn.click();
+                });
                 await this.page!.keyboard.press('Enter');
             }
 

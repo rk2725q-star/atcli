@@ -14,9 +14,12 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
         await this.ensurePage();
         
         try {
-            // 1. Wait for textarea
-            const textareaSelector = '#prompt-textarea:visible, textarea:visible, [contenteditable="true"]:visible'; 
-            await this.page!.waitForSelector(textareaSelector);
+            const textareaSelector = '#prompt-textarea, textarea, [contenteditable="true"]'; 
+            
+            console.log(`[ChatGPT] Waiting for input field to appear...`);
+            await this.page!.waitForSelector(textareaSelector, { timeout: 15000 }).catch(e => {
+                throw new Error("Could not find ChatGPT input field. Are you logged in?");
+            });
 
             const previousTextToIgnore = await this.page!.evaluate(() => {
                 const assistantMessages = document.querySelectorAll('[data-message-author-role="assistant"]');
@@ -30,14 +33,38 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
                 return "";
             });
 
-            await this.page!.fill(textareaSelector, message);
+            console.log(`[ChatGPT] Typing message...`);
             
+            // Use evaluate to guarantee the value is set even if Playwright keyboard hangs
+            await this.page!.evaluate((msg) => {
+                const el = document.querySelector('#prompt-textarea, textarea, [contenteditable="true"]') as any;
+                if (el) {
+                    el.focus();
+                    if (el.value !== undefined) {
+                        el.value = msg;
+                    } else {
+                        el.innerHTML = `<p>${msg}</p>`; // ChatGPT specific workaround for Prosemirror
+                        el.innerText = msg;
+                    }
+                    // Dispatch events for React
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }, message);
+
+            await this.page!.waitForTimeout(500);
+
+            console.log(`[ChatGPT] Sending message...`);
             try {
-                // Click the send button instead of pressing Enter (since Enter just adds a newline for multiline text)
+                // Click the send button instead of pressing Enter
                 await this.page!.waitForSelector('[data-testid="send-button"]', { state: 'visible', timeout: 3000 });
-                await this.page!.click('[data-testid="send-button"]');
+                await this.page!.click('[data-testid="send-button"]', { force: true });
             } catch (e) {
                 // Fallback
+                await this.page!.evaluate(() => {
+                    const sendBtn = document.querySelector('[data-testid="send-button"]') as HTMLElement;
+                    if (sendBtn) sendBtn.click();
+                });
                 await this.page!.keyboard.press('Enter');
             }
 
