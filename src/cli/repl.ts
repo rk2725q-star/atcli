@@ -10,7 +10,7 @@ interface AppState {
 }
 
 const router = new PromptRouter();
-const initializedProviders = new Set<string>();
+const initializedProviders = new Map<string, 'vibecoding' | 'agentica'>();
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -97,9 +97,14 @@ export async function startRepl() {
 
                             try {
                                 const isFirstForProvider = !initializedProviders.has(state.currentProvider);
+                                if (!isFirstForProvider && initializedProviders.get(state.currentProvider) === 'agentica') {
+                                    console.log(`\n❌ [SECURITY BLOCK] You cannot run Vision Mode inside an ongoing Agentica session. Please restart ATCLI.`);
+                                    promptLoop();
+                                    return;
+                                }
                                 const agent = new AgentLoop(adapter, isFirstForProvider);
                                 await agent.run(prepPrompt);
-                                initializedProviders.add(state.currentProvider);
+                                initializedProviders.set(state.currentProvider, 'vibecoding');
                             } catch (error: any) {
                                 console.log(`\n❌ Error: ${error.message}`);
                             }
@@ -114,6 +119,11 @@ export async function startRepl() {
                 } else if (result.action === 'agentica') {
                     console.log(`\n[ATCLI] 🤖 ENTERING OPENCLAW CONTINUOUS MODE! PC & BROWSER CONTROL ENABLED.`);
                     try {
+                        if (initializedProviders.has(state.currentProvider)) {
+                            console.log(`\n❌ [SECURITY BLOCK] Agentica can ONLY be used in a fresh, new chat session! You cannot mix Agentica with an ongoing Vibecoding session. Please restart ATCLI to use Agentica.`);
+                            promptLoop();
+                            return;
+                        }
                         const adapter = router.getAdapter(state.currentProvider);
                         if (!adapter) {
                             console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
@@ -126,7 +136,7 @@ export async function startRepl() {
                             (agent as any).isAgenticaMode = true; 
                             
                             await agent.run(continuousPrompt);
-                            initializedProviders.add(state.currentProvider);
+                            initializedProviders.set(state.currentProvider, 'agentica');
                         }
                     } catch (error: any) {
                         console.log(`\n❌ Error in Agentica Mode: ${error.message}`);
@@ -141,9 +151,14 @@ export async function startRepl() {
                         console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
                     } else {
                         const isFirstForProvider = !initializedProviders.has(state.currentProvider);
+                        if (!isFirstForProvider && initializedProviders.get(state.currentProvider) === 'agentica') {
+                            console.log(`\n❌ [SECURITY BLOCK] You cannot run normal Vibecoding commands inside an ongoing Agentica session! Please restart ATCLI.`);
+                            promptLoop();
+                            return;
+                        }
                         const agent = new AgentLoop(adapter, isFirstForProvider);
                         await agent.run(trimmed);
-                        initializedProviders.add(state.currentProvider);
+                        initializedProviders.set(state.currentProvider, 'vibecoding');
                     }
                 } catch (error: any) {
                     console.log(`\n❌ Error: ${error.message}`);
