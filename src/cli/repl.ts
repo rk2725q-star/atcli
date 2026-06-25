@@ -111,6 +111,26 @@ export async function startRepl() {
                         promptLoop();
                         return;
                     }
+                } else if (result.action === 'agentica') {
+                    console.log(`\n[ATCLI] 🤖 ENTERING OPENCLAW CONTINUOUS MODE! PC & BROWSER CONTROL ENABLED.`);
+                    try {
+                        const adapter = router.getAdapter(state.currentProvider);
+                        if (!adapter) {
+                            console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
+                        } else {
+                            const isFirstForProvider = !initializedProviders.has(state.currentProvider);
+                            const agent = new AgentLoop(adapter, isFirstForProvider);
+                            
+                            const continuousPrompt = `[AGENTICA OPENCLAW MODE: You are now running in continuous autonomous mode with full PC and browser control capabilities. Execute the following task continuously without stopping for user confirmation until the goal is 100% achieved:]\n\n${result.args}`;
+                            
+                            (agent as any).isAgenticaMode = true; 
+                            
+                            await agent.run(continuousPrompt);
+                            initializedProviders.add(state.currentProvider);
+                        }
+                    } catch (error: any) {
+                        console.log(`\n❌ Error in Agentica Mode: ${error.message}`);
+                    }
                 }
                 promptLoop();
             } else {

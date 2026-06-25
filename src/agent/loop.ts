@@ -5,19 +5,25 @@ import { SkillManager } from './skillManager';
 export class AgentLoop {
     private maxIterations = 500;
     private skillManager: SkillManager;
+    public isAgenticaMode: boolean = false;
 
     constructor(private provider: BaseBrowserAdapter, private isFirstMessage: boolean = false) {
         this.skillManager = new SkillManager();
     }
 
     public async run(userMessage: string): Promise<void> {
-        console.log(`\n🤖 Starting Autonomous Agent Loop (Max Iterations: ${this.maxIterations})...`);
+        if (this.isAgenticaMode) {
+            this.maxIterations = 5000; // Agentica continuous execution allows far more iterations
+            console.log(`\n🤖 Starting Agentica OpenClaw Continuous Loop (Max Iterations: ${this.maxIterations})...`);
+        } else {
+            console.log(`\n🤖 Starting Autonomous Agent Loop (Max Iterations: ${this.maxIterations})...`);
+        }
         
         // Dynamically load all built-in and user workspace skills
         await this.skillManager.loadAllSkills();
 
         // Construct the initial prompt injecting the system instructions
-        const systemPrompt = await generateSystemPrompt(this.skillManager);
+        const systemPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
         let currentMessage = "";
 
         if (this.isFirstMessage) {
@@ -138,7 +144,7 @@ export class AgentLoop {
             
             // Context Refresh & Episodic Memory Checkpoint every 8 iterations
             if (i > 0 && i % 8 === 0) {
-                const refreshPrompt = await generateSystemPrompt(this.skillManager);
+                const refreshPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
                 currentMessage += `\n\n[SYSTEM CONTEXT REFRESH: You have been running for ${i} iterations. To prevent you from forgetting your core instructions due to context window limits, here is your core programming again:\n${refreshPrompt}]\n\n[EPISODIC MEMORY CHECKPOINT: You MUST immediately use the \`write_file\` tool to write a summary of the user's original goal, what you have accomplished so far, the current architecture, and what remains to be done into a file named \`ATCLI_MEMORY.md\` in the root directory. This ensures you do not forget your task and future sessions can recall the project state! Do this BEFORE your next actual coding step!]`;
             }
         }
