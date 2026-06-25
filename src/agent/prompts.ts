@@ -98,9 +98,12 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
     if (customKnowledgeList) {
         customKnowledge = `
 # PROJECT SPECIFIC KNOWLEDGE & SKILLS (LAZY LOADED)
-We have 40+ custom skills available. To save context space, only their folder locations are listed below.
-If you need to use one of these skills, you MUST use the \`list_dir\` tool to explore the folder, and \`read_file\` to read its \`SKILL.md\` or \`README.md\` documentation first.
-Additionally, you can fetch from the skills.sh website to get our AI skills and use your search capabilities to learn about tools commonly.
+We have 40+ custom skills available. To save context space, only their folder names are listed below.
+If you are unsure which skill to use, you MUST use the \`grep_search\` tool to search for keywords inside the \`.agents/skills\` or \`.atcli-skills\` directories to find the relevant tool. 
+Once you identify a relevant skill folder, you MUST use \`list_dir\` to explore it, and \`read_file\` to read its \`SKILL.md\` or \`README.md\` documentation before writing any code.
+
+Additionally, you can use the \`find_external_skills\` tool to fetch from the skills.sh website and discover more AI skills.
+You MUST actively search and read documentation to learn about these tools!
 
 Available Skill Folders:
 ${customKnowledgeList}
