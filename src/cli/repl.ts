@@ -75,32 +75,44 @@ export async function startRepl() {
                     } catch (error: any) {
                         console.log(`\n❌ Error: ${error.message}`);
                     }
-                } else if (result.action === 'upload' && result.args) {
+                } else if (result.action === 'upload') {
                     console.log(`\n[ATCLI] 🖼️  Vision Mode Initiated!`);
-                    console.log(`[ATCLI] Please go to the open browser window, manually upload your files, and DO NOT hit send.`);
-                    rl.question(`[ATCLI] Press ENTER here when you are done uploading... `, async () => {
-                        console.log(`\n[ATCLI] Sending prompt along with your uploaded files to ${state.currentProvider}...`);
-                        try {
-                            const adapter = router.getAdapter(state.currentProvider);
-                            if (!adapter) {
-                                console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
-                            } else {
+                    try {
+                        const adapter = router.getAdapter(state.currentProvider);
+                        if (!adapter) {
+                            console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
+                            promptLoop();
+                            return;
+                        }
+                        
+                        console.log(`[ATCLI] 🌐 Opening browser to ${state.currentProvider}...`);
+                        await adapter.init(); // Opens the browser so the user can upload!
+                        
+                        console.log(`[ATCLI] ✅ Browser is ready! Please manually upload your files/images in the chat box, and DO NOT hit send.`);
+                        rl.question(`[ATCLI] Type your instruction for this image (or just press ENTER to analyze): `, async (userPrompt) => {
+                            console.log(`\n[ATCLI] Sending prompt along with your uploaded files to ${state.currentProvider}...`);
+                            
+                            const finalPrompt = userPrompt.trim().length > 0 ? userPrompt : "Analyze the uploaded file(s).";
+                            const prepPrompt = `[SYSTEM: The user has manually uploaded an image/document. You must use this file to build a website or app at the level of Antigravity or Claude Code. You have full agentic capabilities to write, read, fix, and run terminal commands. Analyze the file and execute the following user request:]\n\n${finalPrompt}`;
+
+                            try {
                                 const isFirstForProvider = !initializedProviders.has(state.currentProvider);
                                 const agent = new AgentLoop(adapter, isFirstForProvider);
-                                await agent.run(result.args!); // Uses the parsed prompt string
+                                await agent.run(prepPrompt);
                                 initializedProviders.add(state.currentProvider);
+                            } catch (error: any) {
+                                console.log(`\n❌ Error: ${error.message}`);
                             }
-                        } catch (error: any) {
-                            console.log(`\n❌ Error: ${error.message}`);
-                        }
+                            promptLoop();
+                        });
+                        return; // Prevent the default promptLoop()
+                    } catch (error: any) {
+                        console.log(`\n❌ Error opening browser: ${error.message}`);
                         promptLoop();
-                    });
-                    return; // Prevent the default promptLoop() at the end from running immediately
+                        return;
+                    }
                 }
-                
-                if (result.action !== 'upload') {
-                    promptLoop();
-                }
+                promptLoop();
             } else {
                 console.log(`\n[ATCLI] Sending to ${state.currentProvider}...`);
                 try {
