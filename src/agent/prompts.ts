@@ -69,19 +69,16 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
 7. YOUR GOAL is to make the user say "WOW" at first glance. Generic, ugly MVPs are UNACCEPTABLE.
 `;
 
-    // Look for custom procedural knowledge (.atcli-skills/*.md or .agents/skills/**/*.md)
+    // Look for custom procedural knowledge (.atcli-skills or .agents/skills)
     let customKnowledgeList = "";
     
-    async function scanDirForMarkdown(dir: string) {
+    async function scanForSkillDirectories(dir: string) {
         try {
             const entries = await fs.readdir(dir, { withFileTypes: true });
             for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
                 if (entry.isDirectory()) {
-                    await scanDirForMarkdown(fullPath);
-                } else if (entry.isFile() && entry.name.endsWith('.md')) {
-                    // Lazy load: Just provide the name and path. AI can use read_file to learn more.
-                    customKnowledgeList += `- ${entry.name} (File path: ${fullPath})\n`;
+                    // Only list the top-level skill directory name
+                    customKnowledgeList += `- ${entry.name}\n`;
                 }
             }
         } catch (e) {
@@ -93,19 +90,19 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
     const skillsShDir = path.resolve(process.cwd(), '.agents', 'skills');
     const globalKnowledgeDir = path.resolve(__dirname, '..', '..', 'src', 'agent', 'knowledge', '.agents', 'skills');
     
-    await scanDirForMarkdown(atcliSkillsDir);
-    await scanDirForMarkdown(skillsShDir);
-    await scanDirForMarkdown(globalKnowledgeDir);
+    await scanForSkillDirectories(atcliSkillsDir);
+    await scanForSkillDirectories(skillsShDir);
+    await scanForSkillDirectories(globalKnowledgeDir);
 
     let customKnowledge = "";
     if (customKnowledgeList) {
         customKnowledge = `
 # PROJECT SPECIFIC KNOWLEDGE & SKILLS (LAZY LOADED)
-We have 40+ custom skills available. To save context space, only their file paths are listed below.
-If you need to use one of these skills, or if the user asks for something related to them, you MUST use the \`read_file\` tool to read the corresponding markdown file first to understand how it works.
+We have 40+ custom skills available. To save context space, only their folder locations are listed below.
+If you need to use one of these skills, you MUST use the \`list_dir\` tool to explore the folder, and \`read_file\` to read its \`SKILL.md\` or \`README.md\` documentation first.
 Additionally, you can fetch from the skills.sh website to get our AI skills and use your search capabilities to learn about tools commonly.
 
-Available Documentation Files:
+Available Skill Folders:
 ${customKnowledgeList}
 `;
     }

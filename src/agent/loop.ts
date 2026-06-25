@@ -21,7 +21,7 @@ export class AgentLoop {
         let currentMessage = "";
 
         if (this.isFirstMessage) {
-            const MAX_CHUNK_LENGTH = 12000; // Safe threshold to prevent Chrome/React freezing
+            const MAX_CHUNK_LENGTH = 25000; // Increased to 25k since native insertText easily handles it without freezing
             
             if (systemPrompt.length > MAX_CHUNK_LENGTH) {
                 console.log(`\n[Agent] System prompt is massive (${systemPrompt.length} chars). Intelligently splitting into chunks...`);
