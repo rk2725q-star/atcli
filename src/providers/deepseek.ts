@@ -31,23 +31,47 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             });
 
             console.log(`[DeepSeek] Attempting to click input field...`);
-            // Focus the input safely to trigger event listeners
-            const inputLocator = this.page!.locator(inputSelector).first();
-            await inputLocator.click({ force: true });
-            await this.page!.waitForTimeout(200);
             
+            // Look specifically for DeepSeek's textarea or a visible contenteditable
+            const inputLocator = this.page!.locator('textarea:visible, [contenteditable="true"]:visible').last();
+            
+            try {
+                // Try normal click
+                await inputLocator.click({ force: true, timeout: 5000 });
+            } catch (e) {
+                console.log(`[DeepSeek] Click timeout. Forcing focus via evaluate...`);
+            }
+
             console.log(`[DeepSeek] Typing message...`);
-            // Clear existing text if any
-            await this.page!.keyboard.press('Control+A');
-            await this.page!.keyboard.press('Backspace');
             
-            // Insert the message text directly
-            await this.page!.keyboard.insertText(message);
+            // Use evaluate to guarantee the value is set even if Playwright keyboard hangs
+            await this.page!.evaluate((msg) => {
+                const el = document.querySelector('#chat-input, textarea[placeholder*="Message" i], [contenteditable="true"]') as any;
+                if (el) {
+                    el.focus();
+                    if (el.value !== undefined) {
+                        el.value = msg;
+                    } else {
+                        el.innerText = msg;
+                    }
+                    // Dispatch events for React
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }, message);
+
             await this.page!.waitForTimeout(500);
 
             console.log(`[DeepSeek] Sending message...`);
-            // Wait for and click send button
+            // DeepSeek usually sends on Enter
             await this.page!.keyboard.press('Enter');
+            await this.page!.waitForTimeout(500);
+            
+            // Fallback click on send button if Enter didn't work
+            await this.page!.evaluate(() => {
+                const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => el.innerHTML.includes('M10 21L14 3') || el.innerHTML.includes('send') || (el as any).innerText.includes('Send')) as HTMLElement;
+                if (sendBtn) sendBtn.click();
+            });
 
             // 3. Wait for response generation
             // Deepseek's text generation takes time. We wait for the specific AI response element to appear.
