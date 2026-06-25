@@ -16,10 +16,14 @@ Before proposing any git commands, you MUST run the following terminal commands 
 - `git status` (to check if it's a git repo)
 - `git remote -v` (to see what the actual GitHub origin URL is)
 
-## 3. Handle Uninitialized Repositories
-If `git status` returns `fatal: not a git repository`:
-- STOP and ask the user: "This project is not a git repository yet. Should I initialize it? What is the GitHub repository URL you want to connect to?"
-- DO NOT make up a URL.
+## 3. Handle Uninitialized Repositories & One-Time Setup (Like Antigravity)
+If `git status` returns `fatal: not a git repository` OR if `git remote -v` is empty:
+- STOP and ask the user ONCE: "This project is not connected to a GitHub repository yet. What is the GitHub repository URL?"
+- Once the user provides the URL, execute `git init` (if needed) and `git remote add origin <URL>`.
+- Immediately update `.atcli-memory.md` (or your memory file) to record the GitHub URL for this project so the AI has context.
 
-## 4. Execution
-Once you have the correct context from `git remote -v`, you may proceed with `git add`, `git commit`, and `git push origin <branch>`.
+## 4. Execution (Pushing Code Natively)
+- Once the remote origin is set, the URL is permanently stored in the project's `.git/config`.
+- Whenever the user says "push to github" again, DO NOT ask for the URL.
+- Simply execute `git add .`, `git commit -m "..."`, and `git push origin main` (or the correct branch).
+- Rely completely on the local folder's native Git configuration.
