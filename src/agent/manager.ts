@@ -158,14 +158,51 @@ export class ManagerLoop {
     }
 
     private parseToolCall(text: string): any | null {
+        // Look for <tool_call> ... </tool_call>
         const match = text.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
-        if (!match) return null;
+        if (!match) return null; // No tool call means conversational response
+
+        // Remove markdown code block syntax if the AI included it (e.g., ```json ... ```)
         let jsonStr = match[1].trim();
         if (jsonStr.startsWith('\`\`\`json')) jsonStr = jsonStr.substring(7);
         else if (jsonStr.startsWith('\`\`\`')) jsonStr = jsonStr.substring(3);
         if (jsonStr.endsWith('\`\`\`')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
         
+        jsonStr = jsonStr.trim();
+
+        // Custom robust auto-fix for write_file tool which often contains unescaped quotes/newlines
+        if (jsonStr.includes('"write_file"')) {
+            const contentRegex = /"content"\s*:\s*"([\s\S]*)"\s*}/;
+            const contentMatch = jsonStr.match(contentRegex);
+            if (contentMatch) {
+                let rawContent = contentMatch[1];
+                // Unescape first to avoid double escaping if the AI partially escaped it
+                rawContent = rawContent
+                    .replace(/\\"/g, '"')
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\r/g, '\r')
+                    .replace(/\\t/g, '\t')
+                    .replace(/\\\\/g, '\\');
+                
+                // Re-escape perfectly for JSON
+                let safeContent = rawContent
+                    .replace(/\\/g, '\\\\')
+                    .replace(/"/g, '\\"')
+                    .replace(/\n/g, '\\n')
+                    .replace(/\r/g, '\\r')
+                    .replace(/\t/g, '\\t');
+                
+                // Replace the broken content with the perfectly escaped content
+                jsonStr = jsonStr.replace(contentRegex, \`"content": "\${safeContent}"}\`);
+            }
+        }
+        
+        // Auto-fix unescaped backslashes (common when AI outputs Windows paths like C:\\Users)
+        // This regex replaces \\ with \\\\ ONLY if it's not part of a valid JSON escape sequence like \\n or \\t
         jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
-        return JSON.parse(jsonStr.trim());
+        
+        // Let JSON.parse throw if invalid, so the loop can catch it and feed it back to the AI
+        const parsed = JSON.parse(jsonStr);
+        return parsed;
     }
 }
