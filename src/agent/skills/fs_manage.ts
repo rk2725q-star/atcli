@@ -10,6 +10,9 @@ export const DeleteFileSkill: AgentSkill = {
     execute: async (args: any) => {
         if (!args.path) return "Error: path is required";
         const targetPath = path.resolve(process.cwd(), args.path);
+        if (!targetPath.startsWith(process.cwd())) {
+            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+        }
         try {
             await fs.rm(targetPath, { recursive: true, force: true });
             return `Success: Deleted ${args.path}`;
@@ -27,6 +30,9 @@ export const MoveFileSkill: AgentSkill = {
         if (!args.source || !args.destination) return "Error: source and destination are required";
         const sourcePath = path.resolve(process.cwd(), args.source);
         const destPath = path.resolve(process.cwd(), args.destination);
+        if (!sourcePath.startsWith(process.cwd()) || !destPath.startsWith(process.cwd())) {
+            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+        }
         try {
             await fs.mkdir(path.dirname(destPath), { recursive: true });
             await fs.rename(sourcePath, destPath);
@@ -73,6 +79,9 @@ export const CopyFileSkill: AgentSkill = {
         if (!args.source || !args.destination) return "Error: source and destination are required";
         const sourcePath = path.resolve(process.cwd(), args.source);
         const destPath = path.resolve(process.cwd(), args.destination);
+        if (!sourcePath.startsWith(process.cwd()) || !destPath.startsWith(process.cwd())) {
+            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+        }
         try {
             await fs.mkdir(path.dirname(destPath), { recursive: true });
             await fs.cp(sourcePath, destPath, { recursive: true });

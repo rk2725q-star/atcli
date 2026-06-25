@@ -9,6 +9,9 @@ export const WriteFileSkill: AgentSkill = {
     execute: async (args: any) => {
         if (!args.path || args.content === undefined) return "Error: path and content are required";
         const targetPath = path.resolve(process.cwd(), args.path);
+        if (!targetPath.startsWith(process.cwd())) {
+            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+        }
         await fs.mkdir(path.dirname(targetPath), { recursive: true });
         await fs.writeFile(targetPath, args.content, 'utf8');
         return `Success: Wrote to ${args.path}`;

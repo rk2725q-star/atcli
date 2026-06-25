@@ -9,6 +9,9 @@ export const GetFileOutlineSkill: AgentSkill = {
     execute: async (args: any) => {
         if (!args.path) return "Error: path is required";
         const targetPath = path.resolve(process.cwd(), args.path);
+        if (!targetPath.startsWith(process.cwd())) {
+            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+        }
         
         try {
             const content = await fs.readFile(targetPath, 'utf8');

@@ -10,6 +10,9 @@ export const VerifyCodeSkill: AgentSkill = {
     execute: async (args: any) => {
         const target = args.target || '.';
         const targetPath = path.resolve(process.cwd(), target);
+        if (!targetPath.startsWith(process.cwd())) {
+            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+        }
 
         return new Promise(async (resolve) => {
             try {

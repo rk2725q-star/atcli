@@ -11,6 +11,9 @@ export const ReplaceContentSkill: AgentSkill = {
             return "Error: path, search, and replace are required";
         }
         const targetPath = path.resolve(process.cwd(), args.path);
+        if (!targetPath.startsWith(process.cwd())) {
+            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+        }
         try {
             let content = await fs.readFile(targetPath, 'utf8');
             if (!content.includes(args.search)) {
@@ -32,6 +35,9 @@ export const AppendContentSkill: AgentSkill = {
     execute: async (args: any) => {
         if (!args.path || args.content === undefined) return "Error: path and content are required";
         const targetPath = path.resolve(process.cwd(), args.path);
+        if (!targetPath.startsWith(process.cwd())) {
+            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+        }
         try {
             await fs.appendFile(targetPath, '\n' + args.content, 'utf8');
             return `Success: Appended content to ${args.path}`;
