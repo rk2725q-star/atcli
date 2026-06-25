@@ -91,7 +91,7 @@ const taskManager = BackgroundTaskManager.getInstance();
 
 export const RunCommandSkill: AgentSkill = {
     name: 'run_command',
-    description: 'Executes a terminal command (e.g., npm install, node script.js, build commands) and waits for it to complete. The output will be streamed to the user, and the final output will be returned to you. Use this for ANY command that you need the output of, even if it takes a long time.',
+    description: 'Executes a terminal command (e.g., npm install, node script.js) and waits for it to complete. The output will be streamed to the user, and the final output will be returned to you. WARNING: Do NOT use this tool for interactive commands (e.g., vim, nano, or scripts that prompt for user input like npm init without -y). Because this runs in the background, interactive prompts will cause the system to hang forever waiting for input. Always use non-interactive flags (like -y or --force) or use the run_interactive tool instead.',
     example: `<tool_call>\n{"action": "run_command", "command": "npm init -y"}\n</tool_call>`,
     execute: async (args: any) => {
         if (!args.command) return "Error: command is required";
