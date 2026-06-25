@@ -14,7 +14,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
         await this.ensurePage();
         
         try {
-            const inputSelector = '#chat-input, textarea[placeholder*="message" i], textarea, [contenteditable="true"]';
+            const inputSelector = '#chat-input:visible, textarea[placeholder*="message" i]:visible, textarea:visible, [contenteditable="true"]:visible';
             await this.page!.waitForSelector(inputSelector);
 
             const previousTextToIgnore = await this.page!.evaluate(() => {
@@ -27,7 +27,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             });
 
             // Focus the input safely to trigger event listeners
-            const inputLocator = this.page!.locator(inputSelector).locator('visible=true').first();
+            const inputLocator = this.page!.locator(inputSelector).first();
             await inputLocator.click();
             await this.page!.waitForTimeout(200);
             

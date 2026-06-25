@@ -50,7 +50,11 @@ export class BrowserManager {
 
         console.log(`[Browser] Opening new tab for ${id}...`);
         const page = await this.context!.newPage();
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
+        try {
+            await page.goto(url, { waitUntil: 'commit', timeout: 30000 });
+        } catch (e: any) {
+            console.log(`[Browser] Note: goto timed out or failed, but continuing (${e.message})`);
+        }
         this.pages.set(id, page);
         return page;
     }
