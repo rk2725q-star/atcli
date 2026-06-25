@@ -82,7 +82,14 @@ export class AgentLoop {
             
             if (!toolCall) {
                 // No tool call found, meaning the AI has finished its task
-                console.log(`\n✅ Agent task completed or requires user feedback.`);
+                if (aiText.includes('@TRIGGER_FINAL_AUDIT')) {
+                    console.log(`\n🎉 Project completion detected! Spawning Tech Lead Auditor...`);
+                    const { ManagerLoop } = require('./manager');
+                    const manager = new ManagerLoop(this.provider, true);
+                    await manager.run('Perform a full deep architectural and bug audit on the entire codebase using all your available auditing skills. Fix any bugs found.');
+                } else {
+                    console.log(`\n✅ Agent task completed or requires user feedback.`);
+                }
                 break;
             }
 
