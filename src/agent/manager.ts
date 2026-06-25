@@ -32,7 +32,47 @@ Here are your available tools:
 - Once you have fully completed the user's management/review request, reply with your normal text explaining your findings or decisions.
 `;
 
-    return basePrompt + dynamicSkills + rules;
+    let customKnowledgeList = "";
+    
+    async function scanForSkillDirectories(dir: string) {
+        try {
+            const fs = require('fs/promises');
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.isDirectory()) {
+                    customKnowledgeList += `- ${entry.name}\n`;
+                }
+            }
+        } catch (e) {
+            // Ignore if directory doesn't exist
+        }
+    }
+
+    const path = require('path');
+    const atcliSkillsDir = path.resolve(process.cwd(), '.atcli-skills');
+    const skillsShDir = path.resolve(process.cwd(), '.agents', 'skills');
+    const globalKnowledgeDir = path.resolve(__dirname, '..', '..', 'src', 'agent', 'knowledge', '.agents', 'skills');
+    const osGlobalSkillsDir = path.resolve(require('os').homedir(), '.agents', 'skills');
+    
+    await scanForSkillDirectories(atcliSkillsDir);
+    await scanForSkillDirectories(skillsShDir);
+    await scanForSkillDirectories(globalKnowledgeDir);
+    await scanForSkillDirectories(osGlobalSkillsDir);
+
+    let customKnowledge = "";
+    if (customKnowledgeList) {
+        customKnowledge = `
+# PROJECT SPECIFIC KNOWLEDGE & SKILLS (LAZY LOADED)
+We have custom skills available. To save context space, only their folder names are listed below.
+You MUST use the \`grep_search\` tool to search inside the \`.agents/skills\` or \`.atcli-skills\` directories to find them.
+Once you identify a relevant skill folder, you MUST use \`list_dir\` to explore it, and \`read_file\` to read its \`SKILL.md\` or \`README.md\` documentation before writing any code.
+
+Available Skill Folders:
+${customKnowledgeList}
+`;
+    }
+
+    return basePrompt + dynamicSkills + rules + customKnowledge;
 }
 
 export class ManagerLoop {
