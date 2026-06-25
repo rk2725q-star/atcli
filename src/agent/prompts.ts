@@ -115,8 +115,14 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
         customKnowledge = `
 # PROJECT SPECIFIC KNOWLEDGE & SKILLS (LAZY LOADED)
 We have 40+ custom skills available. To save context space, only their folder names are listed below.
-If you are unsure which skill to use, you MUST use the \`grep_search\` tool to search for keywords inside the \`.agents/skills\` or \`.atcli-skills\` directories to find the relevant tool. 
-Once you identify a relevant skill folder, you MUST use \`list_dir\` to explore it, and \`read_file\` to read its \`SKILL.md\` or \`README.md\` documentation before writing any code.
+The skills are physically located in the following absolute paths on this machine:
+- ${atcliSkillsDir}
+- ${skillsShDir}
+- ${globalKnowledgeDir}
+- ${osGlobalSkillsDir}
+
+If you are unsure which skill to use, you MUST use the \`grep_search\` tool to search for keywords inside those EXACT absolute paths to find the relevant tool. 
+Once you identify a relevant skill folder, you MUST use \`list_dir\` to explore it using its absolute path, and \`read_file\` to read its \`SKILL.md\` or \`README.md\` documentation before writing any code.
 
 Additionally, you can use the \`find_external_skills\` tool to fetch from the skills.sh website and discover more AI skills.
 You MUST actively search and read documentation to learn about these tools!
