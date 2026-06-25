@@ -45,23 +45,12 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
 
             console.log(`[DeepSeek] Typing message...`);
             
-            // 2. Clear existing text
+            // 2. Select all existing text
             await this.page!.keyboard.press('Control+A');
-            await this.page!.keyboard.press('Backspace');
             
-            // 3. Inject massive text instantaneously using native execCommand
-            await this.page!.evaluate((msg) => {
-                const success = document.execCommand('insertText', false, msg);
-                
-                if (!success) {
-                    const el = document.activeElement as any;
-                    if (el) {
-                        if (el.value !== undefined) el.value = msg;
-                        else el.innerText = msg;
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
-                }
-            }, message);
+            // 3. Inject massive text natively via Playwright. This emits TRUSTED input events 
+            // that React accepts perfectly, replacing the selection.
+            await this.page!.keyboard.insertText(message);
 
             await this.page!.waitForTimeout(500);
 
