@@ -105,7 +105,7 @@ export class AgentLoop {
                 });
 
                 const answer: string = await new Promise((resolve) => {
-                    rl.question('Allow this action? (y/n/or type feedback): ', (ans: string) => {
+                    rl.question('Allow this action? (Y/n/feedback): ', (ans: string) => {
                         rl.close();
                         resolve(ans.trim());
                     });
