@@ -164,9 +164,9 @@ export class ManagerLoop {
 
         // Remove markdown code block syntax if the AI included it (e.g., ```json ... ```)
         let jsonStr = match[1].trim();
-        if (jsonStr.startsWith('\`\`\`json')) jsonStr = jsonStr.substring(7);
-        else if (jsonStr.startsWith('\`\`\`')) jsonStr = jsonStr.substring(3);
-        if (jsonStr.endsWith('\`\`\`')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
+        if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7);
+        else if (jsonStr.startsWith('```')) jsonStr = jsonStr.substring(3);
+        if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
         
         jsonStr = jsonStr.trim();
 
@@ -193,7 +193,7 @@ export class ManagerLoop {
                     .replace(/\t/g, '\\t');
                 
                 // Replace the broken content with the perfectly escaped content
-                jsonStr = jsonStr.replace(contentRegex, \`"content": "\${safeContent}"}\`);
+                jsonStr = jsonStr.replace(contentRegex, `"content": "${safeContent}"}`);
             }
         }
         
