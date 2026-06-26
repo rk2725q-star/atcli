@@ -166,7 +166,8 @@ export async function startRepl() {
                                 /sk-[a-zA-Z0-9_-]{20,}/g,         // OpenAI / Anthropic
                                 /sk_(live|test)_[a-zA-Z0-9_-]+/g,  // Stripe
                                 /ghp_[a-zA-Z0-9]{36}/g,           // GitHub PAT
-                                /AKIA[0-9A-Z]{16}/g               // AWS Access Key
+                                /AKIA[0-9A-Z]{16}/g,              // AWS Access Key
+                                /(?:api\s*key|token|secret|password)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{10,}['"]?/gi // Contextual Heuristic
                             ];
                             let secretMasked = false;
                             for (const regex of secretRegexes) {
@@ -200,7 +201,8 @@ export async function startRepl() {
                     /sk-[a-zA-Z0-9_-]{20,}/g,         // OpenAI / Anthropic
                     /sk_(live|test)_[a-zA-Z0-9_-]+/g,  // Stripe
                     /ghp_[a-zA-Z0-9]{36}/g,           // GitHub PAT
-                    /AKIA[0-9A-Z]{16}/g               // AWS Access Key
+                    /AKIA[0-9A-Z]{16}/g,              // AWS Access Key
+                    /(?:api\s*key|token|secret|password)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{10,}['"]?/gi // Contextual Heuristic
                 ];
                 
                 let secretMasked = false;
