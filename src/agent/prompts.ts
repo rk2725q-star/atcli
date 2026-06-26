@@ -139,11 +139,13 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
     const skillsShDir = path.resolve(process.cwd(), '.agents', 'skills');
     const globalKnowledgeDir = path.resolve(__dirname, '..', '..', 'src', 'agent', 'knowledge', '.agents', 'skills');
     const osGlobalSkillsDir = path.resolve(require('os').homedir(), '.agents', 'skills');
+    const geminiGlobalSkillsDir = path.resolve(require('os').homedir(), '.gemini', 'config', 'skills');
     
     await scanForSkillDirectories(atcliSkillsDir);
     await scanForSkillDirectories(skillsShDir);
     await scanForSkillDirectories(globalKnowledgeDir);
     await scanForSkillDirectories(osGlobalSkillsDir);
+    await scanForSkillDirectories(geminiGlobalSkillsDir);
 
     let customKnowledge = "";
     if (customKnowledgeList) {
@@ -155,6 +157,7 @@ The skills are physically located in the following absolute paths on this machin
 - ${skillsShDir}
 - ${globalKnowledgeDir}
 - ${osGlobalSkillsDir}
+- ${geminiGlobalSkillsDir}
 
 If you are unsure which skill to use, you MUST use the \`grep_search\` tool to search for keywords inside those EXACT absolute paths to find the relevant tool. 
 Once you identify a relevant skill folder, you MUST use \`list_dir\` to explore it using its absolute path, and \`read_file\` to read its \`SKILL.md\` or \`README.md\` documentation before writing any code.
