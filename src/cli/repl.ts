@@ -136,6 +136,15 @@ export async function startRepl() {
                     }
                 } else if (result.action === 'agentica') {
                     console.log(`\n[ATCLI] 🤖 ENTERING OPENCLAW CONTINUOUS MODE! PC & BROWSER CONTROL ENABLED.`);
+                    
+                    // 🚨 MEMORY LOCKDOWN PROTOCOL
+                    if (state.currentProvider !== 'chatgpt' && state.currentProvider !== 'qwen') {
+                        console.log(`\n⚠️  [SECURITY WARNING] Agentica is highly dangerous and requires persistent cross-session memory for safety rules.`);
+                        console.log(`⚠️  Auto-switching from '${state.currentProvider}' to 'chatgpt' to utilize its Main Memory feature.`);
+                        console.log(`⚠️  IMPORTANT: If you ever change your ChatGPT account, you MUST re-run Agentica so it can re-burn the safety rules into the new account's memory!`);
+                        state.currentProvider = 'chatgpt';
+                    }
+
                     try {
                         if (initializedProviders.has(state.currentProvider)) {
                             console.log(`\n❌ [SECURITY BLOCK] Agentica can ONLY be used in a fresh, new chat session! You cannot mix Agentica with an ongoing Vibecoding session. Please restart ATCLI to use Agentica.`);
