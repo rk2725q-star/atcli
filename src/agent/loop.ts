@@ -66,8 +66,18 @@ export class AgentLoop {
             }
             currentMessage = `${userMessage}\n\n${reminder}`;
         }
+        
+        let lastRefreshTokens = this.totalTokensProcessed;
 
         for (let i = 1; i <= this.maxIterations; i++) {
+            
+            // CONTEXT REFRESH: If tokens grew by > 80,000 since last refresh, re-inject the tools and rules!
+            if (this.totalTokensProcessed - lastRefreshTokens > 80000) {
+                console.log(`\n🔄 [Agent] Context window approaching limits. Re-injecting System Prompt to prevent memory loss...`);
+                currentMessage = `[CONTEXT REFRESH: The following is a reminder of your available tools and strict operating rules.]\n\n${systemPrompt}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+                lastRefreshTokens = this.totalTokensProcessed;
+            }
+
             console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);
             
             this.totalTokensProcessed += this.tokenizer.encode(currentMessage).length;
