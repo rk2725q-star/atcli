@@ -150,6 +150,35 @@ export const BrowserClickElementSkill: AgentSkill = {
     }
 };
 
+export const BrowserVisionActSkill: AgentSkill = {
+    name: 'browser_vision_act',
+    description: 'Takes a full-screen snapshot of the browser and returns it to you natively. Use this to SEE the page visually and decide what to do next. You MUST use this instead of guessing DOM IDs if you are on a complex site like Flipkart.',
+    example: `<tool_call>\n{"action": "browser_vision_act", "instruction": "What should I click next?"}\n</tool_call>`,
+    execute: async (args: any) => {
+        try {
+            const page = await sessionManager.getPage();
+            const path = require('path');
+            const fs = require('fs');
+            
+            // Create a temp directory for screenshots
+            const tmpDir = path.resolve(process.cwd(), '.atcli-tmp');
+            if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+            
+            const screenshotPath = path.resolve(tmpDir, `vision_${Date.now()}.png`);
+            
+            // Wait for network idle to ensure page is fully rendered
+            await page.waitForLoadState('networkidle').catch(() => {});
+            
+            await page.screenshot({ path: screenshotPath, fullPage: false }); // Just viewport so AI sees what user sees
+            
+            // Return a special payload that AgentLoop can intercept
+            return `__ATCLI_VISION_PAYLOAD__${screenshotPath}__Please analyze this screenshot and tell me the next coordinates or action based on my instruction: ${args.instruction || 'Analyze screen'}`;
+        } catch (e: any) {
+            return `Error capturing vision state: ${e.message}`;
+        }
+    }
+};
+
 export const BrowserTypeElementSkill: AgentSkill = {
     name: 'browser_type_element',
     description: 'Clicks an element based on its ID and types text into it.',

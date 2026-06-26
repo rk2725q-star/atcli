@@ -69,7 +69,14 @@ export class AgentLoop {
             this.totalTokensProcessed += this.tokenizer.encode(currentMessage).length;
             (global as any).atcli_current_tokens = this.totalTokensProcessed;
             
-            const response = await this.provider.sendMessage(currentMessage);
+            let response;
+            if ((this as any).pendingVisionImage) {
+                const imagePath = (this as any).pendingVisionImage;
+                (this as any).pendingVisionImage = null; // reset
+                response = await this.provider.sendImageAndMessage(imagePath, currentMessage);
+            } else {
+                response = await this.provider.sendMessage(currentMessage);
+            }
             
             if (response.error) {
                 // Suppress expected errors during graceful shutdown
@@ -147,15 +154,28 @@ export class AgentLoop {
             let result = await this.skillManager.executeSkill(toolCall.action, toolCall);
             
             // Global safety truncation to prevent web UI crashes from massive outputs
-            if (result.length > 30000) {
+            if (result.length > 30000 && !result.startsWith('__ATCLI_VISION_PAYLOAD__')) {
                 console.log(`[Warning]: Tool output truncated from ${result.length} to 30000 chars.`);
                 result = result.substring(0, 30000) + "\n\n...[TRUNCATED: Output too large. Use read_lines or grep_search to read specific parts]...";
             }
             
             console.log(`[Skill Output]:\n${result.substring(0, 1000)}${result.length > 1000 ? '...' : ''}`);
 
-            // Format the result to send back to the AI
-            currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. DO NOT CONVERSE.]`;
+            // Handle Native Vision Payload Interception
+            if (result.startsWith('__ATCLI_VISION_PAYLOAD__')) {
+                const parts = result.split('__');
+                if (parts.length >= 3) {
+                    const imagePath = parts[2];
+                    const prompt = parts.slice(3).join('__');
+                    // Store the vision payload to be sent at the START of the next iteration
+                    (this as any).pendingVisionImage = imagePath;
+                    (this as any).pendingVisionMessage = `<tool_result>\nVision payload attached.\n</tool_result>\n[SYSTEM REMINDER: ${prompt}]`;
+                    currentMessage = (this as any).pendingVisionMessage;
+                }
+            } else {
+                // Format the standard result to send back to the AI
+                currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. DO NOT CONVERSE.]`;
+            }
             
             // Context Refresh & Episodic Memory Checkpoint every 8 iterations OR if Context limit exceeded
             if ((i > 0 && i % 8 === 0) || this.totalTokensProcessed > 180000) {

@@ -13,6 +13,28 @@ export abstract class BaseBrowserAdapter {
     public abstract init(): Promise<void>;
     public abstract sendMessage(message: string): Promise<ProviderResponse>;
     
+    public async sendImageAndMessage(imagePath: string, message: string): Promise<ProviderResponse> {
+        await this.ensurePage();
+        console.log(`[${this.id.toUpperCase()}] Attempting to upload image ${imagePath}...`);
+        try {
+            // Universal fallback strategy for web LLMs: find the file input
+            const fileInputs = this.page!.locator('input[type="file"]');
+            const count = await fileInputs.count();
+            if (count > 0) {
+                // Usually the first or last file input handles uploads
+                await fileInputs.first().setInputFiles(imagePath);
+                console.log(`[${this.id.toUpperCase()}] Image uploaded. Waiting 2 seconds for UI processing...`);
+                await this.page!.waitForTimeout(2000);
+            } else {
+                console.log(`[${this.id.toUpperCase()}] ⚠️ No input[type="file"] found. Upload might fail or require clipboard fallback.`);
+            }
+        } catch (e: any) {
+            console.log(`[${this.id.toUpperCase()}] Error uploading image: ${e.message}`);
+        }
+        
+        // After upload, just send the message normally using the child class's sendMessage implementation
+        return this.sendMessage(message);
+    }
     protected async ensurePage(): Promise<void> {
         if (!this.page) {
             const { BrowserManager } = await import('../browser/manager');
