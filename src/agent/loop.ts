@@ -114,27 +114,31 @@ export class AgentLoop {
                 console.log(`\n⚠️  [ATCLI Safety] The AI wants to execute: ${toolCall.action}`);
                 console.log(`Arguments: ${JSON.stringify(toolCall, null, 2)}`);
                 
-                const readline = require('readline');
-                const rl = readline.createInterface({
-                    input: process.stdin,
-                    output: process.stdout
-                });
-
-                const answer: string = await new Promise((resolve) => {
-                    rl.question('Allow this action? (Y/n/feedback): ', (ans: string) => {
-                        rl.close();
-                        resolve(ans.trim());
+                if (this.isAgenticaMode) {
+                    console.log(`\n🛡️ [Agentica Autonomy] Auto-approving dangerous command due to Memory Lockdown restrictions.`);
+                } else {
+                    const readline = require('readline');
+                    const rl = readline.createInterface({
+                        input: process.stdin,
+                        output: process.stdout
                     });
-                });
 
-                if (answer.toLowerCase() === 'n' || answer.toLowerCase() === 'no') {
-                    console.log(`\n🚫 Action rejected by user.`);
-                    currentMessage = `<tool_result>\nUser denied permission.\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
-                    continue;
-                } else if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes' && answer !== '') {
-                    console.log(`\n💬 Sending user feedback to AI...`);
-                    currentMessage = `<tool_result>\nUser rejected with feedback: ${answer}\n</tool_result>\n[SYSTEM REMINDER: Correct your tool call based on the user's feedback. DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
-                    continue;
+                    const answer: string = await new Promise((resolve) => {
+                        rl.question('Allow this action? (Y/n/feedback): ', (ans: string) => {
+                            rl.close();
+                            resolve(ans.trim());
+                        });
+                    });
+
+                    if (answer.toLowerCase() === 'n' || answer.toLowerCase() === 'no') {
+                        console.log(`\n🚫 Action rejected by user.`);
+                        currentMessage = `<tool_result>\nUser denied permission.\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                        continue;
+                    } else if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes' && answer !== '') {
+                        console.log(`\n💬 Sending user feedback to AI...`);
+                        currentMessage = `<tool_result>\nUser rejected with feedback: ${answer}\n</tool_result>\n[SYSTEM REMINDER: Correct your tool call based on the user's feedback. DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                        continue;
+                    }
                 }
             }
 
