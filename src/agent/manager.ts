@@ -90,6 +90,7 @@ ${customKnowledgeList}
 export class ManagerLoop {
     private maxIterations = 500;
     private skillManager: SkillManager;
+    public isAgenticaMode: boolean = false;
 
     constructor(private provider: BaseBrowserAdapter, private isFirstMessage: boolean = true) {
         this.skillManager = new SkillManager();
@@ -138,23 +139,27 @@ export class ManagerLoop {
                 console.log(`\n⚠️  [Manager Action Request]: ${toolCall.action}`);
                 console.log(`Arguments: ${JSON.stringify(toolCall, null, 2)}`);
                 
-                const readline = require('readline');
-                const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-                const answer: string = await new Promise((resolve) => {
-                    rl.question('Allow Tech Lead to execute this? (Y/n/feedback): ', (ans: string) => {
-                        rl.close();
-                        resolve(ans.trim());
+                if (this.isAgenticaMode) {
+                    console.log(`\n🛡️ [Agentica Autonomy] Auto-approving dangerous command for Tech Lead Auditor due to Memory Lockdown restrictions.`);
+                } else {
+                    const readline = require('readline');
+                    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+                    const answer: string = await new Promise((resolve) => {
+                        rl.question('Allow Tech Lead to execute this? (Y/n/feedback): ', (ans: string) => {
+                            rl.close();
+                            resolve(ans.trim());
+                        });
                     });
-                });
 
-                if (answer.toLowerCase() === 'n' || answer.toLowerCase() === 'no') {
-                    console.log(`\n🚫 Action rejected by user.`);
-                    currentMessage = `<tool_result>\nUser denied permission.\n</tool_result>\n[SYSTEM REMINDER: Output next <tool_call>.]`;
-                    continue;
-                } else if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes' && answer !== '') {
-                    console.log(`\n💬 Sending user feedback to Tech Lead...`);
-                    currentMessage = `<tool_result>\nUser rejected with feedback: ${answer}\n</tool_result>\n[SYSTEM REMINDER: Correct your tool call based on feedback and output next <tool_call>.]`;
-                    continue;
+                    if (answer.toLowerCase() === 'n' || answer.toLowerCase() === 'no') {
+                        console.log(`\n🚫 Action rejected by user.`);
+                        currentMessage = `<tool_result>\nUser denied permission.\n</tool_result>\n[SYSTEM REMINDER: Output next <tool_call>.]`;
+                        continue;
+                    } else if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes' && answer !== '') {
+                        console.log(`\n💬 Sending user feedback to Tech Lead...`);
+                        currentMessage = `<tool_result>\nUser rejected with feedback: ${answer}\n</tool_result>\n[SYSTEM REMINDER: Correct your tool call based on feedback and output next <tool_call>.]`;
+                        continue;
+                    }
                 }
             }
 

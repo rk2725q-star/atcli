@@ -102,6 +102,7 @@ export class AgentLoop {
                     console.log(`\n🎉 Project completion detected! Spawning Tech Lead Auditor...`);
                     const { ManagerLoop } = require('./manager');
                     const manager = new ManagerLoop(this.provider, true);
+                    manager.isAgenticaMode = this.isAgenticaMode; // Pass the autonomy status to the manager
                     await manager.run('Perform a full deep architectural and bug audit on the entire codebase using all your available auditing skills. Fix any bugs found.');
                 } else {
                     console.log(`\n✅ Agent task completed or requires user feedback.`);
