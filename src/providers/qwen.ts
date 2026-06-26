@@ -50,15 +50,21 @@ export class QwenAdapter extends BaseBrowserAdapter {
 
             console.log(`[Qwen] Sending message...`);
             await this.page!.keyboard.press('Enter');
+            await this.page!.waitForTimeout(1000);
 
-            // Fallback: forcefully click the likely "Send" button (usually the last button in the DOM)
-            // in case the Enter key just made a newline.
+            // Fallback: forcefully click the likely "Send" button ONLY if the input still contains text
+            // If the input is empty, Enter worked, so do NOT click anything (might click Stop Generating!)
             await this.page!.evaluate(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                // Send button is usually the last button on the page or inside the chat input area
-                const sendBtn = buttons[buttons.length - 1];
-                if (sendBtn) {
-                    sendBtn.click();
+                const input = document.querySelector('textarea, [contenteditable="true"]') as HTMLElement;
+                const hasText = input && (input.innerText?.trim().length > 0 || (input as HTMLTextAreaElement).value?.trim().length > 0);
+                
+                if (hasText) {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    // Send button is usually near the input or the last button
+                    const sendBtn = buttons[buttons.length - 1];
+                    if (sendBtn) {
+                        sendBtn.click();
+                    }
                 }
             });
 
