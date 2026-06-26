@@ -59,22 +59,25 @@ Use the \`read_file\` tool to read their \`SKILL.md\` files.
     const skillsShDir = path.resolve(process.cwd(), '.agents', 'skills');
     const globalKnowledgeDir = path.resolve(__dirname, '..', '..', 'src', 'agent', 'knowledge', '.agents', 'skills');
     const osGlobalSkillsDir = path.resolve(require('os').homedir(), '.agents', 'skills');
+    const geminiGlobalSkillsDir = path.resolve(require('os').homedir(), '.gemini', 'config', 'skills');
     
     await scanForSkillDirectories(atcliSkillsDir);
     await scanForSkillDirectories(skillsShDir);
     await scanForSkillDirectories(globalKnowledgeDir);
     await scanForSkillDirectories(osGlobalSkillsDir);
+    await scanForSkillDirectories(geminiGlobalSkillsDir);
 
     let customKnowledge = "";
     if (customKnowledgeList) {
         customKnowledge = `
 # PROJECT SPECIFIC KNOWLEDGE & SKILLS (LAZY LOADED)
-We have custom skills available. To save context space, only their folder names are listed below.
+We have 40+ custom skills available. To save context space, only their folder names are listed below.
 The skills are physically located in the following absolute paths on this machine:
 - ${atcliSkillsDir}
 - ${skillsShDir}
 - ${globalKnowledgeDir}
 - ${osGlobalSkillsDir}
+- ${geminiGlobalSkillsDir}
 
 You MUST use the \`grep_search\` tool to search for keywords inside those EXACT absolute paths to find them.
 Once you identify a relevant skill folder, you MUST use \`list_dir\` to explore it using its absolute path, and \`read_file\` to read its \`SKILL.md\` or \`README.md\` documentation before making decisions.
