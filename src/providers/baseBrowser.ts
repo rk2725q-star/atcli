@@ -134,7 +134,7 @@ export abstract class BaseBrowserAdapter {
             console.error(`❌ Could not extract text from ${this.id}. DOM changed or still thinking. Triggering Doomsday Protocol...`);
             const { Healer } = await import('../agent/healer');
             await Healer.triggerDoomsdayProtocol(this.id, this.page!);
-            return `❌ Could not extract text from ${this.id}. Still thinking or DOM changed.`;
+            throw new Error(`Could not extract text from ${this.id}. Still thinking or DOM changed.`);
         }
 
         return finalResponse;
