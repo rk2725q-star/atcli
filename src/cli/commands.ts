@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
 export interface AppState {
     currentProvider: string;
     currentModel: string;
@@ -44,6 +47,39 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
             }
             return { handled: true };
             
+        case '/rename':
+            if (args.length < 3) {
+                console.log(`\n❌ Error: Usage: /rename <file_path> <old_string> <new_string>`);
+                console.log(`Example: /rename src/algo.js Var_A accountBalance`);
+                return { handled: true };
+            }
+            try {
+                const targetFile = args[0];
+                const oldStr = args[1];
+                const newStr = args[2];
+                const filePath = path.resolve(process.cwd(), targetFile);
+                
+                if (!fs.existsSync(filePath)) {
+                    console.log(`\n❌ Error: File not found: ${filePath}`);
+                    return { handled: true };
+                }
+                
+                let content = fs.readFileSync(filePath, 'utf-8');
+                if (!content.includes(oldStr)) {
+                    console.log(`\n⚠️ Warning: '${oldStr}' not found in ${targetFile}`);
+                    return { handled: true };
+                }
+                
+                const regex = new RegExp(oldStr.replace(/[.*+?^$\{}()|[\]\\]/g, '\\$&'), 'g');
+                content = content.replace(regex, newStr);
+                fs.writeFileSync(filePath, content, 'utf-8');
+                console.log(`\n✅ Success: Renamed all occurrences of '${oldStr}' to '${newStr}' in ${targetFile}`);
+                console.log(`🔒 The AI provider has NO knowledge of this rename operation.`);
+            } catch (err: any) {
+                console.log(`\n❌ Error renaming: ${err.message}`);
+            }
+            return { handled: true };
+            
         case '/exit':
             console.log('\nExiting ATCLI. Goodbye!');
             process.exit(0);
@@ -53,6 +89,7 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
             console.log('\nAvailable commands:');
             console.log('  /provider <name>  - Switch the current AI provider (e.g., deepseek, chatgpt, gemini)');
             console.log('  /model <name>     - Switch the current model');
+            console.log('  /rename <file> <old> <new> - Locally rename variables to protect IP from the AI');
             console.log('  /manage <task>    - Spawn the Tech Lead Agent to manage/review code');
             console.log('  /review <task>    - Alias for /manage');
             console.log('  /agentica <task>  - Enter OpenClaw autonomous continuous execution mode (Whole PC + Browser Control)');
