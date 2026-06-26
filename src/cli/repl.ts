@@ -160,7 +160,27 @@ export async function startRepl() {
                             const isFirstForProvider = !initializedProviders.has(state.currentProvider);
                             const agent = new AgentLoop(adapter, isFirstForProvider);
                             
-                            const continuousPrompt = `[AGENTICA OPENCLAW MODE: You are now running in continuous autonomous mode with full PC and browser control capabilities. Execute the following task continuously without stopping for user confirmation until the goal is 100% achieved:]\n\n${result.args}`;
+                            // 🛡️ LOCAL INPUT INTERCEPTOR (SECRET SCANNER)
+                            let safeArgs = result.args || '';
+                            const secretRegexes = [
+                                /sk-[a-zA-Z0-9_-]{20,}/g,         // OpenAI / Anthropic
+                                /sk_(live|test)_[a-zA-Z0-9_-]+/g,  // Stripe
+                                /ghp_[a-zA-Z0-9]{36}/g,           // GitHub PAT
+                                /AKIA[0-9A-Z]{16}/g               // AWS Access Key
+                            ];
+                            let secretMasked = false;
+                            for (const regex of secretRegexes) {
+                                if (regex.test(safeArgs)) {
+                                    safeArgs = safeArgs.replace(regex, '[REDACTED_LOCAL_SECRET]');
+                                    secretMasked = true;
+                                }
+                            }
+                            if (secretMasked) {
+                                console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your Agentica request!`);
+                                console.log(`⚠️  It has been LOCALLY MASKED before sending to the Cloud AI.`);
+                            }
+                            
+                            const continuousPrompt = `[AGENTICA OPENCLAW MODE: You are now running in continuous autonomous mode with full PC and browser control capabilities. Execute the following task continuously without stopping for user confirmation until the goal is 100% achieved:]\n\n${safeArgs}`;
                             
                             (agent as any).isAgenticaMode = true; 
                             
@@ -173,6 +193,30 @@ export async function startRepl() {
                 }
                 promptLoop();
             } else {
+                
+                // 🛡️ LOCAL INPUT INTERCEPTOR (SECRET SCANNER)
+                let safeInput = trimmed;
+                const secretRegexes = [
+                    /sk-[a-zA-Z0-9_-]{20,}/g,         // OpenAI / Anthropic
+                    /sk_(live|test)_[a-zA-Z0-9_-]+/g,  // Stripe
+                    /ghp_[a-zA-Z0-9]{36}/g,           // GitHub PAT
+                    /AKIA[0-9A-Z]{16}/g               // AWS Access Key
+                ];
+                
+                let secretMasked = false;
+                for (const regex of secretRegexes) {
+                    if (regex.test(safeInput)) {
+                        safeInput = safeInput.replace(regex, '[REDACTED_LOCAL_SECRET]');
+                        secretMasked = true;
+                    }
+                }
+                
+                if (secretMasked) {
+                    console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your input!`);
+                    console.log(`⚠️  It has been LOCALLY MASKED before sending to the Cloud AI to protect your security.`);
+                    console.log(`⚠️  The AI will receive: "[REDACTED_LOCAL_SECRET]" instead of your real key.`);
+                }
+
                 console.log(`\n[ATCLI] Sending to ${state.currentProvider}...`);
                 try {
                     const adapter = router.getAdapter(state.currentProvider);
@@ -186,7 +230,7 @@ export async function startRepl() {
                             return;
                         }
                         const agent = new AgentLoop(adapter, isFirstForProvider);
-                        await agent.run(trimmed);
+                        await agent.run(safeInput); // Send the masked input
                         initializedProviders.set(state.currentProvider, 'vibecoding');
                     }
                 } catch (error: any) {
