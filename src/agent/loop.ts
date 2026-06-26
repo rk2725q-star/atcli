@@ -6,6 +6,7 @@ export class AgentLoop {
     private maxIterations = 500;
     private skillManager: SkillManager;
     public isAgenticaMode: boolean = false;
+    private totalCharactersProcessed: number = 0;
 
     constructor(private provider: BaseBrowserAdapter, private isFirstMessage: boolean = false) {
         this.skillManager = new SkillManager();
@@ -63,6 +64,7 @@ export class AgentLoop {
         for (let i = 1; i <= this.maxIterations; i++) {
             console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);
             
+            this.totalCharactersProcessed += currentMessage.length;
             const response = await this.provider.sendMessage(currentMessage);
             
             if (response.error) {
@@ -74,6 +76,9 @@ export class AgentLoop {
             }
 
             const aiText = response.text;
+            this.totalCharactersProcessed += aiText.length;
+            const estimatedTokens = Math.floor(this.totalCharactersProcessed / 4);
+            console.log(`\n📊 Context Usage: ~${estimatedTokens.toLocaleString()} Tokens`);
             console.log(`\n[AI RESPONSE]:\n${aiText}`);
 
             // Parse tool call
@@ -142,10 +147,16 @@ export class AgentLoop {
             // Format the result to send back to the AI
             currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. DO NOT CONVERSE.]`;
             
-            // Context Refresh & Episodic Memory Checkpoint every 8 iterations
-            if (i > 0 && i % 8 === 0) {
+            // Context Refresh & Episodic Memory Checkpoint every 8 iterations OR if Context limit exceeded
+            if ((i > 0 && i % 8 === 0) || estimatedTokens > 40000) {
+                console.log(`\n🔄 [CONTEXT REFRESH TRIGGERED] Memory limit or iteration threshold reached. Reinjecting safety protocols.`);
                 const refreshPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
                 currentMessage += `\n\n[SYSTEM CONTEXT REFRESH: You have been running for ${i} iterations. To prevent you from forgetting your core instructions due to context window limits, here is your core programming again:\n${refreshPrompt}]\n\n[EPISODIC MEMORY CHECKPOINT: You MUST immediately use the \`write_file\` tool to write a summary of the user's original goal, what you have accomplished so far, the current architecture, and what remains to be done into a file named \`ATCLI_MEMORY.md\` in the root directory. This ensures you do not forget your task and future sessions can recall the project state! Do this BEFORE your next actual coding step!]`;
+                
+                // Reset tracker for this chunk to prevent infinite refresh looping
+                if (estimatedTokens > 40000) {
+                    this.totalCharactersProcessed = 0;
+                }
             }
         }
     }
