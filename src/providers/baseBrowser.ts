@@ -21,12 +21,56 @@ export abstract class BaseBrowserAdapter {
             const fileInputs = this.page!.locator('input[type="file"]');
             const count = await fileInputs.count();
             if (count > 0) {
-                // Usually the first or last file input handles uploads
-                await fileInputs.first().setInputFiles(imagePath);
-                console.log(`[${this.id.toUpperCase()}] Image uploaded. Waiting 2 seconds for UI processing...`);
-                await this.page!.waitForTimeout(2000);
+                console.log(`[${this.id.toUpperCase()}] Found ${count} file input(s). Injecting image into all...`);
+                let uploaded = false;
+                for (let i = 0; i < count; i++) {
+                    try {
+                        await fileInputs.nth(i).setInputFiles(imagePath);
+                        uploaded = true;
+                    } catch (err) {
+                        // Ignore errors on specific inputs (some might be disabled or restricted)
+                    }
+                }
+                if (uploaded) {
+                    console.log(`[${this.id.toUpperCase()}] Image successfully injected. Waiting 2 seconds for UI processing...`);
+                    await this.page!.waitForTimeout(2000);
+                } else {
+                    console.log(`[${this.id.toUpperCase()}] ⚠️ Found inputs but injection failed on all of them.`);
+                }
             } else {
-                console.log(`[${this.id.toUpperCase()}] ⚠️ No input[type="file"] found. Upload might fail or require clipboard fallback.`);
+                console.log(`[${this.id.toUpperCase()}] ⚠️ No input[type="file"] found. Attempting DataTransfer Drag-and-Drop fallback...`);
+                // Fallback: Inject the file using DataTransfer API directly onto the chat input area
+                const fs = require('fs');
+                const path = require('path');
+                const mime = 'image/png';
+                const buffer = fs.readFileSync(imagePath);
+                const base64 = buffer.toString('base64');
+                const filename = path.basename(imagePath);
+                
+                await this.page!.evaluate(
+                    async ({ b64, mimeType, name }) => {
+                        // Create a file object from base64
+                        const res = await fetch(`data:${mimeType};base64,${b64}`);
+                        const blob = await res.blob();
+                        const file = new File([blob], name, { type: mimeType });
+                        
+                        // Create a DataTransfer object
+                        const dt = new DataTransfer();
+                        dt.items.add(file);
+                        
+                        // Find the chat textarea to drop the file onto
+                        const target = document.querySelector('textarea, [contenteditable="true"]') || document.body;
+                        
+                        // Dispatch drag events
+                        target.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }));
+                        target.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true }));
+                        target.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true }));
+                    },
+                    { b64: base64, mimeType: mime, name: filename }
+                );
+                
+                console.log(`[${this.id.toUpperCase()}] Drag-and-Drop fallback executed. Waiting 2 seconds...`);
+                await this.page!.waitForTimeout(2000);
             }
         } catch (e: any) {
             console.log(`[${this.id.toUpperCase()}] Error uploading image: ${e.message}`);
