@@ -137,13 +137,15 @@ export async function startRepl() {
                 } else if (result.action === 'agentica') {
                     console.log(`\n[ATCLI] 🤖 ENTERING OPENCLAW CONTINUOUS MODE! PC & BROWSER CONTROL ENABLED.`);
                     
-                    // 🚨 MEMORY LOCKDOWN PROTOCOL
-                    if (state.currentProvider !== 'chatgpt' && state.currentProvider !== 'qwen') {
-                        console.log(`\n⚠️  [SECURITY WARNING] Agentica is highly dangerous and requires persistent cross-session memory for safety rules.`);
-                        console.log(`⚠️  Auto-switching from '${state.currentProvider}' to 'chatgpt' to utilize its Main Memory feature.`);
-                        console.log(`⚠️  IMPORTANT: If you ever change your ChatGPT account, you MUST re-run Agentica so it can re-burn the safety rules into the new account's memory!`);
-                        state.currentProvider = 'chatgpt';
+                    // 🚨 CHATGPT AGENTICA BLOCK & AUTO-SWITCH PROTOCOL
+                    if (state.currentProvider === 'chatgpt') {
+                        console.log(`\n⚠️  [SECURITY BLOCK] ChatGPT does not perform well in Agentica mode. ChatGPT is blocked for Agentica (only allowed for Vibecoding).`);
+                        console.log(`⚠️  Auto-switching from 'chatgpt' to 'qwen' as the default Agentica provider.`);
+                        state.currentProvider = 'qwen';
                     }
+                    
+                    // All other providers (qwen, deepseek, gemini, kimi, z.ai) are allowed for Agentica
+                    // because AgentLoop natively re-injects the 180k context periodically to prevent memory loss!
 
                     try {
                         if (initializedProviders.has(state.currentProvider)) {
