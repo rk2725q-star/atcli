@@ -21,6 +21,13 @@ export const WriteFileSkill: AgentSkill = {
 
         await fs.mkdir(path.dirname(targetPath), { recursive: true });
         await fs.writeFile(targetPath, args.content, 'utf8');
+
+        // 🚀 LIVE SYNC: Open file in VSCode automatically
+        try {
+            const { exec } = require('child_process');
+            exec(`code "${targetPath}"`);
+        } catch (e) {}
+
         return `Success: Wrote to ${args.path}`;
     }
 };

@@ -28,6 +28,13 @@ export const ReplaceContentSkill: AgentSkill = {
             }
             content = content.replace(args.search, args.replace);
             await fs.writeFile(targetPath, content, 'utf8');
+
+            // 🚀 LIVE SYNC: Open file in VSCode automatically
+            try {
+                const { exec } = require('child_process');
+                exec(`code "${targetPath}"`);
+            } catch (e) {}
+
             return `Success: Replaced content in ${args.path}`;
         } catch (e: any) {
             return `Error: ${e.message}`;
@@ -54,6 +61,13 @@ export const AppendContentSkill: AgentSkill = {
 
         try {
             await fs.appendFile(targetPath, '\n' + args.content, 'utf8');
+
+            // 🚀 LIVE SYNC: Open file in VSCode automatically
+            try {
+                const { exec } = require('child_process');
+                exec(`code "${targetPath}"`);
+            } catch (e) {}
+
             return `Success: Appended content to ${args.path}`;
         } catch (e: any) {
             return `Error: ${e.message}`;
