@@ -1,12 +1,14 @@
 import { BaseBrowserAdapter } from '../providers/baseBrowser';
 import { generateSystemPrompt } from './prompts';
 import { SkillManager } from './skillManager';
+import { get_encoding } from 'tiktoken';
 
 export class AgentLoop {
     private maxIterations = 500;
     private skillManager: SkillManager;
     public isAgenticaMode: boolean = false;
-    private totalCharactersProcessed: number = 0;
+    private totalTokensProcessed: number = 0;
+    private tokenizer = get_encoding("cl100k_base");
 
     constructor(private provider: BaseBrowserAdapter, private isFirstMessage: boolean = false) {
         this.skillManager = new SkillManager();
@@ -64,7 +66,9 @@ export class AgentLoop {
         for (let i = 1; i <= this.maxIterations; i++) {
             console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);
             
-            this.totalCharactersProcessed += currentMessage.length;
+            this.totalTokensProcessed += this.tokenizer.encode(currentMessage).length;
+            (global as any).atcli_current_tokens = this.totalTokensProcessed;
+            
             const response = await this.provider.sendMessage(currentMessage);
             
             if (response.error) {
@@ -76,9 +80,10 @@ export class AgentLoop {
             }
 
             const aiText = response.text;
-            this.totalCharactersProcessed += aiText.length;
-            const estimatedTokens = Math.floor(this.totalCharactersProcessed / 4);
-            console.log(`\n📊 Context Usage: ~${estimatedTokens.toLocaleString()} Tokens`);
+            this.totalTokensProcessed += this.tokenizer.encode(aiText).length;
+            (global as any).atcli_current_tokens = this.totalTokensProcessed;
+            
+            console.log(`\n📊 Exact Context Usage: ${this.totalTokensProcessed.toLocaleString()} Tokens`);
             console.log(`\n[AI RESPONSE]:\n${aiText}`);
 
             // Parse tool call
@@ -148,14 +153,15 @@ export class AgentLoop {
             currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. DO NOT CONVERSE.]`;
             
             // Context Refresh & Episodic Memory Checkpoint every 8 iterations OR if Context limit exceeded
-            if ((i > 0 && i % 8 === 0) || estimatedTokens > 180000) {
+            if ((i > 0 && i % 8 === 0) || this.totalTokensProcessed > 180000) {
                 console.log(`\n🔄 [CONTEXT REFRESH TRIGGERED] Memory limit or iteration threshold reached. Reinjecting safety protocols.`);
                 const refreshPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
                 currentMessage += `\n\n[SYSTEM CONTEXT REFRESH: You have been running for ${i} iterations. To prevent you from forgetting your core instructions due to context window limits, here is your core programming again:\n${refreshPrompt}]\n\n[EPISODIC MEMORY CHECKPOINT: You MUST immediately use the \`write_file\` tool to write a summary of the user's original goal, what you have accomplished so far, the current architecture, and what remains to be done into a file named \`ATCLI_MEMORY.md\` in the root directory. This ensures you do not forget your task and future sessions can recall the project state! Do this BEFORE your next actual coding step!]`;
                 
                 // Reset tracker for this chunk to prevent infinite refresh looping
-                if (estimatedTokens > 180000) {
-                    this.totalCharactersProcessed = 0;
+                if (this.totalTokensProcessed > 180000) {
+                    this.totalTokensProcessed = 0;
+                    (global as any).atcli_current_tokens = 0;
                 }
             }
         }
