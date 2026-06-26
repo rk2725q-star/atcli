@@ -112,6 +112,18 @@ export abstract class BaseBrowserAdapter {
             // Execute the provider-specific extraction logic
             const currentText = (await this.page!.evaluate(evaluateFn)) as string;
 
+            if (!currentText || currentText === "") {
+                // If specific extraction fails (e.g. A/B test popup changed the DOM), 
+                // do a universal scan for a completed <tool_call> block!
+                const entirePageText = await this.page!.evaluate(() => document.body.innerText);
+                const toolCallMatches = entirePageText.match(/<tool_call>[\s\S]*?<\/tool_call>/g);
+                if (toolCallMatches && toolCallMatches.length > 0) {
+                    console.log(`\n✅ [Universal Fallback] Successfully extracted tool_call from page text (A/B Test bypassed)!`);
+                    finalResponse = toolCallMatches[toolCallMatches.length - 1];
+                    break; // It has a closing tag, so generation is definitively finished!
+                }
+            }
+
             if (currentText && currentText === previousTextToIgnore) {
                 // The AI hasn't started generating the new response yet, still seeing the old one.
                 stableCount = 0;
