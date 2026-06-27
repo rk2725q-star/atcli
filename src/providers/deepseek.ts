@@ -14,7 +14,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
         await this.ensurePage();
 
         try {
-            const inputSelector = '#chat-input, textarea, [contenteditable="true"]';
+            const inputSelector = '#chat-input, textarea, [contenteditable], [placeholder*="Message"]';
             console.log(`[DeepSeek] Waiting for input field to appear...`);
             await this.waitForChatInput(inputSelector);
             console.log(`[DeepSeek] Input field found!`);
@@ -31,7 +31,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             console.log(`[DeepSeek] Attempting to click input field...`);
 
             // 1. Intelligently find the real visible input field
-            const textareaSelector = '#chat-input, textarea, [contenteditable="true"]';
+            const textareaSelector = '#chat-input, textarea, [contenteditable], [placeholder*="Message"]';
             const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
 
             try {
