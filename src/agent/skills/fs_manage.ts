@@ -13,9 +13,7 @@ export const DeleteFileSkill: AgentSkill = {
         if (!targetPath.startsWith(process.cwd())) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
-        if (targetPath.includes('browser_profile')) {
-            return "Error: Security violation. The 'browser_profile' folder is actively used by ATCLI's AI engine. Deleting it will cause the system to crash. Access denied.";
-        }
+
         try {
             await fs.rm(targetPath, { recursive: true, force: true });
             return `Success: Deleted ${args.path}`;
@@ -103,7 +101,7 @@ export const ClearWorkspaceSkill: AgentSkill = {
         try {
             const cwd = process.cwd();
             const files = await fs.readdir(cwd);
-            const preserved = ['.git', '.atcli-skills', 'node_modules', 'browser_profile'];
+            const preserved = ['.git', '.atcli-skills', 'node_modules'];
             let deletedCount = 0;
             
             for (const file of files) {

@@ -1,6 +1,7 @@
 import { chromium, BrowserContext, Page } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 export class BrowserManager {
     private static instance: BrowserManager;
@@ -19,8 +20,8 @@ export class BrowserManager {
     public async initialize(): Promise<void> {
         if (this.context) return;
 
-        // Use a local directory to store browser session/cookies
-        const userDataDir = path.resolve(process.cwd(), 'browser_profile');
+        // Use a GLOBAL directory so workspace stays clean and sessions are shared across projects
+        const userDataDir = path.join(os.homedir(), '.atcli', 'browser_profile');
         if (!fs.existsSync(userDataDir)) {
             fs.mkdirSync(userDataDir, { recursive: true });
         }
