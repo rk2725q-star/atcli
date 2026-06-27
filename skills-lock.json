@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "game-development": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/game-development/SKILL.md",
+      "computedHash": "4231a4f62874941e6d6665b03b84962fd4cf696283203616f031909fcd2d28e7"
+    },
     "terminal-ops": {
       "source": "affaan-m/everything-claude-code",
       "sourceType": "github",
