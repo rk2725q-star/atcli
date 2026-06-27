@@ -61,6 +61,16 @@ export class BrowserManager {
 
         console.log(`[Browser] Opening new tab for ${id}...`);
         const page = await this.context!.newPage();
+        
+        // Anti-Bot Stealth Masking to bypass Cloudflare / hCaptcha (DeepSeek/Google)
+        await page.addInitScript(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            // @ts-ignore
+            window.navigator.chrome = { runtime: {} };
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        });
+
         try {
             // Guarantee we don't hang if Playwright's internal timeout fails during network stalls
             await Promise.race([
