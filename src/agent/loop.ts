@@ -146,7 +146,7 @@ export class AgentLoop {
                 break;
             }
 
-            const dangerousTools = ['run_command', 'run_background_command', 'install_skill'];
+            const dangerousTools = ['run_command', 'run_background_command', 'install_skill', 'delete_file', 'clear_workspace'];
             if (dangerousTools.includes(toolCall.action)) {
                 console.log(`\n⚠️  [ATCLI Safety] The AI wants to execute: ${toolCall.action}`);
                 console.log(`Arguments: ${JSON.stringify(toolCall, null, 2)}`);

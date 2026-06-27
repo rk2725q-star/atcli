@@ -91,3 +91,27 @@ export const CopyFileSkill: AgentSkill = {
         }
     }
 };
+
+export const ClearWorkspaceSkill: AgentSkill = {
+    name: 'clear_workspace',
+    description: 'Safely deletes all files and folders in the current workspace, leaving behind essential configuration folders like .git and .atcli-skills.',
+    example: `<tool_call>\n{"action": "clear_workspace"}\n</tool_call>`,
+    execute: async () => {
+        try {
+            const cwd = process.cwd();
+            const files = await fs.readdir(cwd);
+            const preserved = ['.git', '.atcli-skills', 'node_modules'];
+            let deletedCount = 0;
+            
+            for (const file of files) {
+                if (!preserved.includes(file)) {
+                    await fs.rm(path.join(cwd, file), { recursive: true, force: true });
+                    deletedCount++;
+                }
+            }
+            return `Success: Cleared ${deletedCount} files/folders from the workspace. Preserved: ${preserved.join(', ')}`;
+        } catch (e: any) {
+            return `Error clearing workspace: ${e.message}`;
+        }
+    }
+};
