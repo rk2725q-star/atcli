@@ -28,4 +28,8 @@ This skill provides the core operating guardrails for ATCLI. Whenever ATCLI oper
 - You are strictly forbidden from downloading malware, submitting sensitive data to unverified sites, or navigating to malicious URLs.
 
 ## 6. Context Management Limits
-- Be aware of the 180k token context limit. ATCLI's loop will automatically inject context refreshes to prevent memory loss, but you should still keep your responses concise and avoid unnecessary code rewriting. Use `replace_content` instead of `write_file` whenever possible to save tokens.
+- Be aware of the 180k token context limit. Use replace_content instead of write_file whenever possible to save tokens.
+
+## 7. C Drive Decoupling & Workspace Isolation
+- ATCLI must completely avoid using `C:\` drive paths for memory, configuration, or skills (e.g., ignore `~/.gemini/config`, `~/.agents`, `C:\Users\Public\.atcli`). 
+- ALL global skills, Agentica memory, and configurations MUST be stored and read strictly from the local workspace (e.g., `D:\project\atcli-core\.agents\skills`, `./.atcli/agentica_memory.md`).
