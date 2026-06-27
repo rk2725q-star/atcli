@@ -63,8 +63,12 @@ Output ONLY valid JSON.`;
                 console.error('[DOOMSDAY HEALER] ❌ Max steps reached. Could not heal autonomously.');
             }
             
-        } catch (error) {
-            console.error('[DOOMSDAY HEALER] ❌ Healing Failed! Total Brain Death.', error);
+        } catch (error: any) {
+            if (error.message && error.message.includes('Not Found')) {
+                console.error('[DOOMSDAY HEALER] ❌ Healing Failed! Local Ollama not found or not running.');
+            } else {
+                console.error('[DOOMSDAY HEALER] ❌ Healing Failed! Total Brain Death.', error.message || error);
+            }
         }
     }
 
