@@ -196,10 +196,10 @@ export class AgentLoop {
                 currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. 24/7 SECURITY FIREWALL ACTIVE: You are strictly forbidden from running destructive commands. DO NOT CONVERSE.]`;
             }
             
-            // Episodic Memory Checkpoint every 15 iterations to save state
-            if (i > 0 && i % 15 === 0) {
+            // Episodic Memory Checkpoint every 3 iterations to save state
+            if (i > 0 && i % 3 === 0) {
                 console.log(`\n🧠 [EPISODIC MEMORY CHECKPOINT] Requesting AI to save state to ATCLI_MEMORY.md`);
-                currentMessage += `\n\n[EPISODIC MEMORY CHECKPOINT: You have been running for ${i} iterations. You MUST immediately use the \`write_file\` or \`replace_file_content\` tool to write/update a summary of the user's original goal, what you have accomplished so far, the current architecture, and what remains to be done into a file named \`ATCLI_MEMORY.md\` in the root directory. This ensures future sessions can recall the project state! Do this BEFORE your next coding step!]`;
+                currentMessage += `\n\n[EPISODIC MEMORY CHECKPOINT: You have been running for ${i} iterations. You MUST immediately use the \`write_file\` or \`replace_content\` tool to write/update a SHORT AND SWEET summary of what work you just finished, and the overall project state, into a file named \`ATCLI_MEMORY.md\` in the root directory. This ensures future sessions can recall the project state! Keep it very concise so the AI can read it quickly. Do this BEFORE your next coding step!]`;
             }
 
             // True Context Window Refresh (Only if exceeding massive token limits)

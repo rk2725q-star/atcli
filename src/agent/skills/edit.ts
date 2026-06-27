@@ -2,10 +2,10 @@ import { AgentSkill } from './base';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-export const ReplaceContentSkill: AgentSkill = {
-    name: 'replace_content',
-    description: 'Replaces a specific block of text in a file. Use this to edit a file without rewriting the entire file.',
-    example: `<tool_call>\n{"action": "replace_content", "path": "src/index.js", "search": "function old() {}", "replace": "function new() {}"}\n</tool_call>`,
+export const ReplaceSkill: AgentSkill = {
+    name: 'replace',
+    description: 'Intelligently replaces a specific block of text in a file. You can optionally provide startLine and endLine (1-indexed) to restrict the search and avoid duplicate matches.',
+    example: `<tool_call>\n{"action": "replace", "path": "src/index.js", "search": "function old() {}", "replace": "function new() {}", "startLine": 10, "endLine": 20}\n</tool_call>`,
     execute: async (args: any) => {
         if (!args.path || !args.search || args.replace === undefined) {
             return "Error: path, search, and replace are required";
@@ -23,10 +23,26 @@ export const ReplaceContentSkill: AgentSkill = {
 
         try {
             let content = await fs.readFile(targetPath, 'utf8');
-            if (!content.includes(args.search)) {
-                return "Error: Search string not found in the file. Make sure you provide the EXACT string, including whitespace.";
+            
+            if (args.startLine && args.endLine) {
+                const lines = content.split('\n');
+                const startIdx = Math.max(0, parseInt(args.startLine) - 1);
+                const endIdx = Math.min(lines.length, parseInt(args.endLine));
+                const chunk = lines.slice(startIdx, endIdx).join('\n');
+                
+                if (!chunk.includes(args.search)) {
+                    return "Error: Search string not found within the specified line range. Check whitespace/indentation.";
+                }
+                const replacedChunk = chunk.replace(args.search, args.replace);
+                lines.splice(startIdx, endIdx - startIdx, replacedChunk);
+                content = lines.join('\n');
+            } else {
+                if (!content.includes(args.search)) {
+                    return "Error: Search string not found in the file. Make sure you provide the EXACT string, including whitespace.";
+                }
+                content = content.replace(args.search, args.replace);
             }
-            content = content.replace(args.search, args.replace);
+            
             await fs.writeFile(targetPath, content, 'utf8');
 
             // 🚀 LIVE SYNC: Open file in the active IDE automatically
