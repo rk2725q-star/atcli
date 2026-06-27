@@ -141,8 +141,8 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
                         }
                     }
                     
-                    // Eagerly load core guardrail skills to enforce them globally
-                    if (lowerName.includes('guardrail') || lowerName.includes('architecture') || lowerName.includes('compression')) {
+                    // Eagerly load core guardrail, architecture, compression, and game skills to enforce them globally
+                    if (lowerName.includes('guardrail') || lowerName.includes('architecture') || lowerName.includes('compression') || lowerName.includes('game')) {
                         try {
                             const skillContent = await fs.readFile(path.join(dir, entry.name, 'SKILL.md'), 'utf-8');
                             customKnowledge += `\n\n[GLOBAL ACTIVE GUARDRAIL: ${entry.name}]\n${skillContent}\n`;
