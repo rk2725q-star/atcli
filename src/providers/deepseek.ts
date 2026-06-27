@@ -75,7 +75,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     return lastEl.innerText;
                 }
                 return "";
-            }, 60, 3, previousTextToIgnore);
+            }, 300, 3, previousTextToIgnore);
 
             return { text: responseText.trim() };
         } catch (error: any) {

@@ -147,30 +147,7 @@ export abstract class BaseBrowserAdapter {
             let currentText = (await this.page!.evaluate(evaluateFn)) as string;
 
             if (!currentText || currentText === "") {
-                // If specific extraction fails (e.g. A/B test popup changed the DOM), 
-                // do a universal scan for a completed <tool_call> block!
-                const entirePageText = await this.page!.evaluate(() => document.body.innerText);
-                const toolCallMatches = entirePageText.match(/<tool_call>[\s\S]*?<\/tool_call>/g);
-                if (toolCallMatches && toolCallMatches.length > 0) {
-                    console.log(`\n✅ [Universal Fallback] Successfully extracted tool_call from page text (A/B Test bypassed)!`);
-                    finalResponse = toolCallMatches[toolCallMatches.length - 1];
-                    break; // It has a closing tag, so generation is definitively finished!
-                } else if (entirePageText.includes('Response 1') && entirePageText.includes('Response 2')) {
-                    // Vibecoding A/B Test Fallback (No tool_call)
-                    const res2Index = entirePageText.lastIndexOf('Response 2');
-                    if (res2Index !== -1) {
-                        let text = entirePageText.substring(res2Index + 'Response 2'.length);
-                        text = text.replace(/I prefer this response/gi, '')
-                                   .replace(/Thinking completed/gi, '')
-                                   .replace(/Thinking\.\.\./gi, '')
-                                   .replace(/AI-generated content may not be accurate/gi, '')
-                                   .trim();
-                        if (text.length > 0) {
-                            // Feed it into the stability checker as if it was found normally
-                            currentText = text; 
-                        }
-                    }
-                }
+                continue;
             }
 
             if (currentText && currentText === previousTextToIgnore) {
