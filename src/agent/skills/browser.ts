@@ -246,7 +246,7 @@ export const BrowserSmartClickSkill: AgentSkill = {
             await locator.click();
             return `Successfully clicked element containing text: ${args.text}`;
         } catch (e: any) {
-            return `Error clicking: ${e.message}`;
+            return `Error: Could not find or click element with text '${args.text}'.\nFALLBACK INSTRUCTION: The text might be truncated, hidden, or an icon. You MUST now use 'browser_get_annotated_state' to generate numbered boxes on the screen, and then use 'browser_click_element' with the correct ID.`;
         }
     }
 };
