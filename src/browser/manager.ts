@@ -21,7 +21,12 @@ export class BrowserManager {
         if (this.context) return;
 
         // Use a GLOBAL directory so workspace stays clean and sessions are shared across projects
-        const userDataDir = path.join(os.homedir(), '.atcli', 'browser_profile');
+        // User requested to always use D: drive for global profile to save C: drive space
+        const globalDir = process.platform === 'win32' && fs.existsSync('D:\\') 
+            ? 'D:\\.atcli\\browser_profile' 
+            : path.join(os.homedir(), '.atcli', 'browser_profile');
+            
+        const userDataDir = globalDir;
         if (!fs.existsSync(userDataDir)) {
             fs.mkdirSync(userDataDir, { recursive: true });
         }
