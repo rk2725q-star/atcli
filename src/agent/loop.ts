@@ -35,8 +35,8 @@ export class AgentLoop {
             if (systemPrompt.length > MAX_CHUNK_LENGTH) {
                 console.log(`\n[Agent] System prompt is massive (${systemPrompt.length} chars). Intelligently splitting into semantic chunks...`);
                 
-                // Semantic chunking: split by paragraphs to avoid breaking tool JSONs or security rules in half
-                const paragraphs = systemPrompt.split('\n\n');
+                // Semantic chunking: split by paragraphs (handle both LF and CRLF) to avoid breaking tool JSONs or security rules in half
+                const paragraphs = systemPrompt.split(/\r?\n\r?\n/);
                 const chunks: string[] = [];
                 let currentChunkText = "";
                 
@@ -210,7 +210,7 @@ export class AgentLoop {
                 const MAX_CHUNK_LENGTH = 100000;
                 
                 if (refreshPrompt.length > MAX_CHUNK_LENGTH) {
-                    const paragraphs = refreshPrompt.split('\n\n');
+                    const paragraphs = refreshPrompt.split(/\r?\n\r?\n/);
                     const chunks: string[] = [];
                     let currentChunkText = "";
                     for (const p of paragraphs) {
