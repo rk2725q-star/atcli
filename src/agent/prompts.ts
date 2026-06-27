@@ -128,8 +128,8 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
             for (const entry of entries) {
                 if (entry.isDirectory()) {
                     // Filter out Agentica/OpenClaw/PC control skills if NOT in Agentica Mode
+                    const lowerName = entry.name.toLowerCase();
                     if (!isAgenticaMode) {
-                        const lowerName = entry.name.toLowerCase();
                         if (lowerName.includes('agentica') || 
                             lowerName.includes('openclaw') || 
                             lowerName.includes('hermes') || 
@@ -140,8 +140,17 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
                             continue; // Skip these dangerous autonomous skills in vibecoding mode
                         }
                     }
-                    // Only list the top-level skill directory name
-                    customKnowledgeList += `- ${entry.name}\n`;
+                    
+                    // Eagerly load core guardrail skills to enforce them globally
+                    if (lowerName.includes('guardrail') || lowerName.includes('architecture') || lowerName.includes('compression')) {
+                        try {
+                            const skillContent = await fs.readFile(path.join(dir, entry.name, 'SKILL.md'), 'utf-8');
+                            customKnowledge += `\n\n[GLOBAL ACTIVE GUARDRAIL: ${entry.name}]\n${skillContent}\n`;
+                        } catch (e) {}
+                    } else {
+                        // Only list the top-level skill directory name for lazy-loaded tools
+                        customKnowledgeList += `- ${entry.name}\n`;
+                    }
                 }
             }
         } catch (e) {
