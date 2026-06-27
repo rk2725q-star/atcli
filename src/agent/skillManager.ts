@@ -12,11 +12,15 @@ export class SkillManager {
 
         // 2. Load Custom Workspace Skills (User can drop .js files in .atcli-skills/)
         const customDir = path.resolve(process.cwd(), '.atcli-skills');
-        try {
-            await this.loadSkillsFromDirectory(customDir);
-        } catch (e) {
-            // Custom directory might not exist, which is fine
-        }
+        try { await this.loadSkillsFromDirectory(customDir); } catch (e) {}
+
+        // 3. Load Global Skills from skills.sh (e.g., ~/.atcli/skills or ~/.agents/skills)
+        const homeDir = require('os').homedir();
+        const globalAtcliDir = path.join(homeDir, '.atcli', 'skills');
+        const globalAgentsDir = path.join(homeDir, '.agents', 'skills');
+        
+        try { await this.loadSkillsFromDirectory(globalAtcliDir); } catch (e) {}
+        try { await this.loadSkillsFromDirectory(globalAgentsDir); } catch (e) {}
     }
 
     private async loadSkillsFromDirectory(dirPath: string) {
