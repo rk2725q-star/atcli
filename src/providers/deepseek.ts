@@ -77,7 +77,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 return "";
             }, 300, 3, previousTextToIgnore, async () => {
                 return await this.page!.evaluate(() => {
-                    const buttons = Array.from(document.querySelectorAll('div[role="button"], button'));
+                    const buttons = Array.from(document.querySelectorAll('div[role="button"], button')) as HTMLElement[];
                     const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
                     if (stopBtn) return true;
                     return false;
@@ -99,7 +99,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     return "";
                 }, 300, 3, "", async () => {
                     return await this.page!.evaluate(() => {
-                        const buttons = Array.from(document.querySelectorAll('div[role="button"], button'));
+                        const buttons = Array.from(document.querySelectorAll('div[role="button"], button')) as HTMLElement[];
                         const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
                         if (stopBtn) return true;
                         return false;
