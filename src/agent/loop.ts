@@ -60,7 +60,7 @@ export class AgentLoop {
                 currentMessage = `${systemPrompt}\n\nUser Request:\n${userMessage}`;
             }
         } else {
-            let reminder = "[SYSTEM REMINDER: DO NOT ASK FOR PERMISSION. DO NOT WRITE JAVASCRIPT CODE BLOCKS. YOU MUST IMMEDIATELY OUTPUT THE EXACT <tool_call> XML BLOCK. DO NOT CONVERSE.]";
+            let reminder = "[SYSTEM REMINDER: DO NOT ASK FOR PERMISSION. DO NOT WRITE JAVASCRIPT CODE BLOCKS. IF YOU NEED TO EXECUTE A COMMAND OR FILE OPERATION, OUTPUT THE <tool_call> XML BLOCK. IF THE USER IS JUST CHATTING, YOU MAY RESPOND WITH TEXT NORMALLY.]";
             if (this.isAgenticaMode) {
                 reminder += "\n[AGENTICA OVERRIDE: YOU ARE CONNECTED TO THE ATCLI XML BRIDGE. YOU DO HAVE PHYSICAL PC CONTROL. YOU MUST NOT USE INTERNAL SEARCH. EMIT <tool_call> TO OPEN THE BROWSER OR RUN COMMANDS.]";
             }
