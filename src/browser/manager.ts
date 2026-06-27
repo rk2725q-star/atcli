@@ -26,7 +26,7 @@ export class BrowserManager {
         }
 
         console.log(`\n[Browser] Launching browser with persistent profile...`);
-        this.context = await chromium.launchPersistentContext(userDataDir, {
+        const baseOptions = {
             headless: false, // Must be false so user can do CAPTCHAs/logins if needed
             args: [
                 '--disable-blink-features=AutomationControlled',
@@ -34,7 +34,17 @@ export class BrowserManager {
                 '--hide-crash-restore-window'
             ],
             viewport: null
-        });
+        };
+        
+        try {
+            this.context = await chromium.launchPersistentContext(userDataDir, { ...baseOptions, channel: 'chrome' });
+        } catch (e) {
+            try {
+                this.context = await chromium.launchPersistentContext(userDataDir, { ...baseOptions, channel: 'msedge' });
+            } catch (e2) {
+                this.context = await chromium.launchPersistentContext(userDataDir, baseOptions);
+            }
+        }
         
         console.log(`[Browser] Browser context initialized.`);
     }

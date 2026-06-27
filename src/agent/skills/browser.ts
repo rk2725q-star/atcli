@@ -17,7 +17,15 @@ class BrowserSessionManager {
 
     public async getPage(): Promise<Page> {
         if (!this.browser) {
-            this.browser = await chromium.launch({ headless: false });
+            try {
+                this.browser = await chromium.launch({ headless: false, channel: 'chrome', args: ['--disable-blink-features=AutomationControlled'] });
+            } catch (e) {
+                try {
+                    this.browser = await chromium.launch({ headless: false, channel: 'msedge', args: ['--disable-blink-features=AutomationControlled'] });
+                } catch (e2) {
+                    this.browser = await chromium.launch({ headless: false, args: ['--disable-blink-features=AutomationControlled'] });
+                }
+            }
         }
         if (!this.page || this.page.isClosed()) {
             const context = await this.browser.newContext();
