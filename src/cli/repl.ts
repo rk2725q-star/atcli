@@ -149,9 +149,9 @@ export async function startRepl() {
 
                     try {
                         if (initializedProviders.has(state.currentProvider)) {
-                            console.log(`\n❌ [SECURITY BLOCK] Agentica can ONLY be used in a fresh, new chat session! You cannot mix Agentica with an ongoing Vibecoding session. Please restart ATCLI to use Agentica.`);
-                            promptLoop();
-                            return;
+                            console.log(`\n🔄 [AUTO-SWITCH] Resetting the browser session for a fresh Agentica instance...`);
+                            await BrowserManager.getInstance().closeAll();
+                            initializedProviders.clear();
                         }
                         const adapter = router.getAdapter(state.currentProvider);
                         if (!adapter) {
