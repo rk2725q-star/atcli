@@ -34,6 +34,9 @@ export const WriteFileSkill: AgentSkill = {
                     cmd = 'cursor';
                 } else if (process.env.ANTIGRAVITY_EDITOR_APP_ROOT) {
                     cmd = 'antigravity-ide';
+                } else {
+                    // Fallback to VSCode if running from a raw terminal where TERM_PROGRAM is undefined
+                    cmd = 'code';
                 }
 
                 if (cmd) exec(`${cmd} "${targetPath}"`);
