@@ -100,13 +100,13 @@ export const CopyFileSkill: AgentSkill = {
 
 export const ClearWorkspaceSkill: AgentSkill = {
     name: 'clear_workspace',
-    description: 'Safely deletes all files and folders in the current workspace, leaving behind essential configuration folders like .git and .atcli-skills.',
+    description: 'Deletes all files and folders in the current workspace, leaving behind essential configuration folders (.git, .agents, .atcli) and the ATCLI memory file. Use this when the user asks to "delete all files", "clear workspace", or "clear workshop". Do not use delete_file manually for this.',
     example: `<tool_call>\n{"action": "clear_workspace"}\n</tool_call>`,
     execute: async () => {
         try {
             const cwd = process.cwd();
             const files = await fs.readdir(cwd);
-            const preserved = ['.git', '.atcli-skills', 'node_modules'];
+            const preserved = ['.git', '.atcli-skills', 'node_modules', 'ATCLI_MEMORY.md', 'AGENTICA_MEMORY.md', '.agents', '.atcli'];
             let deletedCount = 0;
             
             for (const file of files) {
