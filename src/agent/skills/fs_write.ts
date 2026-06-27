@@ -22,10 +22,16 @@ export const WriteFileSkill: AgentSkill = {
         await fs.mkdir(path.dirname(targetPath), { recursive: true });
         await fs.writeFile(targetPath, args.content, 'utf8');
 
-        // 🚀 LIVE SYNC: Open file in VSCode automatically
+        // 🚀 LIVE SYNC: Open file in the active IDE automatically
         try {
             const { exec } = require('child_process');
-            exec(`code "${targetPath}"`);
+            let cmd = 'code';
+            if (process.env.VSCODE_CWD?.toLowerCase().includes('antigravity') || process.env.ANTIGRAVITY_EDITOR_APP_ROOT) {
+                cmd = 'antigravity-ide';
+            } else if (process.env.VSCODE_CWD?.toLowerCase().includes('cursor')) {
+                cmd = 'cursor';
+            }
+            exec(`${cmd} "${targetPath}"`);
         } catch (e) {}
 
         return `Success: Wrote to ${args.path}`;
