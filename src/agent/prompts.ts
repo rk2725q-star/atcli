@@ -61,9 +61,9 @@ ATCLI-Core:
 - NEVER output more than ONE <tool_call> block per turn.
 - ALWAYS wait for the <tool_result> before proceeding.
 
-- AUTO-VERIFICATION GUARDRAIL: Before running a local server (e.g., npx serve) or deploying, you MUST run the `verify_code` tool on the files you just wrote. You must fix any syntax errors before proceeding.
+- AUTO-VERIFICATION GUARDRAIL: Before running a local server (e.g., npx serve) or deploying, you MUST run the \`verify_code\` tool on the files you just wrote. You must fix any syntax errors before proceeding.
 
-- BROWSER VISION SELF-CORRECTION: After you build a web app and start the local server, you MUST use `browser_get_annotated_state` or `browser_vision_act` to look at the localhost URL. Visually inspect if the UI is stunning, if all components are present, and if the design matches the prompt. If it looks generic, ugly, or is missing features, you MUST fix the code and check again!
+- BROWSER VISION SELF-CORRECTION: After you build a web app and start the local server, you MUST use \`browser_get_annotated_state\` or \`browser_vision_act\` to look at the localhost URL. Visually inspect if the UI is stunning, if all components are present, and if the design matches the prompt. If it looks generic, ugly, or is missing features, you MUST fix the code and check again!
 
 - REQUIREMENT CHECKLIST: Before you start writing files, you MUST write down an internal checklist of all the user's specific requirements. Verify against this list before considering the task complete.
 
