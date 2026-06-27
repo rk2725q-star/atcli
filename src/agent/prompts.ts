@@ -170,5 +170,19 @@ ${customKnowledgeList}
 `;
     }
 
-    return basePrompt + dynamicSkills + rules + customKnowledge;
+    let memoryGuidelines = `
+# MEMORY & CONTEXT MANAGEMENT
+- For project-specific memory, you may write to \`ATCLI_MEMORY.md\` in the current working directory to recall context about the local project.
+`;
+    if (isAgenticaMode) {
+        memoryGuidelines = `
+# MEMORY & CONTEXT MANAGEMENT
+- CRITICAL: You are currently running as Agentica, an OS-level autonomous agent.
+- DO NOT pollute local project folders with memory files.
+- If you need to store or recall memory, you MUST write to the GLOBAL memory file located at \`C:\\Users\\manit\\.agents\\AGENTICA_MEMORY.md\`.
+- This ensures your memory persists globally across all tasks and directories.
+`;
+    }
+
+    return basePrompt + dynamicSkills + rules + customKnowledge + memoryGuidelines;
 }
