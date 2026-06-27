@@ -157,7 +157,23 @@ export abstract class BaseBrowserAdapter {
             }
 
             if (currentText && currentText === finalResponse) {
-                // INSTANT BREAK OPTIMIZATION: If we see a completed tool_call, don't wait for 3 seconds!
+                const lowerText = finalResponse.trim().toLowerCase();
+                
+                // 1. Thinking Mode Check
+                if (lowerText === 'thinking' || lowerText === 'thinking...' || lowerText === 'generating' || lowerText === 'generating...') {
+                    if (stableCount % 5 === 0) console.log(`\n⏳ [${this.id.toUpperCase()}] AI is in Thinking Mode... Auto-waiting.`);
+                    stableCount = 0;
+                    continue;
+                }
+
+                // 2. Unclosed Tool Call Check
+                if (finalResponse.includes('<tool_call>') && !finalResponse.includes('</tool_call>')) {
+                    if (stableCount % 5 === 0) console.log(`\n⏳ [${this.id.toUpperCase()}] AI is typing a tool call (Paused)... Auto-waiting.`);
+                    stableCount = 0;
+                    continue;
+                }
+
+                // INSTANT BREAK OPTIMIZATION: If we see a completed tool_call, don't wait!
                 if (finalResponse.includes('</tool_call>')) {
                     console.log(`\n⚡ [${this.id.toUpperCase()}] Tool execution finished. Bypassing stability wait for instant action!`);
                     break;
