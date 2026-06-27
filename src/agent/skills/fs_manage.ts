@@ -100,7 +100,7 @@ export const ClearWorkspaceSkill: AgentSkill = {
         try {
             const cwd = process.cwd();
             const files = await fs.readdir(cwd);
-            const preserved = ['.git', '.atcli-skills', 'node_modules'];
+            const preserved = ['.git', '.atcli-skills', 'node_modules', 'browser_profile'];
             let deletedCount = 0;
             
             for (const file of files) {
