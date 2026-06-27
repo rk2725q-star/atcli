@@ -701,3 +701,79 @@ export const GenerateReactComponentSkill: AgentSkill = {
     return `✅ React component generated → ${filePath}\nProps: children · className · onClick · disabled · variant (primary | secondary | ghost)\nIncludes: TypeScript types · Tailwind variants · accessibility attributes`;
   },
 };
+
+export const InitExpoMobileAppSkill: AgentSkill = {
+  name: 'init_expo_mobile_app',
+  description:
+    'Initializes a React Native Expo project. Essential for bootstrapping before applying Mobile UX global skills.',
+  example: `<tool_call>\n{"action": "init_expo_mobile_app", "directory": "./mobile-app"}\n</tool_call>`,
+  execute: async (args: any) => {
+    const err = requireArg(args, 'directory');
+    if (err) return err;
+    const dir = path.resolve(args.directory);
+
+    // Bootstraps Expo
+    const result = await run(`npx create-expo-app@latest "${dir}" --template blank-typescript`);
+    return `✅ Expo App Scaffolding Complete in ${dir}.\nNext: Apply sleek-design-mobile-apps global skill to build top-notch UI.\n${result}`;
+  },
+};
+
+export const InitReactThreeFiberSkill: AgentSkill = {
+  name: 'init_react_three_fiber',
+  description:
+    'Installs three.js and react-three-fiber dependencies into an existing React project for 3D experiences.',
+  example: `<tool_call>\n{"action": "init_react_three_fiber", "directory": "./my-app"}\n</tool_call>`,
+  execute: async (args: any) => {
+    const err = requireArg(args, 'directory');
+    if (err) return err;
+    const dir = path.resolve(args.directory);
+
+    const install = await run(`npm install three @react-three/fiber @react-three/drei`, dir);
+    const types = await run(`npm install -D @types/three`, dir);
+    
+    // Create base Canvas component
+    writeFile(
+      path.join(dir, 'src', 'components', 'Scene3D.tsx'),
+      `import { Canvas } from '@react-three/fiber';\nimport { OrbitControls, Environment } from '@react-three/drei';\n\nexport default function Scene3D() {\n  return (\n    <div style={{ width: '100vw', height: '100vh' }}>\n      <Canvas camera={{ position: [0, 0, 5] }}>\n        <ambientLight intensity={0.5} />\n        <OrbitControls />\n        <Environment preset="city" />\n        <mesh>\n          <boxGeometry />\n          <meshStandardMaterial color="hotpink" />\n        </mesh>\n      </Canvas>\n    </div>\n  );\n}\n`
+    );
+
+    return `✅ 3D WebGL Engine Installed (React Three Fiber).\nCreated base component: src/components/Scene3D.tsx.\nNext: Apply 3d-web-experience global skill for advanced WebGL generation.\n${install}\n${types}`;
+  },
+};
+
+export const InitFramerMotionSkill: AgentSkill = {
+  name: 'init_framer_motion',
+  description:
+    'Installs framer-motion into an existing React project for micro-interactions and animations.',
+  example: `<tool_call>\n{"action": "init_framer_motion", "directory": "./my-app"}\n</tool_call>`,
+  execute: async (args: any) => {
+    const err = requireArg(args, 'directory');
+    if (err) return err;
+    const dir = path.resolve(args.directory);
+
+    const install = await run(`npm install framer-motion`, dir);
+    
+    writeFile(
+      path.join(dir, 'src', 'components', 'AnimatedFadeIn.tsx'),
+      `import { motion } from 'framer-motion';\nimport { ReactNode } from 'react';\n\nexport default function AnimatedFadeIn({ children }: { children: ReactNode }) {\n  return (\n    <motion.div\n      initial={{ opacity: 0, y: 20 }}\n      animate={{ opacity: 1, y: 0 }}\n      transition={{ duration: 0.5, ease: 'easeOut' }}\n    >\n      {children}\n    </motion.div>\n  );\n}\n`
+    );
+
+    return `✅ Animations Engine Installed (Framer Motion).\nCreated base component: src/components/AnimatedFadeIn.tsx.\nNext: Use hyperframes-animation global skill for advanced interactions.\n${install}`;
+  },
+};
+
+export const InitStorybookDocsSkill: AgentSkill = {
+  name: 'init_storybook_docs',
+  description:
+    'Initializes Storybook inside an existing project for isolated component UI/UX testing.',
+  example: `<tool_call>\n{"action": "init_storybook_docs", "directory": "./my-app"}\n</tool_call>`,
+  execute: async (args: any) => {
+    const err = requireArg(args, 'directory');
+    if (err) return err;
+    const dir = path.resolve(args.directory);
+
+    const init = await run(`npx storybook@latest init --yes`, dir);
+
+    return `✅ Storybook Design System Setup Complete.\nNext: Use ui-ux-pro-max global skill to generate premium UI tokens and components into Storybook.\n${init}`;
+  },
+};
