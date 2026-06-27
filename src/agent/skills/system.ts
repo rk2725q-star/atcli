@@ -52,3 +52,13 @@ export const ListPortsSkill: AgentSkill = {
         });
     }
 };
+
+export const GetCurrentTimeSkill: AgentSkill = {
+    name: 'get_current_time',
+    description: 'Returns the exact true current date, time, and timezone of the local system. Very useful for answering time-sensitive questions or scheduling.',
+    example: `<tool_call>\n{"action": "get_current_time"}\n</tool_call>`,
+    execute: async () => {
+        const now = new Date();
+        return `Current Date and Time: ${now.toString()}\nISO: ${now.toISOString()}\nTimezone Offset: ${now.getTimezoneOffset()} minutes`;
+    }
+};

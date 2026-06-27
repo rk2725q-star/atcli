@@ -157,6 +157,12 @@ export abstract class BaseBrowserAdapter {
             }
 
             if (currentText && currentText === finalResponse) {
+                // INSTANT BREAK OPTIMIZATION: If we see a completed tool_call, don't wait for 3 seconds!
+                if (finalResponse.includes('</tool_call>')) {
+                    console.log(`\n⚡ [${this.id.toUpperCase()}] Tool execution finished. Bypassing stability wait for instant action!`);
+                    break;
+                }
+                
                 stableCount++;
                 if (stableCount >= stableSecondsRequired) {
                     break; // Text hasn't changed, generation is likely done!
