@@ -191,17 +191,21 @@ export class AgentLoop {
                 currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. 24/7 SECURITY FIREWALL ACTIVE: You are strictly forbidden from running destructive commands. DO NOT CONVERSE.]`;
             }
             
-            // Context Refresh & Episodic Memory Checkpoint every 8 iterations OR if Context limit exceeded
-            if ((i > 0 && i % 8 === 0) || this.totalTokensProcessed > 180000) {
-                console.log(`\n🔄 [CONTEXT REFRESH TRIGGERED] Memory limit or iteration threshold reached. Reinjecting safety protocols.`);
+            // Episodic Memory Checkpoint every 15 iterations to save state
+            if (i > 0 && i % 15 === 0) {
+                console.log(`\n🧠 [EPISODIC MEMORY CHECKPOINT] Requesting AI to save state to ATCLI_MEMORY.md`);
+                currentMessage += `\n\n[EPISODIC MEMORY CHECKPOINT: You have been running for ${i} iterations. You MUST immediately use the \`write_file\` or \`replace_file_content\` tool to write/update a summary of the user's original goal, what you have accomplished so far, the current architecture, and what remains to be done into a file named \`ATCLI_MEMORY.md\` in the root directory. This ensures future sessions can recall the project state! Do this BEFORE your next coding step!]`;
+            }
+
+            // True Context Window Refresh (Only if exceeding massive token limits)
+            if (this.totalTokensProcessed > 180000) {
+                console.log(`\n🔄 [CRITICAL CONTEXT REFRESH] 180k Token limit reached. Reinjecting full System Prompt to prevent memory loss.`);
                 const refreshPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
-                currentMessage += `\n\n[SYSTEM CONTEXT REFRESH: You have been running for ${i} iterations. To prevent you from forgetting your core instructions due to context window limits, here is your core programming again:\n${refreshPrompt}]\n\n[EPISODIC MEMORY CHECKPOINT: You MUST immediately use the \`write_file\` tool to write a summary of the user's original goal, what you have accomplished so far, the current architecture, and what remains to be done into a file named \`ATCLI_MEMORY.md\` in the root directory. This ensures you do not forget your task and future sessions can recall the project state! Do this BEFORE your next actual coding step!]`;
+                currentMessage += `\n\n[SYSTEM CONTEXT REFRESH: You have exceeded the context window limits. To prevent you from forgetting your core instructions and tools, here is your core programming again:\n${refreshPrompt}]\n\n[END OF CONTEXT REFRESH]`;
                 
-                // Reset tracker for this chunk to prevent infinite refresh looping
-                if (this.totalTokensProcessed > 180000) {
-                    this.totalTokensProcessed = 0;
-                    (global as any).atcli_current_tokens = 0;
-                }
+                // Reset tracker to prevent infinite refresh looping
+                this.totalTokensProcessed = 0;
+                (global as any).atcli_current_tokens = 0;
             }
         }
     }
