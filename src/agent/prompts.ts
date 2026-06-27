@@ -179,7 +179,7 @@ ${customKnowledgeList}
 # MEMORY & CONTEXT MANAGEMENT
 - CRITICAL: You are currently running as Agentica, an OS-level autonomous agent.
 - DO NOT pollute local project folders with memory files.
-- If you need to store or recall memory, you MUST write to the GLOBAL memory file located at \`C:\\Users\\manit\\.agents\\AGENTICA_MEMORY.md\`.
+- If you need to store or recall memory, you MUST write to the GLOBAL memory file located at \`D:\\.agents\\AGENTICA_MEMORY.md\`.
 - This ensures your memory persists globally across all tasks and directories.
 `;
     }
