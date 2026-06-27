@@ -216,7 +216,39 @@ export class AgentLoop {
             if (this.totalTokensProcessed > 180000) {
                 console.log(`\n🔄 [CRITICAL CONTEXT REFRESH] 180k Token limit reached. Reinjecting full System Prompt to prevent memory loss.`);
                 const refreshPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
-                currentMessage += `\n\n[SYSTEM CONTEXT REFRESH: You have exceeded the context window limits. To prevent you from forgetting your core instructions and tools, here is your core programming again:\n${refreshPrompt}]\n\n[END OF CONTEXT REFRESH]`;
+                const MAX_CHUNK_LENGTH = 100000;
+                
+                if (refreshPrompt.length > MAX_CHUNK_LENGTH) {
+                    const paragraphs = refreshPrompt.split('\n\n');
+                    const chunks: string[] = [];
+                    let currentChunkText = "";
+                    for (const p of paragraphs) {
+                        if (currentChunkText.length + p.length + 2 > MAX_CHUNK_LENGTH) {
+                            if (currentChunkText) chunks.push(currentChunkText.trim());
+                            currentChunkText = p;
+                        } else {
+                            currentChunkText += (currentChunkText ? '\n\n' : '') + p;
+                        }
+                    }
+                    if (currentChunkText) chunks.push(currentChunkText.trim());
+
+                    const numChunks = chunks.length;
+                    for (let j = 0; j < numChunks; j++) {
+                        const isLastChunk = j === numChunks - 1;
+                        let messageToSend = `[CONTEXT REFRESH Part ${j + 1}/${numChunks}]\n${chunks[j]}`;
+                        
+                        if (!isLastChunk) {
+                            messageToSend += `\n\n[SYSTEM INSTRUCTION: This is a partial context refresh. Do not execute anything yet. Just reply "Received refresh part ${j + 1}".]`;
+                            console.log(`[Agent] Sending refresh chunk ${j + 1}/${numChunks}...`);
+                            await this.provider.sendMessage(messageToSend);
+                        } else {
+                            // On the last chunk, append the actual current tool result we were trying to send!
+                            currentMessage = `${messageToSend}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+                        }
+                    }
+                } else {
+                    currentMessage = `[CONTEXT REFRESH: Core programming reminder:]\n\n${refreshPrompt}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+                }
                 
                 // Reset tracker to prevent infinite refresh looping
                 this.totalTokensProcessed = 0;
