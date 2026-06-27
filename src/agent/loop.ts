@@ -33,12 +33,27 @@ export class AgentLoop {
             const MAX_CHUNK_LENGTH = 100000; // Increased to 100k to prevent splitting JSON definitions across chunks
             
             if (systemPrompt.length > MAX_CHUNK_LENGTH) {
-                console.log(`\n[Agent] System prompt is massive (${systemPrompt.length} chars). Intelligently splitting into chunks...`);
+                console.log(`\n[Agent] System prompt is massive (${systemPrompt.length} chars). Intelligently splitting into semantic chunks...`);
                 
-                const numChunks = Math.ceil(systemPrompt.length / MAX_CHUNK_LENGTH);
+                // Semantic chunking: split by paragraphs to avoid breaking tool JSONs or security rules in half
+                const paragraphs = systemPrompt.split('\n\n');
+                const chunks: string[] = [];
+                let currentChunkText = "";
+                
+                for (const p of paragraphs) {
+                    if (currentChunkText.length + p.length + 2 > MAX_CHUNK_LENGTH) {
+                        if (currentChunkText) chunks.push(currentChunkText.trim());
+                        currentChunkText = p;
+                    } else {
+                        currentChunkText += (currentChunkText ? '\n\n' : '') + p;
+                    }
+                }
+                if (currentChunkText) chunks.push(currentChunkText.trim());
+
+                const numChunks = chunks.length;
                 for (let i = 0; i < numChunks; i++) {
                     const isLastChunk = i === numChunks - 1;
-                    const chunkText = systemPrompt.substring(i * MAX_CHUNK_LENGTH, (i + 1) * MAX_CHUNK_LENGTH);
+                    const chunkText = chunks[i];
                     
                     let messageToSend = `[System Knowledge Base Part ${i + 1}/${numChunks}]\n${chunkText}`;
                     
