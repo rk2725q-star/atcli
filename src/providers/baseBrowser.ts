@@ -106,16 +106,7 @@ export abstract class BaseBrowserAdapter {
                 console.log(`[${this.id.toUpperCase()}] Action required: The AI provider might be asking for a Login, Signup, or CAPTCHA.`);
                 console.log(`[${this.id.toUpperCase()}] Please complete the required action in the browser window.`);
                 
-                await new Promise<void>((resolve) => {
-                    const readline = require('readline').createInterface({
-                        input: process.stdin,
-                        output: process.stdout
-                    });
-                    readline.question(`\n[${this.id.toUpperCase()}] Press ENTER here when you are done to resume... `, () => {
-                        readline.close();
-                        resolve();
-                    });
-                });
+                await (global as any).askQuestion(`\n[${this.id.toUpperCase()}] Press ENTER here when you are done to resume... `);
                 console.log(`[${this.id.toUpperCase()}] Resuming and checking for input field again...`);
             }
         }

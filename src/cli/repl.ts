@@ -26,6 +26,11 @@ const rl = readline.createInterface({
 (global as any).resumeRepl = () => {
     rl.resume();
 };
+(global as any).askQuestion = (query: string): Promise<string> => {
+    return new Promise(resolve => {
+        rl.question(query, resolve);
+    });
+};
 
 let sigintCount = 0;
 rl.on('SIGINT', async () => {

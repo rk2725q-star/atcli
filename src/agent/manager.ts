@@ -145,14 +145,8 @@ export class ManagerLoop {
                 if (this.isAgenticaMode) {
                     console.log(`\n🛡️ [Agentica Autonomy] Auto-approving dangerous command for Tech Lead Auditor due to Memory Lockdown restrictions.`);
                 } else {
-                    const readline = require('readline');
-                    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-                    const answer: string = await new Promise((resolve) => {
-                        rl.question('Allow Tech Lead to execute this? (Y/n/feedback): ', (ans: string) => {
-                            rl.close();
-                            resolve(ans.trim());
-                        });
-                    });
+                    const rawAnswer = await (global as any).askQuestion('Allow Tech Lead to execute this? (Y/n/feedback): ');
+                    const answer = rawAnswer.trim();
 
                     if (answer.toLowerCase() === 'n' || answer.toLowerCase() === 'no') {
                         console.log(`\n🚫 Action rejected by user.`);
