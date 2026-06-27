@@ -75,7 +75,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     return lastEl.innerText;
                 }
                 return "";
-            }, 300, 3, previousTextToIgnore);
+            }, 300, 8, previousTextToIgnore);
 
             return { text: responseText.trim() };
         } catch (error: any) {
@@ -90,7 +90,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                         return lastEl.innerText;
                     }
                     return "";
-                }, 60, 3, "");
+                }, 300, 8, "");
                 return { text: responseText.trim() };
             }
             return { text: '', error: `DeepSeek provider failed: ${error.message}. Initiating Doomsday protocol...` };

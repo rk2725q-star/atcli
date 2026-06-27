@@ -101,7 +101,7 @@ export class QwenAdapter extends BaseBrowserAdapter {
                     return (validBlocks[validBlocks.length - 1] as HTMLElement).innerText;
                 }
                 return "";
-            }, 45, 3, previousTextToIgnore);
+            }, 300, 8, previousTextToIgnore);
 
             return { text: responseText.trim() };
         } catch (error: any) {
