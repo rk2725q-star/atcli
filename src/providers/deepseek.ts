@@ -75,7 +75,14 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     return lastEl.innerText;
                 }
                 return "";
-            }, 300, 8, previousTextToIgnore);
+            }, 300, 3, previousTextToIgnore, async () => {
+                return await this.page!.evaluate(() => {
+                    const buttons = Array.from(document.querySelectorAll('div[role="button"], button'));
+                    const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
+                    if (stopBtn) return true;
+                    return false;
+                });
+            });
 
             return { text: responseText.trim() };
         } catch (error: any) {
@@ -90,7 +97,14 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                         return lastEl.innerText;
                     }
                     return "";
-                }, 300, 8, "");
+                }, 300, 3, "", async () => {
+                    return await this.page!.evaluate(() => {
+                        const buttons = Array.from(document.querySelectorAll('div[role="button"], button'));
+                        const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
+                        if (stopBtn) return true;
+                        return false;
+                    });
+                });
                 return { text: responseText.trim() };
             }
             return { text: '', error: `DeepSeek provider failed: ${error.message}. Initiating Doomsday protocol...` };

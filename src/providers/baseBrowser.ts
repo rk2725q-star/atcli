@@ -127,12 +127,14 @@ export abstract class BaseBrowserAdapter {
      * @param maxWaitSeconds The maximum number of seconds to poll before giving up
      * @param stableSecondsRequired The number of seconds the text must remain unchanged to be considered complete
      * @param previousTextToIgnore If the extracted text exactly matches this, it is ignored (used to prevent grabbing previous messages)
+     * @param isGeneratingFn Optional function to check if the AI is still generating
      */
     protected async pollForResponse(
         evaluateFn: any,
         maxWaitSeconds: number = 60,
         stableSecondsRequired: number = 3,
-        previousTextToIgnore: string = ""
+        previousTextToIgnore: string = "",
+        isGeneratingFn?: () => Promise<boolean>
     ): Promise<string> {
         console.log(`[${this.id.toUpperCase()}] Waiting for response to complete...`);
         
@@ -177,6 +179,16 @@ export abstract class BaseBrowserAdapter {
                 if (finalResponse.includes('</tool_call>')) {
                     console.log(`\n⚡ [${this.id.toUpperCase()}] Tool execution finished. Bypassing stability wait for instant action!`);
                     break;
+                }
+                
+                // 3. UI Generation State Check (Smart Wait)
+                if (isGeneratingFn) {
+                    const isGenerating = await isGeneratingFn();
+                    if (isGenerating) {
+                        if (stableCount % 5 === 0) console.log(`\n⏳ [${this.id.toUpperCase()}] Web UI is actively generating... Auto-waiting.`);
+                        stableCount = 0; // Reset stability, do not break!
+                        continue;
+                    }
                 }
                 
                 stableCount++;

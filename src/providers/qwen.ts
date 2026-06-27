@@ -101,7 +101,15 @@ export class QwenAdapter extends BaseBrowserAdapter {
                     return (validBlocks[validBlocks.length - 1] as HTMLElement).innerText;
                 }
                 return "";
-            }, 300, 8, previousTextToIgnore);
+            }, 300, 3, previousTextToIgnore, async () => {
+                // Check if Qwen is still generating (e.g. Stop button exists or Send is disabled)
+                return await this.page!.evaluate(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
+                    if (stopBtn) return true;
+                    return false;
+                });
+            });
 
             return { text: responseText.trim() };
         } catch (error: any) {
