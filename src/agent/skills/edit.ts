@@ -92,13 +92,18 @@ export const AppendContentSkill: AgentSkill = {
             // 🚀 LIVE SYNC: Open file in the active IDE automatically
             try {
                 const { exec } = require('child_process');
-                let cmd = 'code';
-                if (process.env.VSCODE_CWD?.toLowerCase().includes('antigravity') || process.env.ANTIGRAVITY_EDITOR_APP_ROOT) {
-                    cmd = 'antigravity-ide';
-                } else if (process.env.VSCODE_CWD?.toLowerCase().includes('cursor')) {
+                let cmd = null;
+                const termProgram = (process.env.TERM_PROGRAM || '').toLowerCase();
+                
+                if (termProgram === 'vscode') {
+                    cmd = 'code';
+                } else if (termProgram === 'cursor') {
                     cmd = 'cursor';
+                } else if (process.env.ANTIGRAVITY_EDITOR_APP_ROOT) {
+                    cmd = 'antigravity-ide';
                 }
-                exec(`${cmd} "${targetPath}"`);
+
+                if (cmd) exec(`${cmd} "${targetPath}"`);
             } catch (e) {}
 
             return `Success: Appended content to ${args.path}`;
