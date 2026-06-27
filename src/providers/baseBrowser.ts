@@ -13,6 +13,10 @@ export abstract class BaseBrowserAdapter {
     public abstract init(): Promise<void>;
     public abstract sendMessage(message: string): Promise<ProviderResponse>;
     
+    public reset(): void {
+        this.page = null;
+    }
+
     public async sendImageAndMessage(imagePath: string, message: string): Promise<ProviderResponse> {
         await this.ensurePage();
         console.log(`[${this.id.toUpperCase()}] Attempting to upload image ${imagePath}...`);

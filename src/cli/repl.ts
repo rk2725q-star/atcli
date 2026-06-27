@@ -152,6 +152,8 @@ export async function startRepl() {
                             console.log(`\n🔄 [AUTO-SWITCH] Resetting the browser session for a fresh Agentica instance...`);
                             await BrowserManager.getInstance().closeAll();
                             initializedProviders.clear();
+                            const adapterToReset = router.getAdapter(state.currentProvider);
+                            if (adapterToReset) adapterToReset.reset();
                         }
                         const adapter = router.getAdapter(state.currentProvider);
                         if (!adapter) {
