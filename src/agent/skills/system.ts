@@ -150,8 +150,8 @@ export const ListProcessesSkill: AgentSkill = {
         if (!args.keyword) return "Error: keyword is required";
         return new Promise((resolve) => {
             const cmd = process.platform === 'win32' 
-                ? \`tasklist | findstr /i "\${args.keyword}"\`
-                : \`ps aux | grep -i "\${args.keyword}" | grep -v grep\`;
+                ? `tasklist | findstr /i "${args.keyword}"`
+                : `ps aux | grep -i "${args.keyword}" | grep -v grep`;
             exec(cmd, (error, stdout) => {
                 if (error || !stdout) resolve(`No processes found matching '${args.keyword}'.`);
                 else resolve(stdout.substring(0, 1000) + (stdout.length > 1000 ? '\\n...truncated' : ''));
@@ -168,8 +168,8 @@ export const KillProcessSkill: AgentSkill = {
         if (!args.pid) return "Error: pid is required";
         return new Promise((resolve) => {
             const cmd = process.platform === 'win32' 
-                ? \`taskkill /F /PID \${args.pid}\`
-                : \`kill -9 \${args.pid}\`;
+                ? `taskkill /F /PID ${args.pid}`
+                : `kill -9 ${args.pid}`;
             exec(cmd, (error, stdout, stderr) => {
                 if (error) resolve(`Failed to kill PID ${args.pid}: ${stderr || error.message}`);
                 else resolve(`Successfully killed PID ${args.pid}`);
