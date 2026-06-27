@@ -232,3 +232,21 @@ export const BrowserCloseSkill: AgentSkill = {
         return "Browser closed successfully.";
     }
 };
+
+export const BrowserSmartClickSkill: AgentSkill = {
+    name: 'browser_smart_click',
+    description: 'Instantly clicks an element on the screen using its visible text without needing bounding boxes or annotations. Extremely fast and accurate for buttons, links, and thumbnails.',
+    example: `<tool_call>\n{"action": "browser_smart_click", "text": "TamilTech"}\n</tool_call>`,
+    execute: async (args: any) => {
+        if (!args.text) return "Error: text is required";
+        try {
+            const page = await sessionManager.getPage();
+            const locator = page.getByText(args.text, { exact: false }).first();
+            await locator.waitFor({ state: 'visible', timeout: 3000 });
+            await locator.click();
+            return `Successfully clicked element containing text: ${args.text}`;
+        } catch (e: any) {
+            return `Error clicking: ${e.message}`;
+        }
+    }
+};

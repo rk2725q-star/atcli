@@ -36,8 +36,8 @@ export abstract class BaseBrowserAdapter {
                     }
                 }
                 if (uploaded) {
-                    console.log(`[${this.id.toUpperCase()}] Image successfully injected. Waiting 2 seconds for UI processing...`);
-                    await this.page!.waitForTimeout(2000);
+                    console.log(`[${this.id.toUpperCase()}] Image successfully injected. Waiting 5 seconds for UI processing...`);
+                    await this.page!.waitForTimeout(5000);
                 } else {
                     console.log(`[${this.id.toUpperCase()}] ⚠️ Found inputs but injection failed on all of them.`);
                 }
