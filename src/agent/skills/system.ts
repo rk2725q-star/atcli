@@ -190,7 +190,7 @@ export const DownloadFileDirectSkill: AgentSkill = {
             const file = fs.createWriteStream(args.outputPath);
             protocol.get(args.url, (response: any) => {
                 if (response.statusCode !== 200) {
-                    resolve(`Failed: Server returned status code ${response.statusCode}`);
+                    resolve(`Failed: Server returned status code ${response.statusCode}. (Hint: Native download failed. Please fallback to using run_command with curl or powershell Invoke-WebRequest)`);
                     return;
                 }
                 response.pipe(file);
@@ -200,7 +200,7 @@ export const DownloadFileDirectSkill: AgentSkill = {
                 });
             }).on('error', (err: any) => {
                 fs.unlink(args.outputPath, () => {});
-                resolve(`Download failed: ${err.message}`);
+                resolve(`Download failed: ${err.message}. (Hint: Native download failed. Please fallback to using run_command with curl or powershell Invoke-WebRequest)`);
             });
         });
     }
