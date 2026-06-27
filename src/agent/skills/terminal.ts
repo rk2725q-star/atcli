@@ -237,7 +237,7 @@ export const RunBackgroundCommandSkill: AgentSkill = {
 
 export const CheckBackgroundTaskSkill: AgentSkill = {
     name: 'check_background_task',
-    description: 'Checks the status and retrieves the latest logs (up to 500 lines) of a running or completed background task.',
+    description: 'Checks the status and retrieves the latest logs (up to 500 lines) of a running or completed background task. If the task is still running (e.g. heavy npm install), use the `wait` tool to intelligently pause for 5 to 10 seconds before checking again.',
     example: `<tool_call>\n{"action": "check_background_task", "taskId": "a1b2c3d4"}\n</tool_call>`,
     execute: async (args: any) => {
         if (!args.taskId) return "Error: taskId is required";
