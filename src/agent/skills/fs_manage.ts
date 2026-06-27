@@ -5,21 +5,26 @@ import { exec } from 'child_process';
 
 export const DeleteFileSkill: AgentSkill = {
     name: 'delete_file',
-    description: 'Deletes a file or directory permanently.',
-    example: `<tool_call>\n{"action": "delete_file", "path": "src/old_file.js"}\n</tool_call>`,
+    description: 'Deletes a single file, a directory, or multiple files permanently in one command. To delete multiple files, pass an array to "paths".',
+    example: `<tool_call>\n{"action": "delete_file", "paths": ["src/old_file.js", "src/old_style.css"]}\n</tool_call>`,
     execute: async (args: any) => {
-        if (!args.path) return "Error: path is required";
-        const targetPath = path.resolve(process.cwd(), args.path);
-        if (!targetPath.startsWith(process.cwd())) {
-            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
-        }
+        const pathsToDelete = args.paths || (args.path ? [args.path] : []);
+        if (pathsToDelete.length === 0) return "Error: path or paths array is required";
 
-        try {
-            await fs.rm(targetPath, { recursive: true, force: true });
-            return `Success: Deleted ${args.path}`;
-        } catch (e: any) {
-            return `Error deleting file: ${e.message}`;
+        let results = [];
+        for (const p of pathsToDelete) {
+            const targetPath = path.resolve(process.cwd(), p);
+            if (!targetPath.startsWith(process.cwd())) {
+                return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+            }
+            try {
+                await fs.rm(targetPath, { recursive: true, force: true });
+                results.push(`Success: Deleted ${p}`);
+            } catch (e: any) {
+                results.push(`Error deleting ${p}: ${e.message}`);
+            }
         }
+        return results.join('\n');
     }
 };
 
