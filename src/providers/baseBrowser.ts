@@ -88,6 +88,36 @@ export abstract class BaseBrowserAdapter {
     }
 
     /**
+     * Intelligently waits for the chat input box to appear. 
+     * If it times out, pauses execution and prompts the user to resolve the login/captcha.
+     */
+    protected async waitForChatInput(selector: string, timeout: number = 15000): Promise<void> {
+        while (true) {
+            try {
+                // Wait for the selector to be attached and visible
+                await this.page!.waitForSelector(selector, { state: 'visible', timeout });
+                return;
+            } catch (e) {
+                console.log(`\n[${this.id.toUpperCase()}] ⚠️ Browser paused: Could not find chat input box.`);
+                console.log(`[${this.id.toUpperCase()}] Action required: The AI provider might be asking for a Login, Signup, or CAPTCHA.`);
+                console.log(`[${this.id.toUpperCase()}] Please complete the required action in the browser window.`);
+                
+                await new Promise<void>((resolve) => {
+                    const readline = require('readline').createInterface({
+                        input: process.stdin,
+                        output: process.stdout
+                    });
+                    readline.question(`\n[${this.id.toUpperCase()}] Press ENTER here when you are done to resume... `, () => {
+                        readline.close();
+                        resolve();
+                    });
+                });
+                console.log(`[${this.id.toUpperCase()}] Resuming and checking for input field again...`);
+            }
+        }
+    }
+
+    /**
      * Intelligently polls the DOM until the AI's response text stops changing.
      * @param evaluateFn The function to run inside the browser context to extract the text
      * @param maxWaitSeconds The maximum number of seconds to poll before giving up

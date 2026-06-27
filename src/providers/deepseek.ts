@@ -16,9 +16,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
         try {
             const inputSelector = '#chat-input, textarea, [contenteditable="true"]';
             console.log(`[DeepSeek] Waiting for input field to appear...`);
-            await this.page!.waitForSelector(inputSelector, { timeout: 15000 }).catch(e => {
-                throw new Error("Could not find DeepSeek input field. Are you logged in or is the page stuck?");
-            });
+            await this.waitForChatInput(inputSelector);
             console.log(`[DeepSeek] Input field found!`);
 
             const previousTextToIgnore = await this.page!.evaluate(() => {

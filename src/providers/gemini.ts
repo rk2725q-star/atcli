@@ -16,10 +16,8 @@ export class GeminiAdapter extends BaseBrowserAdapter {
         try {
             const inputSelector = 'rich-textarea p, rich-textarea, .ql-editor, textarea, [contenteditable="true"]';
             console.log(`[Gemini] Waiting for input field to appear...`);
+            await this.waitForChatInput(inputSelector);
             const inputLocator = this.page!.locator(inputSelector).filter({ visible: true }).last();
-            await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
-                throw new Error("Could not find Gemini input field. Are you logged in?");
-            });
 
             const previousTextToIgnore = await this.page!.evaluate(() => {
                 const responseBlocks = document.querySelectorAll('.model-response-text, message-content, [data-test-id="model-message"]');

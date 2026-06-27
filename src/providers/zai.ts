@@ -16,10 +16,8 @@ export class ZaiAdapter extends BaseBrowserAdapter {
         try {
             const textareaSelector = 'textarea, [contenteditable="true"]';
             console.log(`[Z.ai] Waiting for input field to appear...`);
+            await this.waitForChatInput(textareaSelector);
             const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
-            await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
-                throw new Error("Could not find Z.ai input field. Are you logged in?");
-            });
 
             const previousTextToIgnore = await this.page!.evaluate(() => {
                 const markdownBlocks = document.querySelectorAll('.prose, .markdown-body, div[class*="markdown"]');

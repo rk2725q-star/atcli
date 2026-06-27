@@ -16,10 +16,8 @@ export class QwenAdapter extends BaseBrowserAdapter {
         try {
             const textareaSelector = 'textarea, [contenteditable="true"]';
             console.log(`[Qwen] Waiting for input field to appear...`);
+            await this.waitForChatInput(textareaSelector);
             const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
-            await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
-                throw new Error("Could not find Qwen input field. Are you logged in?");
-            });
 
             // Capture the current last response so we can ignore it during polling
             const previousTextToIgnore = await this.page!.evaluate(() => {

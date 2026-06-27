@@ -16,11 +16,8 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
         try {
             console.log(`[ChatGPT] Waiting for input field to appear...`);
             const textareaSelector = '#prompt-textarea, textarea, [contenteditable="true"]';
+            await this.waitForChatInput(textareaSelector);
             const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
-
-            await inputLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(e => {
-                throw new Error("Could not find ChatGPT input field. Are you logged in?");
-            });
 
             const previousTextToIgnore = await this.page!.evaluate(() => {
                 const assistantMessages = document.querySelectorAll('[data-message-author-role="assistant"]');

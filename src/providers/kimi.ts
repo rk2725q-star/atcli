@@ -17,7 +17,7 @@ export class KimiAdapter extends BaseBrowserAdapter {
         try {
             // Wait for textarea or contenteditable
             const inputSelector = 'textarea, [contenteditable="true"]';
-            await this.page!.waitForSelector(inputSelector);
+            await this.waitForChatInput(inputSelector);
             
             // Capture the current last response so we can ignore it during polling
             const previousTextToIgnore = await this.page!.evaluate(() => {
