@@ -87,9 +87,10 @@ export class AgentLoop {
         for (let i = 1; i <= this.maxIterations; i++) {
             
             // CONTEXT REFRESH: If tokens grew by > 80,000 since last refresh, re-inject the tools and rules!
+            // This explicitly prevents the AI from hitting the hard 180k context window limit and forgetting instructions.
             if (this.totalTokensProcessed - lastRefreshTokens > 80000) {
-                console.log(`\n🔄 [Agent] Context window approaching limits. Re-injecting System Prompt to prevent memory loss...`);
-                currentMessage = `[CONTEXT REFRESH: The following is a reminder of your available tools and strict operating rules.]\n\n${systemPrompt}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+                console.log(`\n🔄 [Agent] Context window limits approaching (Protecting 180k hard limit). Auto-resending System Prompt to prevent memory loss...`);
+                currentMessage = `[CONTEXT REFRESH (180k Context Protection): The following is an auto-resend of your available tools and strict operating rules to prevent memory loss.]\n\n${systemPrompt}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
                 lastRefreshTokens = this.totalTokensProcessed;
             }
 
