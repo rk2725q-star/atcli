@@ -58,7 +58,7 @@ Use the \`read_file\` tool to read their \`SKILL.md\` files.
     const atcliSkillsDir = path.resolve(process.cwd(), '.atcli-skills');
     const skillsShDir = path.resolve(process.cwd(), '.agents', 'skills');
     const globalKnowledgeDir = path.resolve(__dirname, '..', '..', 'src', 'agent', 'knowledge', '.agents', 'skills');
-    const osGlobalSkillsDir = path.resolve(require('os').homedir(), '.agents', 'skills');
+    const osGlobalSkillsDir = path.resolve(process.cwd(), '.agents', 'skills');
     const geminiGlobalSkillsDir = path.resolve(require('os').homedir(), '.gemini', 'config', 'skills');
     
     await scanForSkillDirectories(atcliSkillsDir);

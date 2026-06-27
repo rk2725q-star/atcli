@@ -17,7 +17,7 @@ export class SkillManager {
         // 3. Load Global Skills from skills.sh (e.g., ~/.atcli/skills or ~/.agents/skills)
         const homeDir = require('os').homedir();
         const globalAtcliDir = path.join(homeDir, '.atcli', 'skills');
-        const globalAgentsDir = path.join(homeDir, '.agents', 'skills');
+        const globalAgentsDir = path.join(process.cwd(), '.agents', 'skills');
         
         try { await this.loadSkillsFromDirectory(globalAtcliDir); } catch (e) {}
         try { await this.loadSkillsFromDirectory(globalAgentsDir); } catch (e) {}
