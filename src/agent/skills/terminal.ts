@@ -225,7 +225,13 @@ export const RunBackgroundCommandSkill: AgentSkill = {
         }
 
         const taskId = taskManager.startTask(args.command, process.cwd());
-        return `Background task started successfully.\nTask ID: ${taskId}\nCommand: ${args.command}\nUse check_background_task to monitor its output.`;
+        
+        // Wait briefly (2 seconds) to capture initial output (e.g. localhost link)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const status = taskManager.getTaskStatus(taskId);
+        const initialOutput = status ? status.output : '';
+
+        return `Background task started successfully.\nTask ID: ${taskId}\nCommand: ${args.command}\n\n--- INITIAL OUTPUT ---\n${initialOutput}\n----------------------\nUse check_background_task to monitor further output if needed.`;
     }
 };
 
