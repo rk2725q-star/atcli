@@ -28,6 +28,7 @@ export class BrowserManager {
         console.log(`\n[Browser] Launching browser with persistent profile...`);
         const baseOptions = {
             headless: false, // Must be false so user can do CAPTCHAs/logins if needed
+            ignoreDefaultArgs: ['--no-sandbox'],
             args: [
                 '--disable-blink-features=AutomationControlled',
                 '--disable-session-crashed-bubble',
