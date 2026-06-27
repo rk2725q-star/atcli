@@ -498,23 +498,36 @@ export const ExtractCssColorsSkill: AgentSkill = {
 export const GenerateSecretsSkill: AgentSkill = {
   name: 'generate_secrets',
   description:
-    'Generates cryptographically secure secrets safely without leaking to prompt history. MUST use this for all sensitive keys.',
+    'Generates cryptographically secure secrets safely and writes them directly to a local .env.secrets file. Prevents leaking to prompt history. MUST use this for all sensitive keys.',
   example: `<tool_call>\n{"action": "generate_secrets"}\n</tool_call>`,
   execute: async () => {
     const hex256 = crypto.randomBytes(32).toString('hex');
     const b64256 = crypto.randomBytes(32).toString('base64url');
     const apiKey = `ak_${crypto.randomBytes(24).toString('hex')}`;
     const sessionId = crypto.randomUUID();
+    
+    // Write secrets to disk safely without AI ever seeing the raw strings
+    const secretsContent = `JWT_SECRET="${hex256}"\nSESSION_SECRET="${b64256}"\nAPI_KEY="${apiKey}"\nINTERNAL_KEY="${sessionId}"\n`;
+    writeFile(path.resolve(process.cwd(), '.env.secrets'), secretsContent);
 
-    // Security layer hint
-    return `🔑 Generated Secrets (SECURITY NOTICE: Masking applied for logs):
+    // Ensure it's git-ignored
+    const gitignorePath = path.resolve(process.cwd(), '.gitignore');
+    if (fs.existsSync(gitignorePath)) {
+        const content = fs.readFileSync(gitignorePath, 'utf-8');
+        if (!content.includes('.env.secrets')) fs.appendFileSync(gitignorePath, '\\n.env.secrets\\n');
+    } else {
+        writeFile(gitignorePath, '.env.secrets\\n');
+    }
 
-JWT_SECRET="${hex256}"
-SESSION_SECRET="${b64256}"
-API_KEY="${apiKey}"
-INTERNAL_KEY="${sessionId}"
+    // Return ONLY masked versions to the AI
+    return `🔑 Generated Secrets (SECURITY NOTICE: Masking applied! Raw secrets written safely to .env.secrets):
 
-(ATCLI Security Layer: Please write these directly to a .env file and ensure it is git-ignored. Do not print them in the final chat response.)`;
+JWT_SECRET="***MASKED_BY_ATCLI***"
+SESSION_SECRET="***MASKED_BY_ATCLI***"
+API_KEY="***MASKED_BY_ATCLI***"
+INTERNAL_KEY="***MASKED_BY_ATCLI***"
+
+(ATCLI Security Layer: The actual secrets have been written to .env.secrets in the current directory and .gitignore updated. You can safely read this file locally if needed, but DO NOT print its contents.)`;
   },
 };
 
