@@ -192,7 +192,8 @@ export class AgentLoop {
             let result = await this.skillManager.executeSkill(toolCall.action, toolCall);
 
             // AECL MECHANICAL COUNTER: Track file-writing tools and trigger aecl_check every 5 edits
-            const fileWritingTools = ['write_file', 'replace_content', 'create_file', 'edit_file', 'append_file'];
+            // NOTE: actual skill names are 'replace' (edit.ts) and 'append_content' (edit.ts), 'write_file' (fs_write.ts)
+            const fileWritingTools = ['write_file', 'replace', 'append_content', 'create_file'];
             if (fileWritingTools.includes(toolCall.action)) {
                 this.editsSinceLastAeclCheck++;
                 console.log(`\n📝 [AECL Counter] ${this.editsSinceLastAeclCheck}/${this.AECL_CHECK_INTERVAL} file writes since last check.`);

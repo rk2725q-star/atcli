@@ -14,6 +14,29 @@ interface AppState {
 const router = new PromptRouter();
 const initializedProviders = new Map<string, 'vibecoding' | 'agentica'>();
 
+// ── Shared Secret Masking Utility (single source of truth) ─────────────────
+const SECRET_PATTERNS = [
+    /sk-[a-zA-Z0-9_-]{20,}/g,
+    /sk_(live|test)_[a-zA-Z0-9_-]+/g,
+    /ghp_[a-zA-Z0-9]{36}/g,
+    /AKIA[0-9A-Z]{16}/g,
+    /(?:api\s*key|token|secret|password)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{10,}['"]?/gi
+];
+
+function maskSecrets(input: string): { masked: string; changed: boolean } {
+    let masked = input;
+    let changed = false;
+    for (const regex of SECRET_PATTERNS) {
+        regex.lastIndex = 0; // Reset stateful regex
+        if (regex.test(masked)) {
+            regex.lastIndex = 0;
+            masked = masked.replace(regex, '[REDACTED_LOCAL_SECRET]');
+            changed = true;
+        }
+    }
+    return { masked, changed };
+}
+
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -168,21 +191,7 @@ export async function startRepl() {
                             const agent = new AgentLoop(adapter, isFirstForProvider);
                             
                             // 🛡️ LOCAL INPUT INTERCEPTOR (SECRET SCANNER)
-                            let safeArgs = result.args || '';
-                            const secretRegexes = [
-                                /sk-[a-zA-Z0-9_-]{20,}/g,         // OpenAI / Anthropic
-                                /sk_(live|test)_[a-zA-Z0-9_-]+/g,  // Stripe
-                                /ghp_[a-zA-Z0-9]{36}/g,           // GitHub PAT
-                                /AKIA[0-9A-Z]{16}/g,              // AWS Access Key
-                                /(?:api\s*key|token|secret|password)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{10,}['"]?/gi // Contextual Heuristic
-                            ];
-                            let secretMasked = false;
-                            for (const regex of secretRegexes) {
-                                if (regex.test(safeArgs)) {
-                                    safeArgs = safeArgs.replace(regex, '[REDACTED_LOCAL_SECRET]');
-                                    secretMasked = true;
-                                }
-                            }
+                            const { masked: safeArgs, changed: secretMasked } = maskSecrets(result.args || '');
                             if (secretMasked) {
                                 console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your Agentica request!`);
                                 console.log(`⚠️  It has been LOCALLY MASKED before sending to the Cloud AI.`);
@@ -203,22 +212,7 @@ export async function startRepl() {
             } else {
                 
                 // 🛡️ LOCAL INPUT INTERCEPTOR (SECRET SCANNER)
-                let safeInput = trimmed;
-                const secretRegexes = [
-                    /sk-[a-zA-Z0-9_-]{20,}/g,         // OpenAI / Anthropic
-                    /sk_(live|test)_[a-zA-Z0-9_-]+/g,  // Stripe
-                    /ghp_[a-zA-Z0-9]{36}/g,           // GitHub PAT
-                    /AKIA[0-9A-Z]{16}/g,              // AWS Access Key
-                    /(?:api\s*key|token|secret|password)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{10,}['"]?/gi // Contextual Heuristic
-                ];
-                
-                let secretMasked = false;
-                for (const regex of secretRegexes) {
-                    if (regex.test(safeInput)) {
-                        safeInput = safeInput.replace(regex, '[REDACTED_LOCAL_SECRET]');
-                        secretMasked = true;
-                    }
-                }
+                const { masked: safeInput, changed: secretMasked } = maskSecrets(trimmed);
                 
                 if (secretMasked) {
                     console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your input!`);

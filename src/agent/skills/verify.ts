@@ -24,7 +24,7 @@ export const VerifyCodeSkill: AgentSkill = {
                     if (target.endsWith('.js')) {
                         cmd = `node --check "${targetPath}"`;
                     } else if (target.endsWith('.ts')) {
-                        cmd = `npx tsc --noEmit "${targetPath}"`;
+                        cmd = `npx tsc --noEmit --incremental "${targetPath}"`;
                     } else {
                         resolve(`Verification not natively supported for file type of ${target}`);
                         return;
