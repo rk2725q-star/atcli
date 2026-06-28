@@ -102,6 +102,13 @@ export class AgentLoop {
                 currentMessage += `\n\n[SYSTEM INTELLIGENT RECALL: You have been running for 3 iterations. To prevent task hallucination, you MUST immediately use the grep_search tool or view_file tool to check your ATCLI_MEMORY.md or global instructions before writing any more code. Stay on track!]`;
             }
 
+            // Active Background Task Reminder (Prevents forgetting status)
+            const globalTasks = (global as any).ATCLI_TASKS;
+            if (globalTasks && globalTasks.size > 0) {
+                const taskIds = Array.from(globalTasks.keys()).join(', ');
+                currentMessage += `\n\n[SYSTEM REMINDER (PREVENT FORGETTING): You have the following background tasks actively running: ${taskIds}. Do NOT forget to use the 'manage_task' tool with sub_action="logs" or "status" to check if they crashed or finished!]`;
+            }
+
             console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);
             
             this.totalTokensProcessed += this.tokenizer.encode(currentMessage).length;
