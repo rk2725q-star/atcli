@@ -97,6 +97,19 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
             console.log('  /audit            - Perform a full codebase scaling and bug audit');
             console.log('  /exit             - Exit ATCLI');
             console.log('  /help             - Show this help message');
+            console.log('');
+            console.log('\x1b[36m\x1b[1m🔍 AECL — Auto Error Checker Live:\x1b[0m');
+            console.log('\x1b[90m  AECL is a separate command that shows live TypeScript/JS errors');
+            console.log('  as the AI writes code — like VSCode\'s Problems panel, but in your terminal.\x1b[0m');
+            console.log('');
+            console.log('\x1b[97m  HOW TO USE:\x1b[0m');
+            console.log('\x1b[90m  1. Open a SECOND terminal window (split terminal recommended)\x1b[0m');
+            console.log('\x1b[36m     > aecl\x1b[0m');
+            console.log('\x1b[90m  2. In THIS terminal, ask ATCLI to build a project as normal.\x1b[0m');
+            console.log('\x1b[90m  3. Every 5 files the AI writes, AECL auto-checks for errors and updates the panel!\x1b[0m');
+            console.log('');
+            console.log('\x1b[90m  AECL memory is stored as .aecl_memory.json in your current project folder.\x1b[0m');
+            console.log('\x1b[90m  Each project folder gets its own error history. ✅\x1b[0m');
             return { handled: true };
             
         default:

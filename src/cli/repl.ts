@@ -94,7 +94,10 @@ export async function startRepl() {
         process.exit(1);
     }
     
-    console.log(`Provider: ${state.currentProvider} | Type /help for commands\n`);
+    console.log(`Provider: ${state.currentProvider} | Type /help for commands`);
+    console.log(`\n\x1b[36m\x1b[1m💡 TIP:\x1b[0m\x1b[36m Open a 2nd terminal and run \x1b[1maecl\x1b[0m\x1b[36m to see live TypeScript errors as AI writes code!\x1b[0m`);
+    console.log(`\x1b[90m   AECL = Auto Error Checker Live — your IDE-style Problems panel for ATCLI.\x1b[0m\n`);
+
 
     const promptLoop = () => {
         rl.question(`atcli (${state.currentProvider}) > `, async (input: string) => {
