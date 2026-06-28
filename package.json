@@ -18,6 +18,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/inquirer": "^9.0.10",
     "@types/node": "^26.0.0",
+    "chokidar": "^5.0.0",
     "inquirer": "^14.0.2",
     "playwright": "^1.61.1",
     "tiktoken": "^1.0.22",
@@ -26,6 +27,7 @@
   },
   "bin": {
     "atcli": "./bin/atcli.js",
-    "atcli-mcp": "./bin/mcp.js"
+    "atcli-mcp": "./bin/mcp.js",
+    "aecl": "./bin/aecl.js"
   }
 }

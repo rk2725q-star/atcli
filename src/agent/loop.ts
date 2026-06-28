@@ -9,6 +9,9 @@ export class AgentLoop {
     public isAgenticaMode: boolean = false;
     private totalTokensProcessed: number = 0;
     private tokenizer = get_encoding("cl100k_base");
+    // AECL: Mechanical edit counter (not prompt-based) to trigger aecl_check every 5 file writes
+    private editsSinceLastAeclCheck: number = 0;
+    private readonly AECL_CHECK_INTERVAL = 5;
 
     constructor(private provider: AgentProvider, private isFirstMessage: boolean = false) {
         this.skillManager = new SkillManager();
@@ -187,7 +190,26 @@ export class AgentLoop {
 
             console.log(`\n⚙️ Executing Skill: ${toolCall.action}`);
             let result = await this.skillManager.executeSkill(toolCall.action, toolCall);
-            
+
+            // AECL MECHANICAL COUNTER: Track file-writing tools and trigger aecl_check every 5 edits
+            const fileWritingTools = ['write_file', 'replace_content', 'create_file', 'edit_file', 'append_file'];
+            if (fileWritingTools.includes(toolCall.action)) {
+                this.editsSinceLastAeclCheck++;
+                console.log(`\n📝 [AECL Counter] ${this.editsSinceLastAeclCheck}/${this.AECL_CHECK_INTERVAL} file writes since last check.`);
+                if (this.editsSinceLastAeclCheck >= this.AECL_CHECK_INTERVAL) {
+                    this.editsSinceLastAeclCheck = 0;
+                    console.log(`\n🔍 [AECL] Auto-triggering error check after ${this.AECL_CHECK_INTERVAL} file writes...`);
+                    const aeclResult = await this.skillManager.executeSkill('aecl_check', {
+                        action: 'aecl_check',
+                        files_written: [],
+                        ai_notes: '[Auto-triggered by system after 5 file writes]'
+                    });
+                    console.log(`[AECL Auto-Check Result]:\n${aeclResult.substring(0, 500)}`);
+                    // Inject AECL result into the next message so AI sees the errors
+                    result = result + `\n\n[AECL AUTO-CHECK TRIGGERED]:\n${aeclResult}`;
+                }
+            }
+
             // Global safety truncation to prevent web UI crashes from massive outputs
             if (result.length > 30000 && !result.startsWith('__ATCLI_VISION_PAYLOAD__')) {
                 console.log(`[Warning]: Tool output truncated from ${result.length} to 30000 chars.`);
