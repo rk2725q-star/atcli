@@ -44,7 +44,26 @@ export const SandboxCommandSkill: AgentSkill = {
                 return `[SECURITY VIOLATION] Command rejected. Attempting to traverse outside the workspace is strictly forbidden.`;
             }
 
-            // 2. Intelligent Human-in-the-Loop Verification (Replaces Hardcoded Denylist)
+            // 2. Intelligent Auto-Block (Protects non-technical users from OS destruction)
+            const dangerousPatterns = [
+                /\b(rm|del|rmdir|erase)\b/i,
+                /\b(format|diskpart|mkfs|fdisk)\b/i,
+                /\b(reg\s+add|reg\s+delete|reg\s+import)\b/i,
+                /\b(netsh|ipconfig\s+\/release|route\s+add)\b/i,
+                /\b(sudo|su|runas)\b/i,
+                /\b(chmod|chown|icacls|takeown)\b/i,
+                /\b(Invoke-WebRequest|wget|curl)\b/i, 
+                /\b(shutdown|reboot|halt)\b/i
+            ];
+
+            for (const pattern of dangerousPatterns) {
+                if (pattern.test(cmd)) {
+                    console.log(`\n\x1b[31m⛔ [AUTO-BLOCKED] AI attempted a dangerous system command: ${args.command}\x1b[0m`);
+                    return `[SECURITY VIOLATION] Command auto-rejected by Intelligent Gatekeeper. Destructive commands are forbidden.`;
+                }
+            }
+
+            // 3. Intelligent Human-in-the-Loop Verification (For project-level commands)
             const isApproved = await promptUserHITL(args.command);
             
             if (!isApproved) {
