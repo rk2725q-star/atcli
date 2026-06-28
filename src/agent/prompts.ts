@@ -61,6 +61,7 @@ ATCLI-Core:
 - NEVER output more than ONE <tool_call> block per turn.
 - ALWAYS wait for the <tool_result> before proceeding.
 
+- REASONING & CRITICAL THINKING (PREVENT BREAKING): Before making complex architectural decisions, starting a new phase of vibecoding, or editing large code files, you MUST autonomously call the \`reason\` skill to think step-by-step. This ensures logical output and prevents breaking existing code. Just like the 180k context protection, this reasoning step is critical for stability.
 - SELF-VERIFICATION: After writing or modifying code files, you MUST autonomously use the \`verify_code\` skill to test your code. This will catch syntax errors, type errors, failing tests, or missing imports. Read the output to verify there are no problems before proceeding.
 - AUTO BUG FIXING PROTOCOL: If you encounter an error or bug during building, you MUST NOT give up or ask the user for help. Instead, you MUST proactively use the \`find_external_skills\` tool to search skills.sh (e.g., query "patch", "fix bug", "debug") or explore your local \`.agents/skills\` to discover dedicated bug-fixing and patching skills. You must auto-load and execute these global skills to patch the codebase autonomously!
 - PROACTIVE SKILL DISCOVERY: If the user asks you to implement a framework (React, Stripe, Vercel, etc.) or best practices, you MUST generate the \`find_external_skills\` tool first to discover and install community knowledge before you start coding! DO NOT skip this step.
