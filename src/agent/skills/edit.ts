@@ -45,23 +45,6 @@ export const ReplaceSkill: AgentSkill = {
             
             await fs.writeFile(targetPath, content, 'utf8');
 
-            // 🚀 LIVE SYNC: Open file in the active IDE automatically
-            try {
-                const { exec } = require('child_process');
-                let cmd = null;
-                const termProgram = (process.env.TERM_PROGRAM || '').toLowerCase();
-                
-                if (termProgram === 'vscode') {
-                    cmd = 'code';
-                } else if (termProgram === 'cursor') {
-                    cmd = 'cursor';
-                } else if (process.env.ANTIGRAVITY_EDITOR_APP_ROOT) {
-                    cmd = 'antigravity-ide';
-                }
-
-                if (cmd) exec(`${cmd} "${targetPath}"`);
-            } catch (e) {}
-
             return `Success: Replaced content in ${args.path}`;
         } catch (e: any) {
             return `Error: ${e.message}`;
@@ -88,23 +71,6 @@ export const AppendContentSkill: AgentSkill = {
 
         try {
             await fs.appendFile(targetPath, '\n' + args.content, 'utf8');
-
-            // 🚀 LIVE SYNC: Open file in the active IDE automatically
-            try {
-                const { exec } = require('child_process');
-                let cmd = null;
-                const termProgram = (process.env.TERM_PROGRAM || '').toLowerCase();
-                
-                if (termProgram === 'vscode') {
-                    cmd = 'code';
-                } else if (termProgram === 'cursor') {
-                    cmd = 'cursor';
-                } else if (process.env.ANTIGRAVITY_EDITOR_APP_ROOT) {
-                    cmd = 'antigravity-ide';
-                }
-
-                if (cmd) exec(`${cmd} "${targetPath}"`);
-            } catch (e) {}
 
             return `Success: Appended content to ${args.path}`;
         } catch (e: any) {
