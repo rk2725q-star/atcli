@@ -125,7 +125,8 @@ export abstract class BaseBrowserAdapter {
         maxWaitSeconds: number = 60,
         stableSecondsRequired: number = 3,
         previousTextToIgnore: string = "",
-        isGeneratingFn?: () => Promise<boolean>
+        isGeneratingFn?: () => Promise<boolean>,
+        retrySendFn?: () => Promise<void>
     ): Promise<string> {
         console.log(`[${this.id.toUpperCase()}] Waiting for response to complete...`);
         
@@ -136,6 +137,15 @@ export abstract class BaseBrowserAdapter {
             // Wait 1 second between polls
             await this.page!.waitForTimeout(1000);
             
+            // Intelligent auto-retry if message failed to send (e.g., due to image upload lag)
+            if (i > 0 && i % 8 === 0 && retrySendFn) {
+                try {
+                    await retrySendFn();
+                } catch (e) {
+                    // Ignore errors during retry check
+                }
+            }
+
             // Execute the provider-specific extraction logic
             let currentText = (await this.page!.evaluate(evaluateFn)) as string;
 
