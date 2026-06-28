@@ -1,4 +1,4 @@
-import { BaseBrowserAdapter } from '../providers/baseBrowser';
+import { AgentProvider } from '../providers/interface';
 import { generateSystemPrompt } from './prompts';
 import { SkillManager } from './skillManager';
 import { get_encoding } from 'tiktoken';
@@ -10,7 +10,7 @@ export class AgentLoop {
     private totalTokensProcessed: number = 0;
     private tokenizer = get_encoding("cl100k_base");
 
-    constructor(private provider: BaseBrowserAdapter, private isFirstMessage: boolean = false) {
+    constructor(private provider: AgentProvider, private isFirstMessage: boolean = false) {
         this.skillManager = new SkillManager();
     }
 
@@ -86,12 +86,20 @@ export class AgentLoop {
 
         for (let i = 1; i <= this.maxIterations; i++) {
             
-            // CONTEXT REFRESH: If tokens grew by > 80,000 since last refresh, re-inject the tools and rules!
-            // This explicitly prevents the AI from hitting the hard 180k context window limit and forgetting instructions.
-            if (this.totalTokensProcessed - lastRefreshTokens > 80000) {
-                console.log(`\n🔄 [Agent] Context window limits approaching (Protecting 180k hard limit). Auto-resending System Prompt to prevent memory loss...`);
-                currentMessage = `[CONTEXT REFRESH (180k Context Protection): The following is an auto-resend of your available tools and strict operating rules to prevent memory loss.]\n\n${systemPrompt}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+            // Dynamic Context Refresh Threshold (Browser AI has ~128k-200k, Local AI usually 32k)
+            const isLocal = this.provider.id === 'ollama' || this.provider.id === 'local' || this.provider.id === 'qwen-local';
+            const refreshThreshold = isLocal ? 20000 : 80000;
+            
+            // CONTEXT REFRESH: Re-inject tools to prevent the AI from hitting context window limits
+            if (this.totalTokensProcessed - lastRefreshTokens > refreshThreshold) {
+                console.log(`\n🔄 [Agent] Context window limits approaching (Protecting ${refreshThreshold} limit). Auto-resending System Prompt to prevent memory loss...`);
+                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Context Protection): The following is an auto-resend of your available tools and strict operating rules to prevent memory loss.]\n\n${systemPrompt}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
                 lastRefreshTokens = this.totalTokensProcessed;
+            }
+
+            // ATCLI_MEMORY 3-Iteration Recall Check
+            if (i > 1 && i % 3 === 0) {
+                currentMessage += `\n\n[SYSTEM INTELLIGENT RECALL: You have been running for 3 iterations. To prevent task hallucination, you MUST immediately use the grep_search tool or view_file tool to check your ATCLI_MEMORY.md or global instructions before writing any more code. Stay on track!]`;
             }
 
             console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);

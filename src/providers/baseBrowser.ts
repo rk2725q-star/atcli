@@ -1,11 +1,9 @@
 import { Page } from 'playwright';
+import { AgentProvider, ProviderResponse } from './interface';
 
-export interface ProviderResponse {
-    text: string;
-    error?: string;
-}
+export { ProviderResponse };
 
-export abstract class BaseBrowserAdapter {
+export abstract class BaseBrowserAdapter implements AgentProvider {
     protected page: Page | null = null;
     
     constructor(public readonly id: string, public readonly url: string) {}

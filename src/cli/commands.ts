@@ -87,7 +87,7 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
             
         case '/help':
             console.log('\nAvailable commands:');
-            console.log('  /provider <name>  - Switch the current AI provider (e.g., deepseek, chatgpt, gemini)');
+            console.log('  /provider <name>  - Switch the current AI provider (e.g., deepseek, chatgpt, gemini, ollama, local)');
             console.log('  /model <name>     - Switch the current model');
             console.log('  /rename <file> <old> <new> - Locally rename variables to protect IP from the AI');
             console.log('  /manage <task>    - Spawn the Tech Lead Agent to manage/review code');

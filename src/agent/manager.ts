@@ -1,3 +1,4 @@
+import { AgentProvider } from '../providers/interface';
 import { BaseBrowserAdapter } from '../providers/baseBrowser';
 import { SkillManager } from './skillManager';
 
@@ -95,7 +96,7 @@ export class ManagerLoop {
     private skillManager: SkillManager;
     public isAgenticaMode: boolean = false;
 
-    constructor(private provider: BaseBrowserAdapter, private isFirstMessage: boolean = true) {
+    constructor(private provider: AgentProvider, private isFirstMessage: boolean = true) {
         this.skillManager = new SkillManager();
     }
 

@@ -1,25 +1,32 @@
-import { BaseBrowserAdapter } from '../providers/baseBrowser';
-import { DeepSeekAdapter } from '../providers/deepseek';
+import { AgentProvider } from '../providers/interface';
 import { ChatGPTAdapter } from '../providers/chatgpt';
+import { DeepSeekAdapter } from '../providers/deepseek';
 import { GeminiAdapter } from '../providers/gemini';
 import { QwenAdapter } from '../providers/qwen';
-import { ZaiAdapter } from '../providers/zai';
 import { KimiAdapter } from '../providers/kimi';
+import { ZaiAdapter } from '../providers/zai';
+import { OllamaApiAdapter } from '../providers/ollama';
 
 export class PromptRouter {
-    private adapters: Map<string, BaseBrowserAdapter> = new Map();
+    private adapters: Map<string, AgentProvider> = new Map();
 
     constructor() {
-        this.adapters.set('deepseek', new DeepSeekAdapter());
+        // Register available providers
         this.adapters.set('chatgpt', new ChatGPTAdapter());
+        this.adapters.set('deepseek', new DeepSeekAdapter());
         this.adapters.set('gemini', new GeminiAdapter());
         this.adapters.set('qwen', new QwenAdapter());
-        this.adapters.set('zai', new ZaiAdapter());
-        this.adapters.set('z.ai', new ZaiAdapter()); // Alias for zai
         this.adapters.set('kimi', new KimiAdapter());
+        this.adapters.set('zai', new ZaiAdapter());
+        this.adapters.set('z.ai', new ZaiAdapter());
+        
+        // Local Models via Ollama API
+        this.adapters.set('ollama', new OllamaApiAdapter('ollama', 'qwen3-vl:2b'));
+        this.adapters.set('local', new OllamaApiAdapter('local', 'qwen3-vl:2b'));
+        this.adapters.set('qwen-local', new OllamaApiAdapter('qwen-local', 'qwen3-vl:2b'));
     }
 
-    public getAdapter(providerId: string): BaseBrowserAdapter | undefined {
+    public getAdapter(providerId: string): AgentProvider | undefined {
         return this.adapters.get(providerId);
     }
 
