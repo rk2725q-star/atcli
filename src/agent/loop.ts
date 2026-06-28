@@ -106,7 +106,7 @@ export class AgentLoop {
             const globalTasks = (global as any).ATCLI_TASKS;
             if (globalTasks && globalTasks.size > 0) {
                 const taskIds = Array.from(globalTasks.keys()).join(', ');
-                currentMessage += `\n\n[SYSTEM REMINDER (PREVENT FORGETTING): You have the following background tasks actively running: ${taskIds}. Do NOT forget to use the 'manage_task' tool with sub_action="logs" or "status" to check if they crashed or finished!]`;
+                currentMessage += `\n\n<CRITICAL_SYSTEM_REMINDER>\n<TASKS_RUNNING>${taskIds}</TASKS_RUNNING>\n<ACTION_REQUIRED>Do NOT forget to use the 'manage_task' tool with sub_action="logs" or "status" to check if they crashed or finished! Context loss prevention is active.</ACTION_REQUIRED>\n</CRITICAL_SYSTEM_REMINDER>\n`;
             }
 
             console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);
