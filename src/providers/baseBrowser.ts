@@ -125,8 +125,7 @@ export abstract class BaseBrowserAdapter {
         maxWaitSeconds: number = 60,
         stableSecondsRequired: number = 3,
         previousTextToIgnore: string = "",
-        isGeneratingFn?: () => Promise<boolean>,
-        retrySendFn?: () => Promise<void>
+        isGeneratingFn?: () => Promise<boolean>
     ): Promise<string> {
         console.log(`[${this.id.toUpperCase()}] Waiting for response to complete...`);
         
@@ -137,12 +136,30 @@ export abstract class BaseBrowserAdapter {
             // Wait 1 second between polls
             await this.page!.waitForTimeout(1000);
             
-            // Intelligent auto-retry if message failed to send (e.g., due to image upload lag)
-            if (i > 0 && i % 8 === 0 && retrySendFn) {
+            // Intelligent GLOBAL auto-retry if message failed to send (e.g., due to image upload lag)
+            if (i > 0 && i % 8 === 0) {
                 try {
-                    await retrySendFn();
+                    await this.page!.evaluate(() => {
+                        const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => {
+                            const html = el.innerHTML.toLowerCase();
+                            const text = (el as any).innerText?.toLowerCase() || '';
+                            const aria = el.getAttribute('aria-label')?.toLowerCase() || '';
+                            const dataTestId = el.getAttribute('data-testid')?.toLowerCase() || '';
+                            
+                            // Check for typical send button indicators
+                            const isSend = html.includes('m10 21l14 3') || text.includes('send') || html.includes('send') || aria.includes('send') || dataTestId.includes('send');
+                            // Ensure it's not a stop generating button
+                            const isNotStop = !html.includes('stop') && !text.includes('stop') && !aria.includes('stop');
+                            
+                            return isSend && isNotStop;
+                        }) as HTMLButtonElement | HTMLDivElement;
+                        
+                        if (sendBtn && !(sendBtn as any).disabled) {
+                            sendBtn.click();
+                        }
+                    });
                 } catch (e) {
-                    // Ignore errors during retry check
+                    // Ignore errors during generic retry check
                 }
             }
 

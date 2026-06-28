@@ -82,17 +82,6 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     if (stopBtn) return true;
                     return false;
                 });
-            }, async () => {
-                // Intelligent retry logic: Check if Send button is still visible and click it
-                await this.page!.evaluate(() => {
-                    const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => {
-                        const html = el.innerHTML.toLowerCase();
-                        const text = (el as any).innerText?.toLowerCase() || '';
-                        return (html.includes('m10 21l14 3') || text.includes('send') || html.includes('send')) 
-                               && !html.includes('stop') && !text.includes('stop');
-                    }) as HTMLElement;
-                    if (sendBtn) sendBtn.click();
-                });
             });
 
             return { text: responseText.trim() };
