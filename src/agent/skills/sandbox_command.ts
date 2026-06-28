@@ -27,14 +27,14 @@ export const SandboxCommandSkill: AgentSkill = {
             // 2. Comprehensive Destructive Command Denylist (Regex)
             // Blocks file deletion, registry, formatting, netsh, sudo, chown, hidden executions
             const dangerousPatterns = [
-                /\\b(rm|del|rmdir|erase)\\b/i,
-                /\\b(format|diskpart|mkfs|fdisk)\\b/i,
-                /\\b(reg\\s+add|reg\\s+delete|reg\\s+import)\\b/i,
-                /\\b(netsh|ipconfig\\s+\\/release|route\\s+add)\\b/i,
-                /\\b(sudo|su|runas)\\b/i,
-                /\\b(chmod|chown|icacls|takeown)\\b/i,
-                /\\b(Invoke-WebRequest|wget|curl)\\b/i, // block raw downloads from CLI to prevent malware fetching
-                /\\b(shutdown|reboot|halt)\\b/i
+                /\b(rm|del|rmdir|erase)\b/i,
+                /\b(format|diskpart|mkfs|fdisk)\b/i,
+                /\b(reg\s+add|reg\s+delete|reg\s+import)\b/i,
+                /\b(netsh|ipconfig\s+\/release|route\s+add)\b/i,
+                /\b(sudo|su|runas)\b/i,
+                /\b(chmod|chown|icacls|takeown)\b/i,
+                /\b(Invoke-WebRequest|wget|curl)\b/i, 
+                /\b(shutdown|reboot|halt)\b/i
             ];
 
             for (const pattern of dangerousPatterns) {
