@@ -16,6 +16,8 @@ export class AgentLoop {
     private readonly AECL_CHECK_INTERVAL = 5;
     // PROJECT INTENT: Stores the user's original project description for intelligent decision-making
     private projectIntent: string = '';
+    // FILE REGISTRY: Tracks every file operation this session for memory and change log
+    private fileRegistry: Map<string, { status: 'created' | 'modified' | 'deleted'; changes: string[]; timestamp: string }> = new Map();
 
     constructor(private provider: AgentProvider, private isFirstMessage: boolean = false) {
         this.skillManager = new SkillManager();
@@ -322,12 +324,46 @@ export class AgentLoop {
             }
 
             console.log(`\n⚙️ Executing Skill: ${toolCall.action}`);
+
+            // ─── SMART WRITE INTERCEPTOR ────────────────────────────────────────────
+            // If AI uses write_file on an EXISTING file, warn + redirect to replace instead
+            if (toolCall.action === 'write_file' && toolCall.path) {
+                const targetPath = path.resolve(cwd, toolCall.path);
+                if (fs.existsSync(targetPath)) {
+                    console.log(`\n⚠️  [Smart Write] File already exists: ${toolCall.path}`);
+                    console.log(`⚠️  [Smart Write] Full overwrite detected. Redirecting AI to use replace...`);
+                    // Still execute (don't block) but inject a strong redirect note into result
+                    const existingContent = (() => {
+                        try { return fs.readFileSync(targetPath, 'utf-8').split('\n').slice(0, 8).join('\n') + '\n...'; }
+                        catch { return '(could not read)'; }
+                    })();
+                    // Skip write_file, tell AI to use replace instead
+                    const redirectMsg = `[SMART WRITE INTERCEPTOR]: The file '${toolCall.path}' already EXISTS in the project.\n\nCurrent file begins with:\n${existingContent}\n\nFull overwrite with write_file is INEFFICIENT and RISKY (loses existing working code).\nYou MUST use the 'replace' tool to update only the specific lines/sections that need changing.\nDO NOT use write_file on existing files. Use replace with the exact search and replace strings.\n\nIf you need to completely redesign this file, first read it with read_file, then use replace for each section.`;
+                    currentMessage = `<tool_result>\n${redirectMsg}\n</tool_result>\n[SYSTEM REMINDER: Use replace tool for existing files. IMMEDIATELY OUTPUT A replace <tool_call> XML BLOCK.]`;
+                    continue;
+                }
+            }
+
             let result = await this.skillManager.executeSkill(toolCall.action, toolCall);
 
             // AECL MECHANICAL COUNTER: Track file-writing tools and trigger aecl_check every 5 edits
             // NOTE: actual skill names are 'replace' (edit.ts) and 'append_content' (edit.ts), 'write_file' (fs_write.ts)
             const fileWritingTools = ['write_file', 'replace', 'append_content', 'create_file'];
             if (fileWritingTools.includes(toolCall.action)) {
+                // FILE REGISTRY: Track every file operation for the change log
+                const affectedPath = toolCall.path || toolCall.file || '';
+                if (affectedPath) {
+                    const ts = new Date().toISOString();
+                    const isNew = !this.fileRegistry.has(affectedPath);
+                    const action = toolCall.action === 'write_file' ? (isNew ? 'created' : 'modified') :
+                                   toolCall.action === 'replace' ? 'modified' :
+                                   toolCall.action === 'append_content' ? 'modified' : 'created';
+                    const entry = this.fileRegistry.get(affectedPath) || { status: action as 'created' | 'modified' | 'deleted', changes: [] as string[], timestamp: ts };
+                    entry.status = action as 'created' | 'modified' | 'deleted';
+                    (entry.changes as string[]).push(`[${ts}] ${toolCall.action}`);
+                    this.fileRegistry.set(affectedPath, entry);
+                }
+
                 this.editsSinceLastAeclCheck++;
                 console.log(`\n📝 [AECL Counter] ${this.editsSinceLastAeclCheck}/${this.AECL_CHECK_INTERVAL} file writes since last check.`);
                 if (this.editsSinceLastAeclCheck >= this.AECL_CHECK_INTERVAL) {
@@ -335,12 +371,20 @@ export class AgentLoop {
                     console.log(`\n🔍 [AECL] Auto-triggering error check after ${this.AECL_CHECK_INTERVAL} file writes...`);
                     const aeclResult = await this.skillManager.executeSkill('aecl_check', {
                         action: 'aecl_check',
-                        files_written: [],
+                        files_written: Array.from(this.fileRegistry.keys()),
                         ai_notes: '[Auto-triggered by system after 5 file writes]'
                     });
                     console.log(`[AECL Auto-Check Result]:\n${aeclResult.substring(0, 500)}`);
-                    // Inject AECL result into the next message so AI sees the errors
                     result = result + `\n\n[AECL AUTO-CHECK TRIGGERED]:\n${aeclResult}`;
+                }
+            }
+
+            // Track deletes in file registry too
+            if (toolCall.action === 'delete_file') {
+                const deletedPaths = toolCall.paths || (toolCall.path ? [toolCall.path] : []);
+                for (const p of deletedPaths) {
+                    const ts = new Date().toISOString();
+                    this.fileRegistry.set(p, { status: 'deleted', changes: [`[${ts}] delete_file`], timestamp: ts });
                 }
             }
 
@@ -370,35 +414,56 @@ export class AgentLoop {
             
             // Episodic Memory Checkpoint every 3 iterations
             if (i > 0 && i % 3 === 0) {
-                console.log(`\n🧠 [EPISODIC MEMORY CHECKPOINT] Requesting structured memory save...`);
-                currentMessage += `\n\n[EPISODIC MEMORY CHECKPOINT — Iteration ${i}]: You MUST now update ATCLI_MEMORY.md using write_file (or replace_content if it exists). Write a RICH, STRUCTURED update using this exact format:
+                console.log(`\n🧠 [EPISODIC MEMORY CHECKPOINT] Requesting structured memory save (iteration ${i})...`);
+                
+                // Build live file registry summary from this session
+                const registrySummary = (() => {
+                    if (this.fileRegistry.size === 0) return '(No files written yet this session)';
+                    const lines: string[] = [];
+                    for (const [filePath, entry] of this.fileRegistry.entries()) {
+                        const icon = entry.status === 'created' ? '🆕' : entry.status === 'deleted' ? '🗑️' : '✏️';
+                        lines.push(`${icon} ${filePath} [${entry.status}] — ${entry.changes.length} operation(s) since session start`);
+                    }
+                    return lines.join('\n');
+                })();
+
+                currentMessage += `\n\n[EPISODIC MEMORY CHECKPOINT — Iteration ${i}]:
+The system has automatically tracked all file operations this session. Here is the LIVE FILE REGISTRY:
+
+${registrySummary}
+
+You MUST now update ATCLI_MEMORY.md using replace (if file exists) or write_file (if creating fresh).
+Use this EXACT structured format — update ONLY the sections that changed using replace tool:
 
 ## 📌 Project: [Project Name]
-**Intent**: [1-line summary of what user asked to build]
+**Intent**: [What user asked — from Project Intent]
 **IDE**: ${detectedIDE}
 **Status**: [In Progress / Complete / Blocked]
-**Last Updated**: [current date/time]
+**Last Updated**: ${new Date().toISOString()}
 
-## 🗂️ Files Created/Modified
-- path/to/file.ts — what it does
-- (list all files touched this session)
+## 📋 File Registry (Auto-tracked by ATCLI)
+[Paste the File Registry above here, enriched with what each file actually does]
+
+## 📜 Change Log
+- ${new Date().toISOString()} — [describe what you just built/fixed/deleted in 1 line]
+(Append to this list every checkpoint — do NOT replace old entries!)
 
 ## 🗑️ Deleted Files Log
-- path/file.ts — WHY deleted (wrong implementation / replaced by X / user requested)
+- path/file.ts — WHY deleted — was it rebuilt? (yes/no + new path if yes)
 
 ## 🔴 Known Issues / AECL Errors
-- file:line — error description — status (fixed/pending)
+- file.ts:line — error — status (pending/fixed)
 
 ## ✅ Completed Features
-- Feature name — brief description
+- Feature name — one line description
 
 ## 🔜 Next Steps
-- What still needs to be done
+- What still needs to be done in order
 
 ## 🏗️ Architecture Notes
-- Key design decisions, tech stack, important patterns used
+- Tech stack, key patterns, important decisions
 
-Do this BEFORE your next coding step. This memory is critical for future sessions!]`;
+IMPORTANT: Do NOT overwrite the entire file. Use replace to update each section individually. Do this BEFORE your next coding step!]`;
             }
 
             // True Context Window Refresh (Only if exceeding massive token limits)
