@@ -74,6 +74,15 @@ export class AgentLoop {
         const systemPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
         let currentMessage = "";
 
+        // Boot injection: Project Intent + IDE context + Memory — included in ALL branches
+        const bootInjection = [
+            `[PROJECT INTENT]: ${this.projectIntent}`,
+            `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code, not .idea/ configs). Do NOT write configs for other IDEs unless the user explicitly asks.`,
+            bootMemoryContent
+                ? `[ATCLI PROJECT MEMORY - READ THIS FIRST]:\n${bootMemoryContent.substring(0, 3000)}\n[END OF MEMORY]`
+                : '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. You will create ATCLI_MEMORY.md at your first episodic checkpoint.'
+        ].join('\n\n');
+
         if (this.isFirstMessage) {
             const MAX_CHUNK_LENGTH = 100000; // Increased to 100k to prevent splitting JSON definitions across chunks
             
@@ -124,14 +133,7 @@ export class AgentLoop {
             if (this.isAgenticaMode) {
                 reminder += "\n[AGENTICA OVERRIDE: YOU ARE CONNECTED TO THE ATCLI XML BRIDGE. YOU DO HAVE PHYSICAL PC CONTROL. YOU MUST NOT USE INTERNAL SEARCH. EMIT <tool_call> TO OPEN THE BROWSER OR RUN COMMANDS.]";
             }
-           // Inject Project Intent, IDE detection, and boot memory into first message
-        const bootInjection = [
-            `[PROJECT INTENT]: ${this.projectIntent}`,
-            `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code, not .idea/ configs). Do NOT write configs for other IDEs unless the user explicitly asks.`,
-            bootMemoryContent ? `[ATCLI PROJECT MEMORY - READ THIS FIRST]:\n${bootMemoryContent.substring(0, 3000)}\n[END OF MEMORY]` : '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. You will create ATCLI_MEMORY.md at your first episodic checkpoint.'
-        ].join('\n\n');
-
-        currentMessage = `${userMessage}\n\n${reminder}\n\n${bootInjection}`;
+            currentMessage = `${userMessage}\n\n${reminder}\n\n${bootInjection}`;
         }
         
         let lastRefreshTokens = this.totalTokensProcessed;
