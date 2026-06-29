@@ -12,12 +12,20 @@ export class AgentLoop {
     // AECL: Mechanical edit counter (not prompt-based) to trigger aecl_check every 5 file writes
     private editsSinceLastAeclCheck: number = 0;
     private readonly AECL_CHECK_INTERVAL = 5;
+    // PROJECT INTENT: Stores the user's original project description for intelligent decision-making
+    private projectIntent: string = '';
 
     constructor(private provider: AgentProvider, private isFirstMessage: boolean = false) {
         this.skillManager = new SkillManager();
     }
 
     public async run(userMessage: string): Promise<void> {
+        // Capture the user's original message as the Project Intent
+        // This is used by the Intelligent Delete system and 180k re-injection to keep AI on track
+        this.projectIntent = userMessage.substring(0, 2000); // Store first 2000 chars
+        (global as any).ATCLI_PROJECT_INTENT = this.projectIntent;
+        console.log(`\n📌 [Project Intent Captured] (${this.tokenizer.encode(this.projectIntent).length} tokens)`);
+
         if (this.isAgenticaMode) {
             this.maxIterations = 5000; // Agentica continuous execution allows far more iterations
             console.log(`\n🤖 Starting Agentica OpenClaw Continuous Loop (Max Iterations: ${this.maxIterations})...`);
@@ -93,10 +101,13 @@ export class AgentLoop {
             const isLocal = this.provider.id === 'ollama' || this.provider.id === 'local' || this.provider.id === 'qwen-local';
             const refreshThreshold = isLocal ? 20000 : 80000;
             
-            // CONTEXT REFRESH: Re-inject tools to prevent the AI from hitting context window limits
+            // CONTEXT REFRESH: Re-inject tools + Project Intent to prevent memory loss
             if (this.totalTokensProcessed - lastRefreshTokens > refreshThreshold) {
-                console.log(`\n🔄 [Agent] Context window limits approaching (Protecting ${refreshThreshold} limit). Auto-resending System Prompt to prevent memory loss...`);
-                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Context Protection): The following is an auto-resend of your available tools and strict operating rules to prevent memory loss.]\n\n${systemPrompt}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+                console.log(`\n🔄 [Agent] Context window limits approaching (${refreshThreshold} tokens). Auto-resending System Prompt + Project Intent...`);
+                const intentSection = this.projectIntent 
+                    ? `\n\n[PROJECT INTENT RE-INJECTION: The user's original goal is:\n"${this.projectIntent}"\nStay strictly aligned to this. Do not add unrequested features or delete files not related to this goal.]`
+                    : '';
+                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Context Protection): The following is an auto-resend of your available tools and strict operating rules to prevent memory loss.]\n\n${systemPrompt}${intentSection}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
                 lastRefreshTokens = this.totalTokensProcessed;
             }
 
@@ -205,12 +216,15 @@ export class AgentLoop {
                             continue;
                         }
                     }
-                    // Approved — execute and inject rebuild reminder
+                    // INTELLIGENT REBUILD DECISION: Inject Project Intent so AI decides whether to rebuild
                     console.log(`\n⚙️ Executing Skill: delete_file`);
                     const deleteResult = await this.skillManager.executeSkill('delete_file', toolCall);
                     console.log(`[Skill Output]: ${deleteResult}`);
                     const deletedFiles = pathsToCheck.join(', ');
-                    currentMessage = `<tool_result>\n${deleteResult}\n</tool_result>\n[SYSTEM REMINDER: You just deleted: ${deletedFiles}. You MUST now IMMEDIATELY recreate/rebuild the deleted file(s) with correct, improved content. DO NOT leave the project broken. Output the next <tool_call> to write_file or replace the deleted file now.]`;
+                    const intentContext = this.projectIntent
+                        ? `\n\n[PROJECT INTENT]: The user originally asked for: "${this.projectIntent.substring(0, 500)}"`
+                        : '';
+                    currentMessage = `<tool_result>\n${deleteResult}\n</tool_result>${intentContext}\n\n[INTELLIGENT DELETE DECISION REQUIRED]: You just deleted: ${deletedFiles}.\nNow you MUST make a smart decision based on the Project Intent above:\n  - If this file IS needed for the project → IMMEDIATELY recreate it with correct, improved content using write_file.\n  - If this file is NOT needed for the project (unused utility, wrong module, etc.) → DO NOT rebuild it. Instead, clean up any imports that referenced it and continue.\nMake this decision autonomously. Output the next <tool_call> now.`;
                     continue;
                 }
             }
