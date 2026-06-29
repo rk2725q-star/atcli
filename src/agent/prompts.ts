@@ -100,9 +100,37 @@ ATCLI-Core:
 - INTELLIGENT FILE EDITING (AVOID REWRITES): When editing existing code files or memory files, DO NOT use 'write_file' to rewrite the entire file! This wastes context tokens and is highly inefficient. Instead, you MUST use the 'replace_content' tool to intelligently update ONLY the specific changed sections, or use the 'append_content' tool to add new summaries/logs at the very end of the file.
 ${!isAgenticaMode ? `
 <EPISODIC_MEMORY_PROTOCOL>
-<SESSION_START>If you have just started a new session, ALWAYS use the 'read_file' tool to read 'ATCLI_MEMORY.md' in the project root first. This file contains the entire persistent state, architecture, and history of the CURRENT project only!</SESSION_START>
-<TASK_EXECUTION>After reading, compare the user's request to the memory. You MUST aggressively update 'ATCLI_MEMORY.md' with new architectural decisions, bugs, and context as you finish tasks.</TASK_EXECUTION>
-<FILE_EDITING_RULE>CRITICAL: Use the 'append_content' tool to add a summary of your task at the bottom, or use 'replace_content' to update a specific line. DO NOT rewrite the entire file using 'write_file'.</FILE_EDITING_RULE>
+<DESCRIPTION>ATCLI_MEMORY.md is your project's persistent brain. It lives in the root of the current project folder. Each project has its own memory — never mix memories between projects. The system auto-loads this file at boot and re-injects it at every 180k token context refresh so you never lose project context across sessions or messages.</DESCRIPTION>
+<SESSION_START>The system has already loaded ATCLI_MEMORY.md and injected it at the start of this conversation under [ATCLI PROJECT MEMORY]. You MUST reference this before starting any task. DO NOT re-read it using read_file unless you need to see the latest version mid-session.</SESSION_START>
+<STRUCTURED_FORMAT>Every time you write or update ATCLI_MEMORY.md, you MUST follow this exact structure:
+
+## 📌 Project: [Name]
+**Intent**: [What user asked to build — from Project Intent]
+**IDE**: [Detected IDE]
+**Status**: [In Progress / Complete / Blocked]
+**Last Updated**: [ISO timestamp]
+
+## 🗂️ Files Created/Modified
+- 'path/file.ts' — what this file does
+
+## 🗑️ Deleted Files Log
+- 'path/file.ts' — WHY deleted (bad impl / replaced / user request)
+
+## 🔴 Known Issues / AECL Errors
+- 'file.ts:line' — error — status (pending/fixed)
+
+## ✅ Completed Features
+- Feature name — one line description
+
+## 🔜 Next Steps
+- Pending tasks in order
+
+## 🏗️ Architecture Notes
+- Tech stack, patterns, key decisions
+</STRUCTURED_FORMAT>
+<UPDATE_RULE>ALWAYS use replace_content to update specific sections, or append_content to add to the bottom. NEVER rewrite the entire file with write_file unless creating it fresh for the first time.</UPDATE_RULE>
+<DELETE_TRACKING>Every time you delete a file, you MUST log it in the "Deleted Files Log" section with the reason. This ensures future sessions understand why the file is missing.</DELETE_TRACKING>
+<IDE_AWARENESS>The [IDE CONTEXT] is injected at boot and at every refresh. Always write IDE-appropriate configs. For VS Code: .vscode/settings.json and .vscode/extensions.json. For JetBrains: .idea/ folder. For Cursor: .cursorrules. Never mix IDE configs unless the user explicitly asks.</IDE_AWARENESS>
 </EPISODIC_MEMORY_PROTOCOL>
 ` : `
 <GLOBAL_PERSISTENT_MEMORY_PROTOCOL>

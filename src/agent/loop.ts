@@ -2,6 +2,8 @@ import { AgentProvider } from '../providers/interface';
 import { generateSystemPrompt } from './prompts';
 import { SkillManager } from './skillManager';
 import { get_encoding } from 'tiktoken';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class AgentLoop {
     private maxIterations = 500;
@@ -20,9 +22,38 @@ export class AgentLoop {
     }
 
     public async run(userMessage: string): Promise<void> {
+        // ─── BOOT: Project Memory + IDE Detection ─────────────────────────
+        const cwd = process.cwd();
+        const memoryPath = path.join(cwd, 'ATCLI_MEMORY.md');
+        let bootMemoryContent = '';
+        if (fs.existsSync(memoryPath)) {
+            try {
+                bootMemoryContent = fs.readFileSync(memoryPath, 'utf-8');
+                console.log(`\n📖 [ATCLI Memory] Loaded ATCLI_MEMORY.md (${bootMemoryContent.length} chars) from project.`);
+            } catch(e) { /* ignore */ }
+        } else {
+            console.log(`\n📝 [ATCLI Memory] No ATCLI_MEMORY.md found — will be created during this session.`);
+        }
+
+        // IDE Detection: Check for IDE-specific config folders
+        const ideMarkers: Record<string, string> = {
+            '.vscode': 'VS Code',
+            '.idea': 'JetBrains IDE (IntelliJ/WebStorm/PyCharm)',
+            '.cursor': 'Cursor AI IDE',
+            '.zed': 'Zed Editor',
+        };
+        let detectedIDE = 'Unknown IDE';
+        for (const [marker, ideName] of Object.entries(ideMarkers)) {
+            if (fs.existsSync(path.join(cwd, marker))) {
+                detectedIDE = ideName;
+                break;
+            }
+        }
+        (global as any).ATCLI_DETECTED_IDE = detectedIDE;
+        console.log(`\n🖥️  [IDE Detection] Detected: ${detectedIDE}`);
+
         // Capture the user's original message as the Project Intent
-        // This is used by the Intelligent Delete system and 180k re-injection to keep AI on track
-        this.projectIntent = userMessage.substring(0, 2000); // Store first 2000 chars
+        this.projectIntent = userMessage.substring(0, 2000);
         (global as any).ATCLI_PROJECT_INTENT = this.projectIntent;
         console.log(`\n📌 [Project Intent Captured] (${this.tokenizer.encode(this.projectIntent).length} tokens)`);
 
@@ -90,7 +121,14 @@ export class AgentLoop {
             if (this.isAgenticaMode) {
                 reminder += "\n[AGENTICA OVERRIDE: YOU ARE CONNECTED TO THE ATCLI XML BRIDGE. YOU DO HAVE PHYSICAL PC CONTROL. YOU MUST NOT USE INTERNAL SEARCH. EMIT <tool_call> TO OPEN THE BROWSER OR RUN COMMANDS.]";
             }
-            currentMessage = `${userMessage}\n\n${reminder}`;
+           // Inject Project Intent, IDE detection, and boot memory into first message
+        const bootInjection = [
+            `[PROJECT INTENT]: ${this.projectIntent}`,
+            `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code, not .idea/ configs). Do NOT write configs for other IDEs unless the user explicitly asks.`,
+            bootMemoryContent ? `[ATCLI PROJECT MEMORY - READ THIS FIRST]:\n${bootMemoryContent.substring(0, 3000)}\n[END OF MEMORY]` : '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. You will create ATCLI_MEMORY.md at your first episodic checkpoint.'
+        ].join('\n\n');
+
+        currentMessage = `${userMessage}\n\n${reminder}\n\n${bootInjection}`;
         }
         
         let lastRefreshTokens = this.totalTokensProcessed;
@@ -101,13 +139,22 @@ export class AgentLoop {
             const isLocal = this.provider.id === 'ollama' || this.provider.id === 'local' || this.provider.id === 'qwen-local';
             const refreshThreshold = isLocal ? 20000 : 80000;
             
-            // CONTEXT REFRESH: Re-inject tools + Project Intent to prevent memory loss
+            // CONTEXT REFRESH: Re-inject tools + Project Intent + Memory Snapshot to prevent memory loss
             if (this.totalTokensProcessed - lastRefreshTokens > refreshThreshold) {
-                console.log(`\n🔄 [Agent] Context window limits approaching (${refreshThreshold} tokens). Auto-resending System Prompt + Project Intent...`);
+                console.log(`\n🔄 [Agent] Context window approaching (${refreshThreshold} tokens). Auto-resending System Prompt + Intent + Memory...`);
                 const intentSection = this.projectIntent 
                     ? `\n\n[PROJECT INTENT RE-INJECTION: The user's original goal is:\n"${this.projectIntent}"\nStay strictly aligned to this. Do not add unrequested features or delete files not related to this goal.]`
                     : '';
-                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Context Protection): The following is an auto-resend of your available tools and strict operating rules to prevent memory loss.]\n\n${systemPrompt}${intentSection}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+                // Re-read ATCLI_MEMORY.md at refresh time for latest state
+                let liveMemorySnapshot = '';
+                if (fs.existsSync(memoryPath)) {
+                    try {
+                        const memContent = fs.readFileSync(memoryPath, 'utf-8');
+                        liveMemorySnapshot = `\n\n[LIVE ATCLI_MEMORY.md SNAPSHOT (auto-read at context refresh):\n${memContent.substring(0, 2000)}\n]`;
+                    } catch(e) { /* ignore */ }
+                }
+                const ideSection = `\n\n[IDE CONTEXT REMINDER]: User is in ${detectedIDE}. Write IDE-appropriate configs only.`;
+                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Context Protection): Re-injecting tools + project state to prevent memory loss.]\n\n${systemPrompt}${intentSection}${liveMemorySnapshot}${ideSection}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
                 lastRefreshTokens = this.totalTokensProcessed;
             }
 
@@ -321,10 +368,37 @@ export class AgentLoop {
                 currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. 24/7 SECURITY FIREWALL ACTIVE: You are strictly forbidden from running destructive commands. DO NOT CONVERSE.]`;
             }
             
-            // Episodic Memory Checkpoint every 3 iterations to save state
+            // Episodic Memory Checkpoint every 3 iterations
             if (i > 0 && i % 3 === 0) {
-                console.log(`\n🧠 [EPISODIC MEMORY CHECKPOINT] Requesting AI to save state to ATCLI_MEMORY.md`);
-                currentMessage += `\n\n[EPISODIC MEMORY CHECKPOINT: You have been running for ${i} iterations. You MUST immediately use the \`write_file\` or \`replace_content\` tool to write/update a SHORT AND SWEET summary of what work you just finished, and the overall project state, into a file named \`ATCLI_MEMORY.md\` in the root directory. This ensures future sessions can recall the project state! Keep it very concise so the AI can read it quickly. Do this BEFORE your next coding step!]`;
+                console.log(`\n🧠 [EPISODIC MEMORY CHECKPOINT] Requesting structured memory save...`);
+                currentMessage += `\n\n[EPISODIC MEMORY CHECKPOINT — Iteration ${i}]: You MUST now update ATCLI_MEMORY.md using write_file (or replace_content if it exists). Write a RICH, STRUCTURED update using this exact format:
+
+## 📌 Project: [Project Name]
+**Intent**: [1-line summary of what user asked to build]
+**IDE**: ${detectedIDE}
+**Status**: [In Progress / Complete / Blocked]
+**Last Updated**: [current date/time]
+
+## 🗂️ Files Created/Modified
+- path/to/file.ts — what it does
+- (list all files touched this session)
+
+## 🗑️ Deleted Files Log
+- path/file.ts — WHY deleted (wrong implementation / replaced by X / user requested)
+
+## 🔴 Known Issues / AECL Errors
+- file:line — error description — status (fixed/pending)
+
+## ✅ Completed Features
+- Feature name — brief description
+
+## 🔜 Next Steps
+- What still needs to be done
+
+## 🏗️ Architecture Notes
+- Key design decisions, tech stack, important patterns used
+
+Do this BEFORE your next coding step. This memory is critical for future sessions!]`;
             }
 
             // True Context Window Refresh (Only if exceeding massive token limits)
