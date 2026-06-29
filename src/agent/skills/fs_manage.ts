@@ -106,23 +106,35 @@ export const CopyFileSkill: AgentSkill = {
 
 export const ClearWorkspaceSkill: AgentSkill = {
     name: 'clear_workspace',
-    description: 'Deletes all files and folders in the current workspace, leaving behind essential configuration folders (.git, .agents, .atcli) and the ATCLI memory file. Use this when the user asks to "delete all files", "clear workspace", or "clear workshop". Do not use delete_file manually for this.',
-    example: `<tool_call>\n{"action": "clear_workspace"}\n</tool_call>`,
-    execute: async () => {
+    description: 'Deletes all files and folders in the current workspace. Preserves .git, .agents, .atcli config folders and ATCLI memory files. By default also preserves node_modules (set keep_node_modules:false to delete it too for a full clean). Use when user says "delete all files", "clear workspace", "clear workshop", "fresh start", or "full clean".',
+    example: `<tool_call>\n{"action": "clear_workspace", "keep_node_modules": false}\n</tool_call>`,
+    execute: async (args: any) => {
         try {
             // Use IDE-detected project root as the safe zone to clear
             const cwd = (global as any).atcli_project_root || process.cwd();
             const files = await fs.readdir(cwd);
-            const preserved = ['.git', '.atcli-skills', 'node_modules', 'ATCLI_MEMORY.md', 'AGENTICA_MEMORY.md', '.agents', '.atcli'];
+
+            // node_modules: kept for real projects (reinstall is slow), removed for full cleans
+            const keepNodeModules = args.keep_node_modules !== false; // default: true
+            const preserved = ['.git', '.atcli-skills', '.agents', '.atcli',
+                               'ATCLI_MEMORY.md', 'AGENTICA_MEMORY.md'];
+            if (keepNodeModules) preserved.push('node_modules');
+
             let deletedCount = 0;
+            const deletedItems: string[] = [];
             
             for (const file of files) {
                 if (!preserved.includes(file)) {
                     await fs.rm(path.join(cwd, file), { recursive: true, force: true });
                     deletedCount++;
+                    deletedItems.push(file);
                 }
             }
-            return `Success: Cleared ${deletedCount} files/folders from the workspace. Preserved: ${preserved.join(', ')}`;
+
+            const deletedList = deletedItems.length > 0
+                ? `\nDeleted: ${deletedItems.join(', ')}`
+                : '\nNothing to delete — workspace was already empty.';
+            return `Success: Cleared ${deletedCount} items from workspace (${cwd}).${deletedList}\nPreserved: ${preserved.join(', ')}`;
         } catch (e: any) {
             return `Error clearing workspace: ${e.message}`;
         }
