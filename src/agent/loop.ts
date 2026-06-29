@@ -24,7 +24,8 @@ export class AgentLoop {
     }
 
     public async run(userMessage: string): Promise<void> {
-        // ─── BOOT: Project Memory + IDE Detection ─────────────────────────
+        // Reset file registry at each run() to prevent bleed between messages
+        this.fileRegistry = new Map();
         const cwd = process.cwd();
         const memoryPath = path.join(cwd, 'ATCLI_MEMORY.md');
         let bootMemoryContent = '';
@@ -112,11 +113,11 @@ export class AgentLoop {
                     } else {
                         // The final chunk will be passed into the main loop along with the actual user request
                         console.log(`[Agent] Sending final chunk ${i + 1}/${numChunks} with actual user request...`);
-                        currentMessage = `${messageToSend}\n\nUser Request:\n${userMessage}`;
+                        currentMessage = `${messageToSend}\n\nUser Request:\n${userMessage}\n\n${bootInjection}`;
                     }
                 }
             } else {
-                currentMessage = `${systemPrompt}\n\nUser Request:\n${userMessage}`;
+                currentMessage = `${systemPrompt}\n\nUser Request:\n${userMessage}\n\n${bootInjection}`;
             }
         } else {
             let reminder = "[SYSTEM REMINDER: DO NOT ASK FOR PERMISSION. DO NOT WRITE JAVASCRIPT CODE BLOCKS. IF YOU NEED TO EXECUTE A COMMAND OR FILE OPERATION, OUTPUT THE <tool_call> XML BLOCK. IF THE USER IS JUST CHATTING, YOU MAY RESPOND WITH TEXT NORMALLY.]";
@@ -326,8 +327,8 @@ export class AgentLoop {
             console.log(`\n⚙️ Executing Skill: ${toolCall.action}`);
 
             // ─── SMART WRITE INTERCEPTOR ────────────────────────────────────────────
-            // If AI uses write_file on an EXISTING file, warn + redirect to replace instead
-            if (toolCall.action === 'write_file' && toolCall.path) {
+            // If AI uses write_file or create_file on an EXISTING file, redirect to replace
+            if ((toolCall.action === 'write_file' || toolCall.action === 'create_file') && toolCall.path) {
                 const targetPath = path.resolve(cwd, toolCall.path);
                 if (fs.existsSync(targetPath)) {
                     console.log(`\n⚠️  [Smart Write] File already exists: ${toolCall.path}`);

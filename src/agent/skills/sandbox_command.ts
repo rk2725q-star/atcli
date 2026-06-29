@@ -1,29 +1,23 @@
 import { AgentSkill } from './base';
 import { exec } from 'child_process';
 import * as util from 'util';
-import * as readline from 'readline';
 
 const execPromise = util.promisify(exec);
 
 /**
- * Helper to prompt the user directly in the CLI during skill execution.
+ * Prompt user using the global REPL readline (avoids stdin conflicts).
+ * Falls back to auto-reject if global askQuestion is not available (e.g. tests).
  */
-function promptUserHITL(command: string): Promise<boolean> {
-    return new Promise((resolve) => {
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
-        
-        console.log(`\n\x1b[33m⚠️ [AI GATEKEEPER] The AI wants to execute a command:\x1b[0m`);
-        console.log(`\x1b[36m> ${command}\x1b[0m`);
-        
-        rl.question(`Is this safe to run? (y/N): `, (answer) => {
-            rl.close();
-            const isApproved = answer.trim().toLowerCase() === 'y';
-            resolve(isApproved);
-        });
-    });
+async function promptUserHITL(command: string): Promise<boolean> {
+    const ask = (global as any).askQuestion;
+    if (!ask) return false; // Safety: no readline available → reject
+
+    console.log(`\n\x1b[33m⚠️ [AI GATEKEEPER] The AI wants to execute a command:\x1b[0m`);
+    console.log(`\x1b[36m> ${command}\x1b[0m`);
+
+    const rawAnswer = await ask(`Is this safe to run? (y/N): `);
+    const firstChar = rawAnswer.trim().toLowerCase().charAt(0);
+    return firstChar === 'y';
 }
 
 export const SandboxCommandSkill: AgentSkill = {
