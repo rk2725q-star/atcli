@@ -555,8 +555,20 @@ export class AgentLoop {
                     // MECHANICAL MEMORY WRITE — directly updates ATCLI_MEMORY.md right now
                     if (action === 'created') {
                         memWriter.onFileCreated(affectedPath);
-                        // Inject semantic prompt: AI MUST fill in what the file does in ATCLI_MEMORY.md
-                        result += `\n\n[ATCLI MEMORY ENRICHMENT]: The system just logged \`${affectedPath}\` to ATCLI_MEMORY.md as [created].\nThe File Registry entry currently says "[AI: describe what this file does in 1 sentence]".\nYou MUST now use the replace tool to update that placeholder with a REAL 1-sentence description.\nExample: \`${affectedPath}\` [created] — Hero section component with gradient background and animated CTA button\nAlso update the 📖 Project Summary section if this is one of the first files (write what this project is building).`;
+
+                        // ─── KEY FIX: Read ACTUAL file content so AI describes from CODE not memory ───
+                        const filePreview = (() => {
+                            try {
+                                const fullPath = path.resolve(cwd, affectedPath);
+                                if (!fs.existsSync(fullPath)) return '(file not readable yet)';
+                                const lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
+                                const preview = lines.slice(0, 30).join('\n');
+                                return preview.length > 0 ? preview : '(empty file)';
+                            } catch { return '(could not read)'; }
+                        })();
+
+                        // Inject: file content is shown so AI describes from REAL CODE
+                        result += `\n\n[ATCLI MEMORY ENRICHMENT — File Created: ${affectedPath}]:\nThe system logged this file to ATCLI_MEMORY.md. The File Registry entry needs a real description.\n\nHERE IS THE ACTUAL FILE CONTENT (first 30 lines):\n\`\`\`\n${filePreview}\n\`\`\`\n\nBased on the ACTUAL CODE above (not your memory), use the replace tool to update ATCLI_MEMORY.md:\nFind: \`${affectedPath}\` [created] — [AI: describe what this file does in 1 sentence]\nReplace with: \`${affectedPath}\` [created] — [YOUR REAL 1-SENTENCE DESCRIPTION BASED ON THE CODE]\n\nBe specific. e.g.: \"Hero section with gradient background, animated headline, and dual CTA buttons\"\nDO NOT say \"newly created\" or \"a file that...\". Read the code above and describe it ACCURATELY.`;
                     } else {
                         memWriter.onFileModified(affectedPath, toolCall.action);
                     }
@@ -638,14 +650,38 @@ export class AgentLoop {
                     return lines.join('\n');
                 })();
 
-                // Scan memory file for unfilled AI placeholders
-                const unfilledPlaceholders = (() => {
+                // Scan memory file for unfilled [AI:] placeholders AND read their actual file content
+                const unfilledSection = (() => {
                     try {
-                        const content = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf-8') : '';
-                        const matches = content.match(/\[AI:[^\]]+\]/g) || [];
-                        return matches.length > 0
-                            ? `\n\nUNFILLED PLACEHOLDERS FOUND (${matches.length}):\n${matches.slice(0, 10).map(m => `  • ${m}`).join('\n')}`
-                            : '\n\n✅ No unfilled placeholders — all descriptions complete!';
+                        const memContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf-8') : '';
+                        if (!memContent) return '';
+
+                        // Find all File Registry lines with [AI:] placeholders
+                        const registryLines = memContent.match(/- `([^`]+)` \[[^\]]+\] — \[AI:[^\n]*/g) || [];
+                        if (registryLines.length === 0) {
+                            return '\n\n✅ All file descriptions are complete! No [AI:] placeholders found.';
+                        }
+
+                        // For each unfilled file, read the actual content and build a context block
+                        const fileContextBlocks: string[] = [];
+                        for (const registryLine of registryLines.slice(0, 5)) { // max 5 to avoid context explosion
+                            const fileMatch = registryLine.match(/- `([^`]+)`/);
+                            if (!fileMatch) continue;
+                            const filePath = fileMatch[1];
+                            const fullPath = path.resolve(cwd, filePath);
+                            let preview = '(file deleted or not found on disk)';
+                            if (fs.existsSync(fullPath)) {
+                                try {
+                                    const lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
+                                    preview = lines.slice(0, 25).join('\n');
+                                } catch { preview = '(could not read)'; }
+                            }
+                            fileContextBlocks.push(
+                                `FILE: \`${filePath}\`\nCurrent memory entry: ${registryLine.trim()}\nACTUAL CODE (first 25 lines):\n\`\`\`\n${preview}\n\`\`\``
+                            );
+                        }
+
+                        return `\n\nFILES NEEDING DESCRIPTION (system read their actual content for you):\n${'='.repeat(60)}\n${fileContextBlocks.join('\n' + '-'.repeat(60) + '\n')}\n${'='.repeat(60)}`;
                     } catch { return ''; }
                 })();
 
@@ -654,38 +690,39 @@ The system has automatically tracked all file operations this session.
 
 LIVE FILE REGISTRY (system-generated):
 ${registrySummary}
-${unfilledPlaceholders}
+${unfilledSection}
 
 You MUST now do the following using the replace tool on ATCLI_MEMORY.md:
 
-━━━ TASK 1: FILL UNFILLED DESCRIPTIONS ━━━
-For every line in the File Registry that says "[AI: describe what this file does in 1 sentence]",
-replace it with what the file ACTUALLY does. Be specific:
-  ✅ GOOD: "src/Hero.tsx [created] — Animated hero section with gradient, headline, and 'Get Started' CTA"
-  ❌ BAD:  "src/Hero.tsx [created] — newly created"
+━━━ TASK 1: FILL FILE DESCRIPTIONS (CRITICAL — USE THE CODE ABOVE) ━━━
+For each file shown above with actual code, write an ACCURATE 1-sentence description.
+DO NOT use memory or guess — read the code shown above and describe what it ACTUALLY does.
+  ✅ GOOD: "src/Hero.tsx [created] — Animated hero with purple gradient, 'Build Faster' headline, and dual CTA buttons"
+  ❌ BAD:  "src/Hero.tsx [created] — a hero component" (too vague, not based on code)
 
-━━━ TASK 2: UPDATE PROJECT SUMMARY ━━━
-In the "## 📖 Project Summary" section, write (or update) a clear overview:
+For each file, find its current line in ATCLI_MEMORY.md and replace it with the accurate description.
+
+━━━ TASK 2: UPDATE 📖 PROJECT SUMMARY ━━━
+Write or update the Project Summary section:
   - What is this project building?
-  - What is the tech stack? (e.g. Next.js 14 + TypeScript + Tailwind + Framer Motion)
-  - What sections/features exist so far?
-  - Who is this for?
+  - Tech stack: (language, framework, key packages you actually installed)
+  - Features built so far: (list actual components/pages/APIs created)
+  - Architecture: (folder structure, key patterns used)
 
 ━━━ TASK 3: FILL DELETE REASONS ━━━
-For any deleted files with "[AI to fill why...]", replace with the real reason:
-  ✅ GOOD: "src/old-helper.ts — deleted: unused, no code referenced it. NOT rebuilt."
-  ✅ GOOD: "src/Button.tsx — deleted: had wrong types. Rebuilt as src/ui/Button.tsx with generic props."
+For any deleted file entries with "[AI to fill why...]", update with the real reason:
+  Example: "src/old-helper.ts — deleted: unused utility, no imports referenced it. NOT rebuilt."
 
 ━━━ TASK 4: UPDATE 📌 PROJECT HEADER ━━━
-Update:
   **Intent**: ${this.projectIntent.substring(0, 200)}
   **IDE**: ${detectedIDE}
   **Status**: [In Progress / Complete / Blocked]
-  **Stack**: [list the actual tech stack you used]
+  **Stack**: [list the actual tech stack based on what you installed]
 
 RULES:
-- Use replace tool to update EACH section individually (never write_file the whole thing)
-- The Change Log and File Registry are append-only — do NOT delete old entries
+- Use replace tool for EACH section change individually
+- Change Log and File Registry are APPEND-ONLY — do NOT delete existing entries
+- Base ALL descriptions on ACTUAL CODE shown above, never on memory alone
 - Do this BEFORE writing any more code!]`;
             }
 
