@@ -14,7 +14,10 @@ export const DeleteFileSkill: AgentSkill = {
         let results = [];
         for (const p of pathsToDelete) {
             const targetPath = path.resolve(process.cwd(), p);
-            if (!targetPath.startsWith(process.cwd())) {
+            const cwdWithSep = process.cwd().endsWith(path.sep) ? process.cwd() : process.cwd() + path.sep;
+            // Safe: path IS the cwd itself, or starts with cwd + separator
+            const isSafe = targetPath === process.cwd() || targetPath.startsWith(cwdWithSep);
+            if (!isSafe) {
                 return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
             }
             try {

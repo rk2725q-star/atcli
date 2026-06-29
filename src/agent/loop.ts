@@ -415,8 +415,32 @@ export class AgentLoop {
             }
 
             // ─── SMART SAFETY GATE ───────────────────────────────────────────
-            // Tier 1: HARD BLOCK — never allow these (system-destruction level)
-            const hardBlockedTools = ['clear_workspace', 'install_skill'];
+            // Tier 1a: CLEAR WORKSPACE — hard block with HITL, then execute directly
+            if (toolCall.action === 'clear_workspace') {
+                console.log(`\n⚠️  [ATCLI Safety] AI wants to CLEAR THE ENTIRE WORKSPACE.`);
+                console.log(`   This will delete all files except .git, ATCLI_MEMORY.md, node_modules.`);
+                if (this.isAgenticaMode) {
+                    console.log(`\n🛡️ [Agentica Autonomy] Auto-approving clear_workspace.`);
+                } else {
+                    const rawAnswer = await (global as any).askQuestion('⚠️  Clear entire workspace? This cannot be undone. (Y/n): ');
+                    const firstChar = rawAnswer.trim().toLowerCase().charAt(0);
+                    if (firstChar !== 'y' && rawAnswer.trim() !== '') {
+                        console.log(`\n🚫 Clear workspace rejected.`);
+                        currentMessage = `<tool_result>\nUser denied the clear_workspace operation.\n</tool_result>\n[SYSTEM REMINDER: User cancelled the workspace clear. What is your next step? IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                        continue;
+                    }
+                }
+                console.log(`\n⚙️ Executing Skill: clear_workspace`);
+                const clearResult = await this.skillManager.executeSkill('clear_workspace', toolCall);
+                console.log(`[Skill Output]: ${clearResult}`);
+                // Log to memory
+                memWriter.onCommandRun('clear_workspace (user-approved full workspace clear)');
+                currentMessage = `<tool_result>\n${clearResult}\n</tool_result>\n[SYSTEM REMINDER: Workspace cleared. What is your next step? IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                continue;
+            }
+
+            // Tier 1b: INSTALL_SKILL — hard block with HITL
+            const hardBlockedTools = ['install_skill'];
             
             // Tier 2: SOFT BLOCK — run_command and run_background_command need user approval
             const softBlockedTools = ['run_command', 'run_background_command'];
@@ -426,9 +450,12 @@ export class AgentLoop {
             if (toolCall.action === 'delete_file') {
                 const pathsToCheck = toolCall.paths || (toolCall.path ? [toolCall.path] : []);
                 const cwd = process.cwd();
+                // Windows-safe: add path separator to prevent "D:\myapp-other" matching "D:\myapp"
+                const cwdWithSep = cwd.endsWith(path.sep) ? cwd : cwd + path.sep;
                 const escapingPaths = pathsToCheck.filter((p: string) => {
-                    const resolved = require('path').resolve(cwd, p);
-                    return !resolved.startsWith(cwd);
+                    const resolved = path.resolve(cwd, p);
+                    // A path is safe if it IS the cwd itself or starts with cwd+separator
+                    return resolved !== cwd && !resolved.startsWith(cwdWithSep);
                 });
                 
                 if (escapingPaths.length > 0) {
