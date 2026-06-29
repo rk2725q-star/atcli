@@ -538,6 +538,12 @@ export class AgentLoop {
             // AECL MECHANICAL COUNTER: Track file-writing tools and trigger aecl_check every 5 edits
             // NOTE: actual skill names are 'replace' (edit.ts) and 'append_content' (edit.ts), 'write_file' (fs_write.ts)
             const fileWritingTools = ['write_file', 'replace', 'append_content', 'create_file'];
+
+            // ── MEMORY ENRICHMENT BUFFER ─────────────────────────────────────────────
+            // Kept SEPARATE from result so it's NEVER truncated by the 30k safety cut.
+            // Injected into currentMessage AFTER <tool_result> is assembled.
+            let pendingMemoryEnrichment = '';
+
             if (fileWritingTools.includes(toolCall.action)) {
                 // FILE REGISTRY: Track every file operation for the change log
                 const affectedPath = toolCall.path || toolCall.file || '';
@@ -559,16 +565,34 @@ export class AgentLoop {
                         // ─── KEY FIX: Read ACTUAL file content so AI describes from CODE not memory ───
                         const filePreview = (() => {
                             try {
-                                const fullPath = path.resolve(cwd, affectedPath);
+                                const fullPath = path.resolve(process.cwd(), affectedPath);
                                 if (!fs.existsSync(fullPath)) return '(file not readable yet)';
                                 const lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
-                                const preview = lines.slice(0, 30).join('\n');
+                                const preview = lines.slice(0, 30).join('\n').substring(0, 2000);
                                 return preview.length > 0 ? preview : '(empty file)';
                             } catch { return '(could not read)'; }
                         })();
 
-                        // Inject: file content is shown so AI describes from REAL CODE
-                        result += `\n\n[ATCLI MEMORY ENRICHMENT — File Created: ${affectedPath}]:\nThe system logged this file to ATCLI_MEMORY.md. The File Registry entry needs a real description.\n\nHERE IS THE ACTUAL FILE CONTENT (first 30 lines):\n\`\`\`\n${filePreview}\n\`\`\`\n\nBased on the ACTUAL CODE above (not your memory), use the replace tool to update ATCLI_MEMORY.md:\nFind: \`${affectedPath}\` [created] — [AI: describe what this file does in 1 sentence]\nReplace with: \`${affectedPath}\` [created] — [YOUR REAL 1-SENTENCE DESCRIPTION BASED ON THE CODE]\n\nBe specific. e.g.: \"Hero section with gradient background, animated headline, and dual CTA buttons\"\nDO NOT say \"newly created\" or \"a file that...\". Read the code above and describe it ACCURATELY.`;
+                        // ── SAFE DELIMITER: Use === fence instead of ``` to prevent nested code-block parser breaks ──
+                        // This block goes into pendingMemoryEnrichment, NOT result
+                        pendingMemoryEnrichment = [
+                            ``,
+                            `[ATCLI MEMORY ENRICHMENT — File Created: ${affectedPath}]`,
+                            `The system logged this file. Its File Registry entry needs a real description.`,
+                            ``,
+                            `ACTUAL FILE CONTENT (first 30 lines, system-read — use this, not your memory):`,
+                            `===BEGIN_CODE===`,
+                            filePreview,
+                            `===END_CODE===`,
+                            ``,
+                            `ACTION REQUIRED — use replace tool on ATCLI_MEMORY.md:`,
+                            `  Find:    \`${affectedPath}\` [created] — [AI: describe what this file does in 1 sentence]`,
+                            `  Replace: \`${affectedPath}\` [created] — [YOUR ACCURATE DESCRIPTION BASED ON THE CODE ABOVE]`,
+                            ``,
+                            `Rules: Be specific. Base it on the code, not the filename.`,
+                            `  GOOD: "Hero section with purple gradient, animated headline, and 'Get Started' CTA"`,
+                            `  BAD:  "newly created" / "a component" / guessing from filename`,
+                        ].join('\n');
                     } else {
                         memWriter.onFileModified(affectedPath, toolCall.action);
                     }
@@ -631,8 +655,14 @@ export class AgentLoop {
                     currentMessage = (this as any).pendingVisionMessage;
                 }
             } else {
-                // Format the standard result to send back to the AI
-                currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. 24/7 SECURITY FIREWALL ACTIVE: You are strictly forbidden from running destructive commands. DO NOT CONVERSE.]`;
+                // ── ASSEMBLE currentMessage in safe order ─────────────────────────────
+                // 1. <tool_result> wraps the raw tool output (already truncated above)
+                // 2. [SYSTEM REMINDER] follows
+                // 3. pendingMemoryEnrichment is appended LAST — always intact, never truncated
+                const toolResultBlock = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. 24/7 SECURITY FIREWALL ACTIVE: You are strictly forbidden from running destructive commands. DO NOT CONVERSE.]`;
+                currentMessage = pendingMemoryEnrichment
+                    ? `${toolResultBlock}\n\n${pendingMemoryEnrichment}`
+                    : toolResultBlock;
             }
             
             // Episodic Memory Checkpoint every 3 iterations
