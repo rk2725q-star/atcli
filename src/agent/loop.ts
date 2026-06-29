@@ -433,10 +433,55 @@ export class AgentLoop {
                 console.log(`\n⚙️ Executing Skill: clear_workspace`);
                 const clearResult = await this.skillManager.executeSkill('clear_workspace', toolCall);
                 console.log(`[Skill Output]: ${clearResult}`);
-                // Log to memory
-                memWriter.onCommandRun('clear_workspace (user-approved full workspace clear)');
-                currentMessage = `<tool_result>\n${clearResult}\n</tool_result>\n[SYSTEM REMINDER: Workspace cleared. What is your next step? IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
-                continue;
+
+                // Auto-reset ATCLI_MEMORY.md to a fresh blank slate
+                // The old memory is stale after workspace clear — no point keeping it
+                const clearTs = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                const freshMemory = [
+                    '# ATCLI Project Memory',
+                    `> Workspace cleared at ${clearTs}. Ready for a new project.`,
+                    '',
+                    '## 📌 Project',
+                    '**Intent**: (will be captured from next user prompt)',
+                    '**Status**: Empty — Workspace Cleared',
+                    `**Cleared At**: ${clearTs}`,
+                    '',
+                    '## 📖 Project Summary',
+                    '(No project yet — workspace is empty)',
+                    '',
+                    '## 📋 File Registry',
+                    '',
+                    '## 📜 Change Log',
+                    `- ${clearTs} | 🗑️  WORKSPACE CLEARED — all files removed per user request`,
+                    '',
+                    '## 🗑️ Deleted Files Log',
+                    `- ${clearTs} | All workspace files cleared via clear_workspace`,
+                    '',
+                    '## 💻 Commands Run',
+                    `- ${clearTs} | clear_workspace (user-approved)`,
+                    '',
+                    '## 📦 Packages Installed',
+                    '',
+                    '## 🔴 AECL Errors',
+                    '',
+                    '## ✅ Completed Features',
+                    '',
+                    '## 🔜 Next Steps',
+                    '- Start a new project by typing your project description',
+                    '',
+                    '## 🏗️ Architecture Notes',
+                ].join('\n');
+                try { fs.writeFileSync(memoryPath, freshMemory, 'utf-8'); } catch { /* ignore */ }
+                // Reset in-memory file registry too
+                this.fileRegistry = new Map();
+
+                console.log(`\n📝 [Memory] ATCLI_MEMORY.md auto-reset to fresh blank slate.`);
+
+                // TASK COMPLETE — tell AI to stop, do NOT inject episodic checkpoint or memory tasks
+                // Use a non-tool-call response so the agent loop exits naturally
+                currentMessage = `<tool_result>\n${clearResult}\n\nATCLI_MEMORY.md has been automatically reset to a fresh blank slate.\n</tool_result>\n[TASK_COMPLETE]: The workspace has been fully cleared and memory reset. Your task is DONE. DO NOT update ATCLI_MEMORY.md manually — it was already reset automatically. DO NOT list_dir or do any more tool calls. Just respond to the user in plain text that the workspace is now empty and ready for a new project.`;
+                // Do NOT use continue here — let AI respond with plain text and exit the loop naturally
+                break;
             }
 
             // Tier 1b: INSTALL_SKILL — hard block with HITL
@@ -481,16 +526,39 @@ export class AgentLoop {
                             continue;
                         }
                     }
-                    // INTELLIGENT REBUILD DECISION: Inject Project Intent so AI decides whether to rebuild
+                    // Execute delete
                     console.log(`\n⚙️ Executing Skill: delete_file`);
                     const deleteResult = await this.skillManager.executeSkill('delete_file', toolCall);
                     console.log(`[Skill Output]: ${deleteResult}`);
                     const deletedFiles = pathsToCheck.join(', ');
-                    const intentContext = this.projectIntent
-                        ? `\n\n[PROJECT INTENT]: The user originally asked for: "${this.projectIntent.substring(0, 500)}"`
-                        : '';
-                    currentMessage = `<tool_result>\n${deleteResult}\n</tool_result>${intentContext}\n\n[INTELLIGENT DELETE DECISION REQUIRED]: You just deleted: ${deletedFiles}.\nThe system has already logged this deletion to ATCLI_MEMORY.md automatically.\n\nYou MUST now do TWO things:\n\n1. UPDATE the delete reason in ATCLI_MEMORY.md: Find the line\n   \`- ... | \`${deletedFiles}\` — reason: (AI will fill in why)\`\n   and use the replace tool to update it with the REAL reason, e.g.:\n   \`- ... | \`${deletedFiles}\` — reason: bad TypeScript types, rebuilt as X\`\n\n2. REBUILD OR SKIP based on Project Intent:\n  - If this file IS needed for the project → IMMEDIATELY recreate it with write_file.\n  - If this file is NOT needed → clean up imports and continue.\n\nOutput your replace tool_call for the memory reason FIRST, then your rebuild or continue decision.`;
-                    continue;
+
+                    // Log to ATCLI_MEMORY.md mechanically
+                    for (const p of pathsToCheck) memWriter.onFileDeleted(p);
+
+                    // ── SMART INTENT CHECK ─────────────────────────────────────────────
+                    // If the user's original request WAS to delete/clear/remove files,
+                    // do NOT inject the "rebuild or skip" decision — that would cause AI
+                    // to rebuild exactly what the user just asked to delete!
+                    const intentLower = this.projectIntent.toLowerCase();
+                    const isDeleteIntent = intentLower.includes('delete') ||
+                        intentLower.includes('clear') ||
+                        intentLower.includes('remove') ||
+                        intentLower.includes('clean') ||
+                        intentLower.includes('reset');
+
+                    if (isDeleteIntent) {
+                        // User explicitly wanted deletion — confirm and stop, do NOT rebuild
+                        console.log(`\n✅ [Smart Delete] Project intent is to delete — skipping rebuild decision.`);
+                        currentMessage = `<tool_result>\n${deleteResult}\n\nATCLI_MEMORY.md has been automatically updated to log this deletion.\n</tool_result>\n[TASK_COMPLETE]: The files have been deleted per the user's request. Your task is DONE. DO NOT rebuild or recreate these files — the user wanted them deleted. Respond in plain text confirming the deletion is complete.`;
+                        break; // Exit loop — AI says done
+                    } else {
+                        // AI deleted a file as PART of a build project — inject rebuild decision
+                        const intentContext = this.projectIntent
+                            ? `\n\n[PROJECT INTENT]: The user originally asked for: "${this.projectIntent.substring(0, 500)}"`
+                            : '';
+                        currentMessage = `<tool_result>\n${deleteResult}\n</tool_result>${intentContext}\n\n[INTELLIGENT DELETE DECISION REQUIRED]: You deleted \`${deletedFiles}\` as part of building the project.\nATCLI_MEMORY.md has been updated automatically.\n\nNow decide:\n  - If this file IS needed for the project → recreate it with write_file immediately.\n  - If this file is NOT needed → clean up any imports that referenced it and continue building.\nMake this decision and output the next <tool_call> now.`;
+                        continue;
+                    }
                 }
             }
 
