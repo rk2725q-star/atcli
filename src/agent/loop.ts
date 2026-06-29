@@ -165,26 +165,98 @@ export class AgentLoop {
                 break;
             }
 
-            const dangerousTools = ['run_command', 'run_background_command', 'install_skill', 'delete_file', 'clear_workspace'];
-            if (dangerousTools.includes(toolCall.action)) {
+            // ─── SMART SAFETY GATE ───────────────────────────────────────────
+            // Tier 1: HARD BLOCK — never allow these (system-destruction level)
+            const hardBlockedTools = ['clear_workspace', 'install_skill'];
+            
+            // Tier 2: SOFT BLOCK — run_command and run_background_command need user approval
+            const softBlockedTools = ['run_command', 'run_background_command'];
+
+            // Tier 3: SMART DELETE — delete_file allowed if ALL paths are inside CWD
+            // Blocked if any path tries to escape the project folder
+            if (toolCall.action === 'delete_file') {
+                const pathsToCheck = toolCall.paths || (toolCall.path ? [toolCall.path] : []);
+                const cwd = process.cwd();
+                const escapingPaths = pathsToCheck.filter((p: string) => {
+                    const resolved = require('path').resolve(cwd, p);
+                    return !resolved.startsWith(cwd);
+                });
+                
+                if (escapingPaths.length > 0) {
+                    // HARD BLOCK: trying to delete outside project folder
+                    console.log(`\n🚫 [ATCLI SECURITY] Blocked delete_file — paths escape the project folder:`);
+                    escapingPaths.forEach((p: string) => console.log(`   ❌ ${p}`));
+                    currentMessage = `<tool_result>\n[SECURITY BLOCK] Cannot delete files outside the current project folder: ${escapingPaths.join(', ')}\n</tool_result>\n[SYSTEM REMINDER: DO NOT attempt to delete files outside the current project directory. Adjust your plan.]`;
+                    continue;
+                } else {
+                    // SMART ALLOW: within project — show info but auto-allow in Agentica, ask in Vibecoding
+                    console.log(`\n🗑️  [ATCLI] AI wants to delete (within project):`);
+                    pathsToCheck.forEach((p: string) => console.log(`   📄 ${p}`));
+                    
+                    if (!this.isAgenticaMode) {
+                        const rawAnswer = await (global as any).askQuestion('Allow delete? (Y/n/feedback): ');
+                        const answer = rawAnswer.trim().toLowerCase();
+                        if (answer === 'n' || answer === 'no') {
+                            console.log(`\n🚫 Delete rejected by user.`);
+                            currentMessage = `<tool_result>\nUser denied the delete operation.\n</tool_result>\n[SYSTEM REMINDER: The user rejected this delete. Find an alternative approach — perhaps just rewrite the file content instead of deleting it. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                            continue;
+                        } else if (answer !== 'y' && answer !== 'yes' && answer !== '') {
+                            currentMessage = `<tool_result>\nUser feedback on delete: ${rawAnswer.trim()}\n</tool_result>\n[SYSTEM REMINDER: Adjust your approach based on this feedback. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                            continue;
+                        }
+                    }
+                    // Approved — execute and inject rebuild reminder
+                    console.log(`\n⚙️ Executing Skill: delete_file`);
+                    const deleteResult = await this.skillManager.executeSkill('delete_file', toolCall);
+                    console.log(`[Skill Output]: ${deleteResult}`);
+                    const deletedFiles = pathsToCheck.join(', ');
+                    currentMessage = `<tool_result>\n${deleteResult}\n</tool_result>\n[SYSTEM REMINDER: You just deleted: ${deletedFiles}. You MUST now IMMEDIATELY recreate/rebuild the deleted file(s) with correct, improved content. DO NOT leave the project broken. Output the next <tool_call> to write_file or replace the deleted file now.]`;
+                    continue;
+                }
+            }
+
+            if (hardBlockedTools.includes(toolCall.action)) {
                 console.log(`\n⚠️  [ATCLI Safety] The AI wants to execute: ${toolCall.action}`);
                 console.log(`Arguments: ${JSON.stringify(toolCall, null, 2)}`);
-                
                 if (this.isAgenticaMode) {
-                    console.log(`\n🛡️ [Agentica Autonomy] Auto-approving dangerous command due to Memory Lockdown restrictions.`);
+                    console.log(`\n🛡️ [Agentica Autonomy] Auto-approving.`);
                 } else {
                     const rawAnswer = await (global as any).askQuestion('Allow this action? (Y/n/feedback): ');
-                    const answer = rawAnswer.trim();
-
-                    if (answer.toLowerCase() === 'n' || answer.toLowerCase() === 'no') {
+                    const answer = rawAnswer.trim().toLowerCase();
+                    if (answer === 'n' || answer === 'no') {
                         console.log(`\n🚫 Action rejected by user.`);
                         currentMessage = `<tool_result>\nUser denied permission.\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
                         continue;
-                    } else if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes' && answer !== '') {
+                    } else if (answer !== 'y' && answer !== 'yes' && answer !== '') {
                         console.log(`\n💬 Sending user feedback to AI...`);
-                        currentMessage = `<tool_result>\nUser rejected with feedback: ${answer}\n</tool_result>\n[SYSTEM REMINDER: Correct your tool call based on the user's feedback. DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                        currentMessage = `<tool_result>\nUser rejected with feedback: ${rawAnswer.trim()}\n</tool_result>\n[SYSTEM REMINDER: Correct your tool call based on the user's feedback. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
                         continue;
                     }
+                }
+            }
+
+            if (softBlockedTools.includes(toolCall.action)) {
+                console.log(`\n⚠️  [ATCLI Safety] The AI wants to run a command:`);
+                const cmdDisplay = toolCall.command || toolCall.cmd || JSON.stringify(toolCall);
+                console.log(`   > ${cmdDisplay}`);
+                if (this.isAgenticaMode) {
+                    console.log(`\n🛡️ [Agentica Autonomy] Auto-approving command.`);
+                } else {
+                    const rawAnswer = await (global as any).askQuestion('Run this command? (Y/n/feedback): ');
+                    // Fix: trim fully, take first char only to avoid 'yy' double-type issues
+                    const answer = rawAnswer.trim().toLowerCase();
+                    const firstChar = answer.charAt(0);
+                    if (firstChar === 'n') {
+                        console.log(`\n🚫 Command rejected.`);
+                        currentMessage = `<tool_result>\nUser denied the command.\n</tool_result>\n[SYSTEM REMINDER: The user rejected this command. Try a safer alternative. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                        continue;
+                    } else if (firstChar !== 'y' && answer !== '') {
+                        console.log(`\n💬 Sending user feedback to AI...`);
+                        currentMessage = `<tool_result>\nUser feedback: ${rawAnswer.trim()}\n</tool_result>\n[SYSTEM REMINDER: Adjust your approach. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK.]`;
+                        continue;
+                    }
+                    // 'y', 'yes', 'yy', '' (Enter) all treated as approval
+                    console.log(`\n✅ Command approved.`);
                 }
             }
 
