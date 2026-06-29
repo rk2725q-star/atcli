@@ -5,6 +5,148 @@ import { get_encoding } from 'tiktoken';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MECHANICAL MEMORY WRITER
+// Writes every project event DIRECTLY to ATCLI_MEMORY.md without relying on AI.
+// This means the memory is ALWAYS accurate — even if AI skips a checkpoint.
+// ─────────────────────────────────────────────────────────────────────────────
+class MemoryWriter {
+    private memPath: string;
+
+    constructor(cwd: string) {
+        this.memPath = path.join(cwd, 'ATCLI_MEMORY.md');
+    }
+
+    /** Ensure the memory file exists with a skeleton if it's brand new */
+    private ensureFile(): void {
+        if (!fs.existsSync(this.memPath)) {
+            fs.writeFileSync(this.memPath, [
+                '# ATCLI Project Memory',
+                '',
+                '## 📌 Project',
+                '**Intent**: (captured from first user prompt)',
+                '**Status**: In Progress',
+                '',
+                '## 📋 File Registry',
+                '',
+                '## 📜 Change Log',
+                '',
+                '## 🗑️ Deleted Files Log',
+                '',
+                '## 💻 Commands Run',
+                '',
+                '## 📦 Packages Installed',
+                '',
+                '## 🔴 AECL Errors',
+                '',
+                '## ✅ Completed Features',
+                '',
+                '## 🔜 Next Steps',
+                '',
+                '## 🏗️ Architecture Notes',
+            ].join('\n'), 'utf-8');
+        }
+    }
+
+    /** Append a single line to a named section (creates section if missing) */
+    private appendToSection(section: string, line: string): void {
+        this.ensureFile();
+        try {
+            let content = fs.readFileSync(this.memPath, 'utf-8');
+            const sectionHeader = `## ${section}`;
+            const idx = content.indexOf(sectionHeader);
+            if (idx === -1) {
+                // Section doesn't exist — append to end
+                content += `\n\n## ${section}\n${line}`;
+            } else {
+                // Find the end of this section (next ## or EOF)
+                const afterHeader = idx + sectionHeader.length;
+                const nextSectionMatch = content.slice(afterHeader).match(/\n## /);
+                const insertAt = nextSectionMatch
+                    ? afterHeader + nextSectionMatch.index!
+                    : content.length;
+                content = content.slice(0, insertAt) + '\n' + line + content.slice(insertAt);
+            }
+            fs.writeFileSync(this.memPath, content, 'utf-8');
+        } catch { /* ignore write errors — never crash the agent */ }
+    }
+
+    /** Update a file entry in the File Registry section */
+    private updateFileRegistry(filePath: string, status: string, note: string): void {
+        this.ensureFile();
+        try {
+            let content = fs.readFileSync(this.memPath, 'utf-8');
+            const sectionHeader = '## 📋 File Registry';
+            const idx = content.indexOf(sectionHeader);
+            if (idx === -1) {
+                content += `\n\n${sectionHeader}\n- \`${filePath}\` [${status}] — ${note}`;
+                fs.writeFileSync(this.memPath, content, 'utf-8');
+                return;
+            }
+            const afterHeader = idx + sectionHeader.length;
+            const nextSectionMatch = content.slice(afterHeader).match(/\n## /);
+            const sectionEnd = nextSectionMatch ? afterHeader + nextSectionMatch.index! : content.length;
+            const sectionBody = content.slice(afterHeader, sectionEnd);
+
+            // Check if this file already has an entry
+            const filePattern = new RegExp(`- \\\`${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\\`[^\\n]*`, 'g');
+            const newEntry = `- \`${filePath}\` [${status}] — ${note}`;
+            if (filePattern.test(sectionBody)) {
+                // Update existing entry
+                const updatedBody = sectionBody.replace(filePattern, newEntry);
+                content = content.slice(0, afterHeader) + updatedBody + content.slice(sectionEnd);
+            } else {
+                // Append new entry
+                content = content.slice(0, sectionEnd) + '\n' + newEntry + content.slice(sectionEnd);
+            }
+            fs.writeFileSync(this.memPath, content, 'utf-8');
+        } catch { /* ignore */ }
+    }
+
+    private ts(): string {
+        return new Date().toISOString().replace('T', ' ').substring(0, 19);
+    }
+
+    /** Track a file create event */
+    onFileCreated(filePath: string): void {
+        console.log(`\n📝 [Memory] Auto-logging: CREATED → ${filePath}`);
+        this.updateFileRegistry(filePath, 'created', 'newly created');
+        this.appendToSection('📜 Change Log', `- ${this.ts()} | ✅ CREATED \`${filePath}\``);
+    }
+
+    /** Track a file modify/patch event */
+    onFileModified(filePath: string, tool: string): void {
+        console.log(`\n📝 [Memory] Auto-logging: MODIFIED → ${filePath}`);
+        this.updateFileRegistry(filePath, 'modified', `last modified via ${tool}`);
+        this.appendToSection('📜 Change Log', `- ${this.ts()} | ✏️  MODIFIED \`${filePath}\` (${tool})`);
+    }
+
+    /** Track a file delete event — also marks it in Deleted Files Log */
+    onFileDeleted(filePath: string): void {
+        console.log(`\n📝 [Memory] Auto-logging: DELETED → ${filePath}`);
+        this.updateFileRegistry(filePath, '~~DELETED~~', '❌ file was deleted');
+        this.appendToSection('📜 Change Log', `- ${this.ts()} | 🗑️  DELETED \`${filePath}\``);
+        this.appendToSection('🗑️ Deleted Files Log', `- ${this.ts()} | \`${filePath}\` — reason: (AI will fill in why)`);
+    }
+
+    /** Track a terminal command */
+    onCommandRun(command: string): void {
+        console.log(`\n📝 [Memory] Auto-logging: COMMAND → ${command.substring(0, 60)}`);
+        this.appendToSection('💻 Commands Run', `- ${this.ts()} | \`${command.substring(0, 120)}\``);
+    }
+
+    /** Track a package install */
+    onPackageInstalled(packageName: string): void {
+        console.log(`\n📝 [Memory] Auto-logging: INSTALL → ${packageName}`);
+        this.appendToSection('📦 Packages Installed', `- ${this.ts()} | \`${packageName}\``);
+    }
+
+    /** Track an AECL error fix */
+    onErrorFixed(filePath: string, errorMsg: string): void {
+        this.appendToSection('📜 Change Log', `- ${this.ts()} | 🔧 FIXED \`${filePath}\` — ${errorMsg.substring(0, 100)}`);
+    }
+}
+
 export class AgentLoop {
     private maxIterations = 500;
     private skillManager: SkillManager;
@@ -28,6 +170,8 @@ export class AgentLoop {
         this.fileRegistry = new Map();
         const cwd = process.cwd();
         const memoryPath = path.join(cwd, 'ATCLI_MEMORY.md');
+        // Mechanical memory writer — writes directly to ATCLI_MEMORY.md for EVERY event
+        const memWriter = new MemoryWriter(cwd);
         let bootMemoryContent = '';
         if (fs.existsSync(memoryPath)) {
             try {
@@ -276,7 +420,7 @@ export class AgentLoop {
                     const intentContext = this.projectIntent
                         ? `\n\n[PROJECT INTENT]: The user originally asked for: "${this.projectIntent.substring(0, 500)}"`
                         : '';
-                    currentMessage = `<tool_result>\n${deleteResult}\n</tool_result>${intentContext}\n\n[INTELLIGENT DELETE DECISION REQUIRED]: You just deleted: ${deletedFiles}.\nNow you MUST make a smart decision based on the Project Intent above:\n  - If this file IS needed for the project → IMMEDIATELY recreate it with correct, improved content using write_file.\n  - If this file is NOT needed for the project (unused utility, wrong module, etc.) → DO NOT rebuild it. Instead, clean up any imports that referenced it and continue.\nMake this decision autonomously. Output the next <tool_call> now.`;
+                    currentMessage = `<tool_result>\n${deleteResult}\n</tool_result>${intentContext}\n\n[INTELLIGENT DELETE DECISION REQUIRED]: You just deleted: ${deletedFiles}.\nThe system has already logged this deletion to ATCLI_MEMORY.md automatically.\n\nYou MUST now do TWO things:\n\n1. UPDATE the delete reason in ATCLI_MEMORY.md: Find the line\n   \`- ... | \`${deletedFiles}\` — reason: (AI will fill in why)\`\n   and use the replace tool to update it with the REAL reason, e.g.:\n   \`- ... | \`${deletedFiles}\` — reason: bad TypeScript types, rebuilt as X\`\n\n2. REBUILD OR SKIP based on Project Intent:\n  - If this file IS needed for the project → IMMEDIATELY recreate it with write_file.\n  - If this file is NOT needed → clean up imports and continue.\n\nOutput your replace tool_call for the memory reason FIRST, then your rebuild or continue decision.`;
                     continue;
                 }
             }
@@ -365,6 +509,10 @@ export class AgentLoop {
                     entry.status = action as 'created' | 'modified' | 'deleted';
                     (entry.changes as string[]).push(`[${ts}] ${toolCall.action}`);
                     this.fileRegistry.set(affectedPath, entry);
+
+                    // MECHANICAL MEMORY WRITE — directly updates ATCLI_MEMORY.md right now
+                    if (action === 'created') memWriter.onFileCreated(affectedPath);
+                    else memWriter.onFileModified(affectedPath, toolCall.action);
                 }
 
                 this.editsSinceLastAeclCheck++;
@@ -382,12 +530,25 @@ export class AgentLoop {
                 }
             }
 
-            // Track deletes in file registry too
+            // Track deletes in file registry + MECHANICAL MEMORY WRITE
             if (toolCall.action === 'delete_file') {
                 const deletedPaths = toolCall.paths || (toolCall.path ? [toolCall.path] : []);
                 for (const p of deletedPaths) {
                     const ts = new Date().toISOString();
                     this.fileRegistry.set(p, { status: 'deleted', changes: [`[${ts}] delete_file`], timestamp: ts });
+                    // Write directly to memory file NOW — no AI needed
+                    memWriter.onFileDeleted(p);
+                }
+            }
+
+            // Track commands run + packages installed
+            if (toolCall.action === 'run_command' || toolCall.action === 'run_background_command') {
+                const cmd = toolCall.command || toolCall.cmd || '';
+                if (cmd) {
+                    memWriter.onCommandRun(cmd);
+                    // Detect npm/pip installs
+                    const installMatch = cmd.match(/(?:npm install|npm i|pip install|yarn add|pnpm add)\s+([\w@/\-\.]+)/i);
+                    if (installMatch) memWriter.onPackageInstalled(installMatch[1]);
                 }
             }
 
