@@ -11,14 +11,17 @@ export const DeleteFileSkill: AgentSkill = {
         const pathsToDelete = args.paths || (args.path ? [args.path] : []);
         if (pathsToDelete.length === 0) return "Error: path or paths array is required";
 
+        // Use IDE-detected project root as the security boundary
+        const safeRoot = (global as any).atcli_project_root || process.cwd();
+        const cwdWithSep = safeRoot.endsWith(path.sep) ? safeRoot : safeRoot + path.sep;
+
         let results = [];
         for (const p of pathsToDelete) {
-            const targetPath = path.resolve(process.cwd(), p);
-            const cwdWithSep = process.cwd().endsWith(path.sep) ? process.cwd() : process.cwd() + path.sep;
-            // Safe: path IS the cwd itself, or starts with cwd + separator
-            const isSafe = targetPath === process.cwd() || targetPath.startsWith(cwdWithSep);
+            const targetPath = path.resolve(safeRoot, p);
+            // A path is safe if it IS the safeRoot or strictly inside it (Windows-safe)
+            const isSafe = targetPath === safeRoot || targetPath.startsWith(cwdWithSep);
             if (!isSafe) {
-                return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+                return `Error: Security violation. Path '${p}' resolves outside the project safe zone (${safeRoot}).`;
             }
             try {
                 await fs.rm(targetPath, { recursive: true, force: true });
@@ -107,7 +110,8 @@ export const ClearWorkspaceSkill: AgentSkill = {
     example: `<tool_call>\n{"action": "clear_workspace"}\n</tool_call>`,
     execute: async () => {
         try {
-            const cwd = process.cwd();
+            // Use IDE-detected project root as the safe zone to clear
+            const cwd = (global as any).atcli_project_root || process.cwd();
             const files = await fs.readdir(cwd);
             const preserved = ['.git', '.atcli-skills', 'node_modules', 'ATCLI_MEMORY.md', 'AGENTICA_MEMORY.md', '.agents', '.atcli'];
             let deletedCount = 0;

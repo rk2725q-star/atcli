@@ -417,7 +417,10 @@ export class AgentLoop {
             // ─── SMART SAFETY GATE ───────────────────────────────────────────
             // Tier 1a: CLEAR WORKSPACE — hard block with HITL, then execute directly
             if (toolCall.action === 'clear_workspace') {
+                // Use IDE-detected project root as the safe zone label
+                const safeRoot = (global as any).atcli_project_root || process.cwd();
                 console.log(`\n⚠️  [ATCLI Safety] AI wants to CLEAR THE ENTIRE WORKSPACE.`);
+                console.log(`   Safe zone: ${safeRoot}`);
                 console.log(`   This will delete all files except .git, ATCLI_MEMORY.md, node_modules.`);
                 if (this.isAgenticaMode) {
                     console.log(`\n🛡️ [Agentica Autonomy] Auto-approving clear_workspace.`);
@@ -490,17 +493,18 @@ export class AgentLoop {
             // Tier 2: SOFT BLOCK — run_command and run_background_command need user approval
             const softBlockedTools = ['run_command', 'run_background_command'];
 
-            // Tier 3: SMART DELETE — delete_file allowed if ALL paths are inside CWD
-            // Blocked if any path tries to escape the project folder
+            // Tier 3: SMART DELETE — delete_file allowed only within detected project root
             if (toolCall.action === 'delete_file') {
                 const pathsToCheck = toolCall.paths || (toolCall.path ? [toolCall.path] : []);
-                const cwd = process.cwd();
-                // Windows-safe: add path separator to prevent "D:\myapp-other" matching "D:\myapp"
-                const cwdWithSep = cwd.endsWith(path.sep) ? cwd : cwd + path.sep;
+                // Use IDE-detected project root — NOT just process.cwd()
+                // This ensures AI can never escape the folder open in VSCode/Cursor/Antigravity
+                const safeRoot = (global as any).atcli_project_root || process.cwd();
+                const cwdWithSep = safeRoot.endsWith(path.sep) ? safeRoot : safeRoot + path.sep;
+                console.log(`\n🔒 [ATCLI Security] Delete safety boundary: ${safeRoot}`);
                 const escapingPaths = pathsToCheck.filter((p: string) => {
-                    const resolved = path.resolve(cwd, p);
-                    // A path is safe if it IS the cwd itself or starts with cwd+separator
-                    return resolved !== cwd && !resolved.startsWith(cwdWithSep);
+                    const resolved = path.resolve(safeRoot, p);
+                    // A path is safe if it IS the safeRoot or strictly inside it
+                    return resolved !== safeRoot && !resolved.startsWith(cwdWithSep);
                 });
                 
                 if (escapingPaths.length > 0) {

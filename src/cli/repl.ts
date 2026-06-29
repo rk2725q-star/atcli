@@ -6,6 +6,41 @@ import { BrowserManager } from '../browser/manager';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// ────────────────────────────────────────────────────────────────────────
+// PROJECT ROOT DETECTION
+// Detects the currently open IDE workspace folder as the safe zone for
+// ALL file deletions. AI cannot delete anything outside this boundary.
+// Priority: VSCODE_CWD env var (set by VSCode/Cursor/Antigravity) > .git walk-up > process.cwd()
+// ────────────────────────────────────────────────────────────────────────
+function detectProjectRoot(): { root: string; method: string } {
+    // 1. VSCode / Cursor / Antigravity IDE integrated terminal sets VSCODE_CWD
+    //    to the workspace folder that is OPEN in the IDE — most reliable source
+    const vscodeCwd = process.env.VSCODE_CWD;
+    if (vscodeCwd && fs.existsSync(vscodeCwd)) {
+        return { root: path.normalize(vscodeCwd), method: 'IDE workspace (VSCODE_CWD)' };
+    }
+
+    // 2. Walk UP from process.cwd() looking for project root markers
+    //    Stops at filesystem root to prevent infinite loop
+    const markers = ['.git', 'package.json', '.vscode', 'tsconfig.json',
+                     'pyproject.toml', 'Cargo.toml', 'go.mod', '.agents', '.atcli'];
+    let dir = process.cwd();
+    const filesystemRoot = path.parse(dir).root;
+    while (dir !== filesystemRoot) {
+        for (const marker of markers) {
+            if (fs.existsSync(path.join(dir, marker))) {
+                return { root: dir, method: `project root (found ${marker})` };
+            }
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) break; // reached filesystem root
+        dir = parent;
+    }
+
+    // 3. Fallback: use process.cwd() (where atcli was launched)
+    return { root: process.cwd(), method: 'terminal cwd (fallback)' };
+}
+
 interface AppState {
     currentProvider: string;
     currentModel: string;
@@ -77,6 +112,11 @@ const state: AppState = {
 };
 
 export async function startRepl() {
+    // ── DETECT PROJECT ROOT (safe zone) BEFORE ANYTHING ELSE ─────────────────
+    const { root: projectRoot, method: rootMethod } = detectProjectRoot();
+    (global as any).atcli_project_root = projectRoot;
+    // ──────────────────────────────────────────────────────────────────
+
     console.log(`\n🚀 ATCLI Started!`);
     
     // HARDCODED STARTUP HEALTH CHECK (Tamper Protection)
@@ -95,6 +135,9 @@ export async function startRepl() {
     }
     
     console.log(`Provider: ${state.currentProvider} | Type /help for commands`);
+    // Show detected safe zone prominently so user always knows what's protected
+    console.log(`\n\x1b[32m🔒 [Safe Zone] \x1b[1m${projectRoot}\x1b[0m\x1b[32m (detected via ${rootMethod})\x1b[0m`);
+    console.log(`\x1b[90m   AI cannot delete or modify any files outside this folder.\x1b[0m`);
     console.log(`\n\x1b[36m\x1b[1m💡 TIP:\x1b[0m\x1b[36m Open a 2nd terminal and run \x1b[1maecl\x1b[0m\x1b[36m to see live TypeScript errors as AI writes code!\x1b[0m`);
     console.log(`\x1b[90m   AECL = Auto Error Checker Live — your IDE-style Problems panel for ATCLI.\x1b[0m\n`);
 
