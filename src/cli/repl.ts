@@ -75,6 +75,12 @@ interface AppState {
 const router = new PromptRouter();
 const initializedProviders = new Map<string, 'vibecoding' | 'agentica'>();
 
+// ── AGENTICA SESSION STATE ──────────────────────────────────────────────────
+// Tracks whether a persistent Agentica browser session is alive for a provider.
+// Once started, /agentica calls REUSE the same chat — no browser reset needed.
+const agenticaSessions = new Map<string, boolean>(); // provider → hasOpenSession
+let agenticaRunning = false; // true ONLY while a task is actively executing
+
 // ── Shared Secret Masking Utility (single source of truth) ─────────────────
 const SECRET_PATTERNS = [
     /sk-[a-zA-Z0-9_-]{20,}/g,
@@ -214,13 +220,14 @@ export async function startRepl() {
                             const prepPrompt = `[SYSTEM: The user has manually uploaded an image/document. You must use this file to build a website or app at the level of Antigravity or Claude Code. You have full agentic capabilities to write, read, fix, and run terminal commands. Analyze the file and execute the following user request:]\n\n${finalPrompt}`;
 
                             try {
-                                const isFirstForProvider = !initializedProviders.has(state.currentProvider);
-                                if (!isFirstForProvider && initializedProviders.get(state.currentProvider) === 'agentica') {
-                                    console.log(`\n❌ [SECURITY BLOCK] You cannot run Vision Mode inside an ongoing Agentica session. Please restart ATCLI.`);
+                                // Vision mode also blocked only if agentica is currently running
+                                if (agenticaRunning) {
+                                    console.log(`\n❌ [BUSY] Agentica is currently executing. Wait for it to finish.`);
                                     promptLoop();
                                     return;
                                 }
-                                const agent = new AgentLoop(adapter, isFirstForProvider);
+                                const isFirst = !initializedProviders.has(state.currentProvider);
+                                const agent = new AgentLoop(adapter, isFirst);
                                 await agent.run(prepPrompt);
                                 initializedProviders.set(state.currentProvider, 'vibecoding');
                             } catch (error: any) {
@@ -243,40 +250,48 @@ export async function startRepl() {
                         console.log(`⚠️  Auto-switching from 'chatgpt' to 'qwen' as the default Agentica provider.`);
                         state.currentProvider = 'qwen';
                     }
-                    
-                    // All other providers (qwen, deepseek, gemini, kimi, z.ai) are allowed for Agentica
-                    // because AgentLoop natively re-injects the 180k context periodically to prevent memory loss!
 
                     try {
-                        if (initializedProviders.has(state.currentProvider)) {
-                            console.log(`\n🔄 [AUTO-SWITCH] Resetting the browser session for a fresh Agentica instance...`);
-                            await BrowserManager.getInstance().closeAll();
-                            initializedProviders.clear();
-                            const adapterToReset = router.getAdapter(state.currentProvider);
-                            if (adapterToReset) adapterToReset.reset();
-                        }
                         const adapter = router.getAdapter(state.currentProvider);
                         if (!adapter) {
                             console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
                         } else {
-                            const isFirstForProvider = !initializedProviders.has(state.currentProvider);
-                            const agent = new AgentLoop(adapter, isFirstForProvider);
-                            
+                            // ── SESSION MANAGEMENT ─────────────────────────────────────────────
+                            // FIRST call → open fresh browser chat (isFirstForProvider = true)
+                            // SUBSEQUENT calls → reuse the SAME chat session (isFirstForProvider = false)
+                            // Never reset the browser between tasks in the same session!
+                            const hasSession = agenticaSessions.get(state.currentProvider) === true;
+                            const isFirstForProvider = !hasSession;
+
+                            if (isFirstForProvider) {
+                                console.log(`\n🌐 [Agentica] Starting fresh browser session for ${state.currentProvider}...`);
+                            } else {
+                                console.log(`\n♻️  [Agentica] Reusing existing session — sending next task in same chat...`);
+                            }
+
                             // 🛡️ LOCAL INPUT INTERCEPTOR (SECRET SCANNER)
                             const { masked: safeArgs, changed: secretMasked } = maskSecrets(result.args || '');
                             if (secretMasked) {
                                 console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your Agentica request!`);
                                 console.log(`⚠️  It has been LOCALLY MASKED before sending to the Cloud AI.`);
                             }
-                            
+
                             const continuousPrompt = `[AGENTICA OPENCLAW MODE: You are now running in continuous autonomous mode with full PC and browser control capabilities. Execute the following task continuously without stopping for user confirmation until the goal is 100% achieved:]\n\n${safeArgs}`;
-                            
-                            (agent as any).isAgenticaMode = true; 
-                            
+
+                            const agent = new AgentLoop(adapter, isFirstForProvider);
+                            (agent as any).isAgenticaMode = true;
+
+                            agenticaRunning = true;
                             await agent.run(continuousPrompt);
+                            agenticaRunning = false;
+
+                            // Mark session as open — next /agentica will reuse this chat
+                            agenticaSessions.set(state.currentProvider, true);
                             initializedProviders.set(state.currentProvider, 'agentica');
+                            console.log(`\n✅ [Agentica] Task complete. Type /agentica <next task> to continue in same session, or chat normally.`);
                         }
                     } catch (error: any) {
+                        agenticaRunning = false;
                         console.log(`\n❌ Error in Agentica Mode: ${error.message}`);
                     }
                 }
@@ -298,14 +313,16 @@ export async function startRepl() {
                     if (!adapter) {
                         console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
                     } else {
-                        const isFirstForProvider = !initializedProviders.has(state.currentProvider);
-                        if (!isFirstForProvider && initializedProviders.get(state.currentProvider) === 'agentica') {
-                            console.log(`\n❌ [SECURITY BLOCK] You cannot run normal Vibecoding commands inside an ongoing Agentica session! Please restart ATCLI.`);
+                        // Block vibecoding ONLY if Agentica is currently executing a task
+                        // (not just because it ran before — tasks can finish and user can chat)
+                        if (agenticaRunning) {
+                            console.log(`\n❌ [BUSY] Agentica is currently executing a task. Wait for it to finish, then chat normally.`);
                             promptLoop();
                             return;
                         }
+                        const isFirstForProvider = !initializedProviders.has(state.currentProvider);
                         const agent = new AgentLoop(adapter, isFirstForProvider);
-                        await agent.run(safeInput); // Send the masked input
+                        await agent.run(safeInput);
                         initializedProviders.set(state.currentProvider, 'vibecoding');
                     }
                 } catch (error: any) {
