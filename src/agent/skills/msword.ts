@@ -85,22 +85,25 @@ export const MSWordSkill: AgentSkill = {
                 UnderlineType,
             } = await import('docx');
 
-            // ── STYLE SETUP ───────────────────────────────────────────────────
+            // ── STYLE SETUP — fully user-configurable ─────────────────────────
             const docType = (args.document_type || 'college') as keyof typeof STYLE_PRESETS;
             const preset = STYLE_PRESETS[docType] || STYLE_PRESETS.college;
             const styleOverride = args.style || {};
-            const fontName   = styleOverride.font      || preset.font;
-            const fontSize   = (styleOverride.font_size   || 12) * 2;   // docx uses half-points
-            const headingPt  = fontSize + 4;
-            const titlePt    = fontSize + 12;
+
+            // Single font system — user specifies what they want, AI picks sensible defaults
+            const fontName    = styleOverride.font       || 'Times New Roman';
+            const fontSize    = (styleOverride.font_size || 12) * 2; // docx half-points
+            const headingPt   = (styleOverride.heading_size || styleOverride.font_size || 14) * 2;
+            const titlePt     = headingPt + 8;
             const lineSpacing = styleOverride.line_spacing || 1.5;
-            const spacingVal  = Math.round(lineSpacing * 240); // docx line spacing unit
-            const pageBorder  = styleOverride.page_border !== false; // default true
+            const spacingVal  = Math.round(lineSpacing * 240);
+            const pageBorder  = styleOverride.page_border !== false; // default: true
             const hasHeaderFooter = styleOverride.header_footer !== false;
 
             // ── CONTENT HELPERS ───────────────────────────────────────────────
+            // ── CONTENT HELPERS ───────────────────────────────────────────────
             const makePara = (text: string, opts?: {
-                bold?: boolean; italic?: boolean; size?: number;
+                bold?: boolean; italic?: boolean; size?: number; font?: string;
                 align?: typeof AlignmentType[keyof typeof AlignmentType];
                 heading?: typeof HeadingLevel[keyof typeof HeadingLevel];
                 underline?: boolean; spaceBefore?: number; spaceAfter?: number;
@@ -111,7 +114,7 @@ export const MSWordSkill: AgentSkill = {
                         bold: opts?.bold,
                         italics: opts?.italic,
                         size: opts?.size || fontSize,
-                        font: fontName,
+                        font: opts?.font || fontName,
                         break: i > 0 ? 1 : 0,
                         underline: opts?.underline ? { type: UnderlineType.SINGLE } : undefined,
                     })
@@ -125,13 +128,22 @@ export const MSWordSkill: AgentSkill = {
             };
 
             const makeHeading = (text: string, level: 1 | 2 | 3) => {
-                const sizes = { 1: titlePt, 2: headingPt, 3: fontSize + 2 };
+                const sizes: Record<1|2|3, number> = { 1: titlePt, 2: headingPt, 3: headingPt - 2 };
                 return new Paragraph({
-                    children: [new TextRun({ text, bold: true, size: sizes[level], font: fontName, underline: level === 2 ? { type: UnderlineType.SINGLE } : undefined })],
+                    children: [new TextRun({
+                        text, bold: true, size: sizes[level], font: fontName,
+                        underline: level === 2 ? { type: UnderlineType.SINGLE } : undefined,
+                    })],
                     alignment: level === 1 ? AlignmentType.CENTER : AlignmentType.LEFT,
-                    spacing: { before: 200, after: 120, line: spacingVal, lineRule: LineRuleType.AUTO },
+                    spacing: { before: 240, after: 140, line: spacingVal, lineRule: LineRuleType.AUTO },
                 });
             };
+
+            const makeSubHeading = (text: string) => new Paragraph({
+                children: [new TextRun({ text, bold: true, size: headingPt - 2, font: fontName, underline: { type: UnderlineType.SINGLE } })],
+                alignment: AlignmentType.LEFT,
+                spacing: { before: 160, after: 80, line: spacingVal, lineRule: LineRuleType.AUTO },
+            });
 
             // ── PAGE BORDER CONFIG ────────────────────────────────────────────
             const borderConfig = pageBorder ? {
@@ -161,6 +173,7 @@ export const MSWordSkill: AgentSkill = {
                 ...(args.year          ? [new Paragraph({ children: [new TextRun({ text: args.year, size: fontSize, font: fontName })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
                 ...(args.year_academic ? [new Paragraph({ children: [new TextRun({ text: `Academic Year: ${args.year_academic}`, size: fontSize, font: fontName })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
                 makePara('', { spaceAfter: 400 }),
+
             ];
 
             // ── SECTIONS ──────────────────────────────────────────────────────
@@ -171,18 +184,15 @@ export const MSWordSkill: AgentSkill = {
                 const guide = marks > 0 ? getMarkGuide(marks) : null;
                 const markLabel = marks > 0 ? ` [${marks} Marks]` : '';
 
-                // Question/Section Heading
                 sectionChildren.push(makeHeading(`${qNum}. ${section.title || section.question || 'Section'}${markLabel}`, 2));
 
-                // Marks guide hint (helpful context for long docs)
                 if (guide && marks > 0) {
                     sectionChildren.push(makePara(
                         `(Expected: ${guide.minWords}–${guide.maxWords} words | ${guide.depth})`,
-                        { italic: true, size: fontSize - 2, spaceBefore: 0, spaceAfter: 80 }
+                        { italic: true, size: fontSize - 4, spaceBefore: 0, spaceAfter: 80 }
                     ));
                 }
 
-                // Content — split by lines, handle numbered lists, bullets, subheadings
                 const contentText: string = section.content || section.answer || section.text || '';
                 const lines = contentText.split('\n');
 
@@ -192,9 +202,10 @@ export const MSWordSkill: AgentSkill = {
                         sectionChildren.push(makePara('', { spaceAfter: 60 }));
                         continue;
                     }
-                    // Detect subheadings (line ending with : and less than 50 chars)
+                    // Detect subheadings (line ending with : and less than 60 chars)
+                    // → Times New Roman, 13pt, bold, underlined
                     if (trimmed.endsWith(':') && trimmed.length < 60 && !trimmed.startsWith('-') && !trimmed.match(/^\d+\./)) {
-                        sectionChildren.push(makePara(trimmed, { bold: true, spaceBefore: 120, spaceAfter: 40 }));
+                        sectionChildren.push(makeSubHeading(trimmed));
                         continue;
                     }
                     // Detect numbered list
@@ -227,7 +238,12 @@ export const MSWordSkill: AgentSkill = {
                         new TableRow({
                             children: row.map((cell: string, ci: number) =>
                                 new TableCell({
-                                    children: [new Paragraph({ children: [new TextRun({ text: cell, bold: ci === 0 && section.table.indexOf(row) === 0, size: fontSize, font: fontName })] })],
+                                    children: [new Paragraph({ children: [new TextRun({
+                                        text: cell,
+                                        bold: section.table.indexOf(row) === 0, // header row bold
+                                        size: fontSize,
+                                        font: fontName,
+                                    })] })],
                                     width: { size: Math.floor(9000 / row.length), type: WidthType.DXA },
                                 })
                             ),
