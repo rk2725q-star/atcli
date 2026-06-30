@@ -19,6 +19,7 @@
     "@types/inquirer": "^9.0.10",
     "@types/node": "^26.0.0",
     "chokidar": "^5.0.0",
+    "docx": "^9.7.1",
     "inquirer": "^14.0.2",
     "playwright": "^1.61.1",
     "tiktoken": "^1.0.22",

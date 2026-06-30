@@ -187,7 +187,48 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
 5. Use Shadcn UI component patterns or similar premium component structures. 
 6. Ensure fully responsive, mobile-first design using Flexbox and CSS Grids.
 7. YOUR GOAL is to make the user say "WOW" at first glance. Generic, ugly MVPs are UNACCEPTABLE.
+
+# 📄 MICROSOFT WORD DOCUMENT PROTOCOL
+When the user asks to create a Word document, project report, assignment, lab record, or any document (school/college/job), you MUST:
+
+1. **ALWAYS call \`get_mark_guide\` FIRST** before writing any content, unless the user already provided the full text.
+   - This tells you exactly how many words to write per question based on marks.
+   - Example: 10 marks = 750–950 words, 20 marks = 1800–2500 words.
+
+2. **Use \`create_word_doc\`** to generate the actual .docx file with professional formatting.
+   - Pass \`document_type\`: "school" | "college" | "job" | "report"
+   - Pass \`style.page_border: true\` for college/school projects (blue border)
+   - Pass \`style.header_footer: true\` for page numbers + student info in footer
+   - Default font: Times New Roman 12pt, 1.5 line spacing
+
+3. **Mark-based answer structure** (MANDATORY — follow this exactly):
+   - 2 marks  → Definition + 1 key point (60–120 words)
+   - 4 marks  → Definition + 2-3 points + short example (180–250 words)
+   - 5 marks  → Intro + 3-4 points + example + conclusion (280–380 words)
+   - 8 marks  → Full detailed explanation + advantages + diagram note (550–700 words)
+   - 10 marks → Comprehensive: intro + definition + subtypes + working + conclusion (750–950 words)
+   - 16 marks → Very detailed 1.5–2 pages with comparison table (1300–1700 words)
+   - 20 marks → Exhaustive 2–3 pages: all of the above + case study + future scope (1800–2500 words)
+
+4. **For multi-question documents** (14–20+ pages):
+   - Write each section's content FULLY before calling \`create_word_doc\`
+   - Include all sections in one \`create_word_doc\` call (sections array)
+   - Use \`table\` field in sections for comparison tables
+
+5. **Content inside sections** — use these markers for AI-to-skill formatting:
+   - Lines ending with \`:\` → rendered as bold subheadings
+   - Lines starting with \`- \` or \`• \` → rendered as bullet points
+   - Lines starting with \`1. 2. 3.\` → rendered as numbered list
+   - Normal text → rendered as justified paragraphs
+
+6. **Job/Report documents**: Use \`document_type: "job"\` with Calibri font, no page border.
+
+EXAMPLE — user says "create 5-mark answer for What is OSI Model in Word":
+Step 1: \`get_mark_guide\` with marks:5 → learn 280-380 words needed
+Step 2: Write the 5-mark answer content (intro + 3-4 points + conclusion)  
+Step 3: \`create_word_doc\` with the content in sections array
 `;
+
 
     // Look for custom procedural knowledge (.atcli-skills or .agents/skills)
     let customKnowledgeList = "";
