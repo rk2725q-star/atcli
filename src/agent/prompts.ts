@@ -186,16 +186,23 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
 4. Implement micro-animations (hover effects, smooth transitions) to make the app feel alive and responsive.
 5. Use Shadcn UI component patterns or similar premium component structures. 
 6. Ensure fully responsive, mobile-first design using Flexbox and CSS Grids.
-7. YOUR GOAL is to make the user say "WOW" at first glance. Generic, ugly MVPs are UNACCEPTABLE.
+7. YOUR GOAL is to make the user say "WOW".
 
 # 📄 MICROSOFT WORD DOCUMENT PROTOCOL
 
+## 🔷 STEP 0 — DETECT WHICH WORD APP THE USER WANTS
+When the user asks for a Word document, you MUST check what they said:
+- "Word la create pannu" / "Word file" / "create in Word" / "Word la podu" → use \`create_word_doc\` (offline .docx)
+- "Word website" / "word.new" / "Word online la type pannu" / "open in browser" → use \`word_online\` (browser)
+- "Word app" / "MS Word la open pannu" / "Word software" → use \`create_word_doc\` + \`open_in_word\`
+- If UNCLEAR → generate .docx with \`create_word_doc\` first and then call \`open_in_word\`
+
 ## TWO APPROACHES — Choose based on user's need:
 
-### Approach A: \`create_word_doc\` (Fast, automated, offline)
+### Approach A: \`create_word_doc\` (Fast, automated, offline .docx)
 - Generates a \`.docx\` file using the docx package — NO browser needed
-- Best for: bulk content, quick generation, offline use
-- After creating, call \`open_in_word\` to launch it in MS Word desktop
+- Best for: bulk content, quick generation, offline use, college assignments
+- After creating, call \`open_in_word\` to launch it in MS Word desktop app
 
 ### Approach B: \`word_online\` (Human-like, browser, live editing)
 - Opens **Microsoft Word Online** (word.new) in the browser using Agentica
@@ -203,6 +210,34 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
 - Ctrl+Alt+1 = Heading 1, Ctrl+Alt+2 = Heading 2, Ctrl+J = Justify, Ctrl+B = Bold
 - Best for: when user says "open in Word website", "type in Word", "use Word Online"
 - AI + Agentica work together: AI writes content, Agentica types it into Word Online
+
+## 📋 CRITICAL CONTENT RULES (MANDATORY):
+
+### ❌ NEVER PUT THESE IN THE DOCUMENT BODY:
+- Do NOT write "(Expected: N–M words | ...)" in the content — that is internal guidance only
+- Do NOT include "## Introduction" as raw text — write it as a proper section heading
+- Do NOT write metadata like "16 marks", "[16 Marks]" inside the answer body itself
+- Do NOT write the question number inside the answer body
+
+### ✅ ALWAYS DO THIS:
+- Use \`## Heading Name\` syntax for all major subheadings (e.g. \`## Introduction\`, \`## Definition\`)
+- Use \`### Sub Topic\` syntax for sub-subheadings
+- Use \`- \` or \`• \` for bullet points
+- Use \`[1] Author...\` format for references (will render as italic automatically)
+- Strip all \`**bold**\` markdown — the skill handles bold automatically for headings
+
+## 📏 PAGE COUNT CALIBRATION:
+When the user asks for N pages, calibrate your content to match:
+- 1 page ≈ 350–400 words at 12pt, 1.5 spacing
+- 5 pages ≈ 1750–2000 words
+- 10 pages ≈ 3500–4000 words
+- 15 pages ≈ 5000–5500 words
+- 20 pages ≈ 6500–7500 words
+IMPORTANT: The title page counts as 1 page. Each section with introduction + 8+ subheadings ≈ 5–7 pages.
+
+## 🏫 FOOTER NOTE: Students do NOT need page numbers. The footer shows:
+  Student Name  |  Roll Number  |  Year (if provided)
+  Page numbers are omitted by default.
 
 ## MARK-BASED STRUCTURE (MANDATORY — follow exactly):
 
@@ -213,42 +248,53 @@ Definition + 1 key point. No subheadings.
 Introduction → 2-3 Points → Short Example → Conclusion
 
 ### 8–10 marks (550–950 words):
-Introduction → Definition → Explanation → Types → Working → Advantages → Conclusion
+\`\`\`
+## Introduction
+## Definition
+## Working/Mechanism
+## Types (if applicable)
+## Advantages
+## Conclusion
+\`\`\`
 
 ### 16 marks (1300–1700 words) — ACADEMIC ESSAY FORMAT:
-**Strictly follow this structure:**
-1. **Introduction** (150–200 words) — context, importance, overview
-2. **Subheading 1: Definition** (120–150 words) — precise technical definition
-3. **Subheading 2: Types/Classification** (150 words) — enumerate with brief descriptions
-4. **Subheading 3: Working/Mechanism** (150–200 words) — how it works step by step
-5. **Subheading 4: Architecture/Block Diagram** (120 words) — describe the diagram, label components
-6. **Subheading 5: Advantages** (100 words) — 4-5 bullet points
-7. **Subheading 6: Disadvantages/Limitations** (80 words) — 3-4 bullet points
-8. **Subheading 7: Real-world Applications** (120 words) — 3-4 real examples
-9. **Subheading 8: Comparison with Alternatives** (120 words) — table or comparison points
-10. **[Optional Subheading 9-10]** (100 words each) — for deep topics: Case Study, Future Scope
-11. **Conclusion** (100–150 words) — summary of key points
-12. **References** — 3–5 academic references in APA or IEEE format:
-    [1] Author, A. (Year). Title. Publisher.
-    [2] Author, B. (Year). Title. Journal, Vol(Issue), pp.
+**Strictly follow this structure using \`## \` prefix for every subheading:**
+\`\`\`
+## Introduction        (150–200 words)
+## Definition          (120–150 words)
+## Types/Classification (150 words)
+## Working/Mechanism   (150–200 words)
+## Architecture        (120 words — describe components)
+## Advantages          (100 words — 4-5 bullets)
+## Disadvantages       (80 words — 3-4 bullets)
+## Applications        (120 words — 3-4 real examples)
+## Comparison          (120 words — comparison table or points)
+## Future Scope        (100 words — optional for deep topics)
+## Conclusion          (100–150 words)
+## References          (3–5 APA/IEEE format)
+[1] Author (Year). Title. Publisher.
+[2] Author (Year). Title. Journal, Vol(Issue).
+\`\`\`
 
 ### 20 marks (1800–2500 words):
-Same as 16-mark but with Case Study + Comparison Table + Future Scope added.
+Same as 16-mark but add Case Study + Comparison Table + Future Scope.
 
 ## WORKFLOW for Word documents:
 
-**Step 1**: Call \`get_mark_guide\` for each question's mark value
-**Step 2**: Write complete content (AI writes — do NOT truncate or skip sections)
-**Step 3**: Choose approach:
-   - \`create_word_doc\` → generates .docx → then \`open_in_word\` to launch
+**Step 1**: Detect if user wants Word App or Word Website (see Step 0 above)
+**Step 2**: Call \`get_mark_guide\` for each question's mark value
+**Step 3**: Write COMPLETE content using \`## \` headings — do NOT truncate or skip sections
+**Step 4**:
+   - \`create_word_doc\` → generates .docx → then \`open_in_word\` to launch in desktop Word
    - \`word_online\` → Agentica opens Word Online and types content
 
 ## Content formatting markers (use in section.content):
-- Lines starting with \`## \` → Heading 2 subheading
-- Lines ending with \`:\` (< 60 chars) → Bold subheading
-- Lines starting with \`- \` or \`• \` → Bullet point
+- \`## Heading\` → Heading 2 — bold, underlined (for major subheadings)
+- \`### Sub Heading\` → Heading 3 — bold, underlined (for sub-sections)  
+- Lines ending with \`:\` (< 55 chars) → Bold inline subheading
+- Lines starting with \`- \` or \`• \` or \`* \` → Bullet point
 - Lines starting with \`1. 2. 3.\` → Numbered list
-- \`References:\` followed by \`[1] ...\` → References section (italic)
+- \`[1] Author...\` lines → References section (italic)
 - Normal text → Justified paragraph
 
 `;

@@ -101,12 +101,12 @@ export const MSWordSkill: AgentSkill = {
             const hasHeaderFooter = styleOverride.header_footer !== false;
 
             // ── CONTENT HELPERS ───────────────────────────────────────────────
-            // ── CONTENT HELPERS ───────────────────────────────────────────────
             const makePara = (text: string, opts?: {
                 bold?: boolean; italic?: boolean; size?: number; font?: string;
                 align?: typeof AlignmentType[keyof typeof AlignmentType];
                 heading?: typeof HeadingLevel[keyof typeof HeadingLevel];
                 underline?: boolean; spaceBefore?: number; spaceAfter?: number;
+                keepLines?: boolean;
             }) => {
                 const runs: InstanceType<typeof TextRun>[] = text.split('\n').map((line, i) =>
                     new TextRun({
@@ -123,10 +123,18 @@ export const MSWordSkill: AgentSkill = {
                     children: runs,
                     heading: opts?.heading,
                     alignment: opts?.align || AlignmentType.JUSTIFIED,
-                    spacing: { line: spacingVal, lineRule: LineRuleType.AUTO, before: opts?.spaceBefore || 0, after: opts?.spaceAfter || 100 },
+                    spacing: {
+                        line: spacingVal,
+                        lineRule: LineRuleType.AUTO,
+                        before: opts?.spaceBefore ?? 0,
+                        after:  opts?.spaceAfter  ?? 60,  // reduced from 100 to avoid page bloat
+                    },
+                    widowControl: true,   // prevent orphan/widow single lines at page breaks
+                    keepLines: opts?.keepLines ?? false,
                 });
             };
 
+            // makeHeading — question headings, keepNext keeps it with its first paragraph
             const makeHeading = (text: string, level: 1 | 2 | 3) => {
                 const sizes: Record<1|2|3, number> = { 1: titlePt, 2: headingPt, 3: headingPt - 2 };
                 return new Paragraph({
@@ -135,14 +143,22 @@ export const MSWordSkill: AgentSkill = {
                         underline: level === 2 ? { type: UnderlineType.SINGLE } : undefined,
                     })],
                     alignment: level === 1 ? AlignmentType.CENTER : AlignmentType.LEFT,
-                    spacing: { before: 240, after: 140, line: spacingVal, lineRule: LineRuleType.AUTO },
+                    spacing: { before: level === 1 ? 0 : 200, after: 80, line: spacingVal, lineRule: LineRuleType.AUTO },
+                    keepNext: true,          // heading always stays with the next paragraph
+                    widowControl: true,
                 });
             };
 
+            // makeSubHeading — inline section titles (Definition:, Advantages:, etc.)
             const makeSubHeading = (text: string) => new Paragraph({
-                children: [new TextRun({ text, bold: true, size: headingPt - 2, font: fontName, underline: { type: UnderlineType.SINGLE } })],
+                children: [new TextRun({
+                    text, bold: true, size: headingPt - 2, font: fontName,
+                    underline: { type: UnderlineType.SINGLE },
+                })],
                 alignment: AlignmentType.LEFT,
-                spacing: { before: 160, after: 80, line: spacingVal, lineRule: LineRuleType.AUTO },
+                spacing: { before: 120, after: 40, line: spacingVal, lineRule: LineRuleType.AUTO },
+                keepNext: true,    // subheading always stays with the next paragraph
+                widowControl: true,
             });
 
             // ── PAGE BORDER CONFIG ────────────────────────────────────────────
@@ -186,12 +202,8 @@ export const MSWordSkill: AgentSkill = {
 
                 sectionChildren.push(makeHeading(`${qNum}. ${section.title || section.question || 'Section'}${markLabel}`, 2));
 
-                if (guide && marks > 0) {
-                    sectionChildren.push(makePara(
-                        `(Expected: ${guide.minWords}–${guide.maxWords} words | ${guide.depth})`,
-                        { italic: true, size: fontSize - 4, spaceBefore: 0, spaceAfter: 80 }
-                    ));
-                }
+                // NOTE: Do NOT add the '(Expected: N words)' line to the document body
+                // That is only for internal AI guidance, not for the student's document
 
                 const contentText: string = section.content || section.answer || section.text || '';
                 const lines = contentText.split('\n');
@@ -272,10 +284,11 @@ export const MSWordSkill: AgentSkill = {
 
                     // ── Regular paragraph (strip any stray **bold** markers)
                     const paraText = trimmed.replace(/\*\*/g, '');
-                    sectionChildren.push(makePara(paraText, { spaceBefore: 0, spaceAfter: 80 }));
+                    sectionChildren.push(makePara(paraText, { spaceBefore: 0, spaceAfter: 60 }));
                 }
 
-                // Table if provided
+                // Section separator — just a small gap, no extra blank pages
+                sectionChildren.push(makePara('', { spaceAfter: 120 }));
                 if (section.table && Array.isArray(section.table)) {
                     const tblRows = section.table.map((row: string[]) =>
                         new TableRow({
@@ -299,7 +312,7 @@ export const MSWordSkill: AgentSkill = {
                     sectionChildren.push(new Paragraph({ children: [] }));
                 }
 
-                sectionChildren.push(makePara('', { spaceAfter: 200 }));
+                // Section end gap
                 qNum++;
             }
 
@@ -333,10 +346,17 @@ export const MSWordSkill: AgentSkill = {
                         default: new Footer({
                             children: [new Paragraph({
                                 children: [
-                                    new TextRun({ text: `${args.student_name || ''} | ${args.roll_number || ''} | `, size: fontSize - 2, font: fontName }),
-                                    new TextRun({ children: [PageNumber.CURRENT], size: fontSize - 2, font: fontName }),
-                                    new TextRun({ text: ' / ', size: fontSize - 2, font: fontName }),
-                                    new TextRun({ children: [PageNumber.TOTAL_PAGES], size: fontSize - 2, font: fontName }),
+                                    // Only student name — NO page numbers as per student requirement 2026
+                                    new TextRun({
+                                        text: [
+                                            args.student_name  || '',
+                                            args.roll_number   || '',
+                                            args.year          || '',
+                                        ].filter(Boolean).join('  |  '),
+                                        size: fontSize - 4,
+                                        font: fontName,
+                                        italics: true,
+                                    }),
                                 ],
                                 alignment: AlignmentType.CENTER,
                             })],
