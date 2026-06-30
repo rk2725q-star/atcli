@@ -185,7 +185,17 @@ export class ManagerLoop {
         
         jsonStr = jsonStr.trim();
 
-        // Custom robust auto-fix for write_file tool which often contains unescaped quotes/newlines
+        // ── Universal Smart Quote Sanitizer ──────────────────────────────────
+        // AIs write "word" (curly quotes) inside JSON — causes parse errors.
+        jsonStr = jsonStr
+            .replace(/\u201c/g, '\\"')   // " → escaped "
+            .replace(/\u201d/g, '\\"')   // " → escaped "
+            .replace(/\u2018/g, "'")     // ' → plain '
+            .replace(/\u2019/g, "'")     // ' → plain '
+            .replace(/\u2033/g, '\\"')   // ″ → escaped "
+            .replace(/\u00ab/g, '\\"')   // « → escaped "
+            .replace(/\u00bb/g, '\\"');  // » → escaped "
+
         if (jsonStr.includes('"write_file"')) {
             const contentRegex = /"content"\s*:\s*"([\s\S]*)"\s*}/;
             const contentMatch = jsonStr.match(contentRegex);

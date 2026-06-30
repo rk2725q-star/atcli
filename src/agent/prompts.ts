@@ -306,6 +306,8 @@ Same as 16-mark but add Case Study + Comparison Table + Future Scope.
 **Step 4**:
    - \`create_word_doc\` → generates .docx → then \`open_in_word\` to launch in desktop Word
    - \`word_online\` → Agentica opens Word Online and types content
+   - **If user says "file manager la open pannu" / "show in file manager" / "open on my desktop":**
+     After \`create_word_doc\`, call \`open_in_explorer\` with the filename to highlight it in Windows Explorer.
 
 ## Content formatting markers (use in section.content):
 - \`## Heading\` → Heading 2 — bold, underlined (for major subheadings)

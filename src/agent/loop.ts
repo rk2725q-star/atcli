@@ -913,6 +913,19 @@ RULES:
         
         jsonStr = jsonStr.trim();
 
+        // ── STEP 1: Universal Smart Quote Sanitizer ───────────────────────────
+        // AIs often write “word” (curly/smart quotes) inside JSON content fields.
+        // These are NOT valid JSON and cause "Expected ',' or '}'" parse errors.
+        // Replace all Unicode quote variants with plain ASCII quotes BEFORE parsing.
+        jsonStr = jsonStr
+            .replace(/\u201c/g, '\\"')   // left double curly quote “ → escaped "
+            .replace(/\u201d/g, '\\"')   // right double curly quote ” → escaped "
+            .replace(/\u2018/g, "'")     // left single curly quote ‘ → plain '
+            .replace(/\u2019/g, "'")     // right single curly quote ’ → plain '
+            .replace(/\u2033/g, '\\"')  // double prime ″ → escaped "
+            .replace(/\u00ab/g, '\\"')  // guillemet « → escaped "
+            .replace(/\u00bb/g, '\\"'); // guillemet » → escaped "
+
         // Custom robust auto-fix for write_file tool which often contains unescaped quotes/newlines
         if (jsonStr.includes('"write_file"')) {
             const contentRegex = /"content"\s*:\s*"([\s\S]*)"\s*}/;

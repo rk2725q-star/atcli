@@ -278,3 +278,60 @@ export const OpenInWordSkill: AgentSkill = {
         });
     },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPEN IN EXPLORER (FILE MANAGER) SKILL
+// Opens Windows File Explorer and highlights the file so user can see it.
+// Use after create_word_doc when user says "show in file manager", "open folder", etc.
+// ─────────────────────────────────────────────────────────────────────────────
+export const OpenInExplorerSkill: AgentSkill = {
+    name: 'open_in_explorer',
+    description: `Opens Windows File Explorer (File Manager) and selects/highlights a file so the user can see it.
+Use this when:
+- User says "show in file manager", "open folder", "show me the file", "file manager la open pannu"
+- After create_word_doc to show the user where the .docx was saved
+Arguments:
+  path (string): file or folder to show (relative to project root or absolute)`,
+    example: `<tool_call>\n{"action": "open_in_explorer", "path": "Open_AI_in_Healthcare_15_Pages.docx"}\n</tool_call>`,
+    execute: async (args: any) => {
+        if (!args.path) return 'Error: path is required';
+        const { exec } = await import('child_process');
+        const safeRoot = (global as any).atcli_project_root || process.cwd();
+        const filePath = path.resolve(safeRoot, args.path);
+
+        if (!fs.existsSync(filePath)) {
+            const parentDir = path.dirname(filePath);
+            if (fs.existsSync(parentDir)) {
+                return new Promise<string>((resolve) => {
+                    exec(`explorer "${parentDir}"`, (err) => {
+                        if (err) resolve(`Could not open Explorer: ${err.message}\nFolder: ${parentDir}`);
+                        else resolve(`📂 Opened parent folder in File Explorer: ${parentDir}`);
+                    });
+                });
+            }
+            return `Error: Path not found: ${filePath}`;
+        }
+
+        const isDir = fs.statSync(filePath).isDirectory();
+
+        return new Promise<string>((resolve) => {
+            let cmd: string;
+            if (process.platform === 'win32') {
+                cmd = isDir ? `explorer "${filePath}"` : `explorer /select,"${filePath}"`;
+            } else if (process.platform === 'darwin') {
+                cmd = isDir ? `open "${filePath}"` : `open -R "${filePath}"`;
+            } else {
+                cmd = `xdg-open "${isDir ? filePath : path.dirname(filePath)}"`;
+            }
+            exec(cmd, (err) => {
+                if (err) resolve(`Error opening File Manager: ${err.message}\nPath: ${filePath}`);
+                else resolve([
+                    `✅ Opened File Manager — file highlighted:`,
+                    `📁 ${filePath}`,
+                    ``,
+                    `The file is now visible and selected in your Windows File Explorer.`,
+                ].join('\n'));
+            });
+        });
+    },
+};
