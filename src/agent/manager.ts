@@ -196,6 +196,7 @@ export class ManagerLoop {
             .replace(/\u00ab/g, '\\"')   // « → escaped "
             .replace(/\u00bb/g, '\\"');  // » → escaped "
 
+        // Custom robust auto-fix for write_file tool which often contains unescaped quotes/newlines
         if (jsonStr.includes('"write_file"')) {
             const contentRegex = /"content"\s*:\s*"([\s\S]*)"\s*}/;
             const contentMatch = jsonStr.match(contentRegex);
@@ -219,6 +220,24 @@ export class ManagerLoop {
                 
                 // Replace the broken content with the perfectly escaped content
                 jsonStr = jsonStr.replace(contentRegex, `"content": "${safeContent}"}`);
+            }
+        }
+        
+        // Auto-fix for run_command which often contains unescaped double quotes inside the command string
+        if (jsonStr.includes('"run_command"')) {
+            const cmdRegex = /"command"\s*:\s*"([\s\S]*)"\s*}/;
+            const cmdMatch = jsonStr.match(cmdRegex);
+            if (cmdMatch) {
+                let rawCmd = cmdMatch[1];
+                rawCmd = rawCmd
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\');
+                    
+                let safeCmd = rawCmd
+                    .replace(/\\/g, '\\\\')
+                    .replace(/"/g, '\\"');
+                    
+                jsonStr = jsonStr.replace(cmdRegex, `"command": "${safeCmd}"}`);
             }
         }
         
