@@ -20,25 +20,51 @@ function detectProjectRoot(): { root: string; method: string } {
         return { root: path.normalize(vscodeCwd), method: 'IDE workspace (VSCODE_CWD)' };
     }
 
+    // Helper: check if a directory is atcli's OWN source package (to skip it)
+    function isAtcliOwnPackage(dir: string): boolean {
+        try {
+            const pkgPath = path.join(dir, 'package.json');
+            if (!fs.existsSync(pkgPath)) return false;
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+            // Skip if this is the atcli-core package itself
+            return pkg.name === 'atcli-core' || pkg.name === 'atcli';
+        } catch { return false; }
+    }
+
     // 2. Walk UP from process.cwd() looking for project root markers
-    //    Stops at filesystem root to prevent infinite loop
-    const markers = ['.git', 'package.json', '.vscode', 'tsconfig.json',
+    //    Skip the atcli-core package folder itself so we don't save files there
+    const markers = ['.git', '.vscode', 'tsconfig.json',
                      'pyproject.toml', 'Cargo.toml', 'go.mod', '.agents', '.atcli'];
+    // Also check package.json but NOT if it's atcli's own package
     let dir = process.cwd();
     const filesystemRoot = path.parse(dir).root;
     while (dir !== filesystemRoot) {
         for (const marker of markers) {
             if (fs.existsSync(path.join(dir, marker))) {
+                // Extra check: if the detected root is atcli's own src, skip it
+                if (isAtcliOwnPackage(dir)) break;
                 return { root: dir, method: `project root (found ${marker})` };
             }
         }
+        // Also check package.json separately with atcli exclusion
+        if (fs.existsSync(path.join(dir, 'package.json')) && !isAtcliOwnPackage(dir)) {
+            return { root: dir, method: 'project root (found package.json)' };
+        }
         const parent = path.dirname(dir);
-        if (parent === dir) break; // reached filesystem root
+        if (parent === dir) break;
         dir = parent;
     }
 
-    // 3. Fallback: use process.cwd() (where atcli was launched)
-    return { root: process.cwd(), method: 'terminal cwd (fallback)' };
+    // 3. Fallback to process.cwd() — but warn if it's the atcli package itself
+    const cwd = process.cwd();
+    if (isAtcliOwnPackage(cwd)) {
+        // Running atcli from its own source folder — use Desktop as safe output
+        const desktopPath = path.join(require('os').homedir(), 'Desktop');
+        const desktopExists = fs.existsSync(desktopPath);
+        const fallback = desktopExists ? desktopPath : require('os').homedir();
+        return { root: fallback, method: 'Desktop (run atcli from your project folder for best results)' };
+    }
+    return { root: cwd, method: 'terminal cwd (fallback)' };
 }
 
 interface AppState {

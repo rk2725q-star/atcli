@@ -239,6 +239,25 @@ IMPORTANT: The title page counts as 1 page. Each section with introduction + 8+ 
   Student Name  |  Roll Number  |  Year (if provided)
   Page numbers are omitted by default.
 
+## 🎨 DUAL-FONT STYLE (IMPORTANT — default for all college/school docs):
+When user says "Times New Roman for question, Arial for answer" — use these style fields:
+\`\`\`json
+"style": {
+  "heading_font": "Times New Roman",
+  "heading_size": 14,
+  "body_font": "Arial",
+  "font_size": 12,
+  "line_spacing": 1.5,
+  "page_border": true,
+  "header_footer": true
+}
+\`\`\`
+- \`heading_font\` → font for question headings and ## subheadings (default: Times New Roman)
+- \`heading_size\` → point size for question headings (default: 14)
+- \`body_font\`    → font for answer body text, bullets, references (default: Arial)
+- \`font_size\`    → point size for body text (default: 12)
+- If user does NOT specify fonts, defaults are: heading=Times New Roman 14pt, body=Arial 12pt
+
 ## MARK-BASED STRUCTURE (MANDATORY — follow exactly):
 
 ### 2 marks (60–120 words):

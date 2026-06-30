@@ -85,22 +85,31 @@ export const MSWordSkill: AgentSkill = {
                 UnderlineType,
             } = await import('docx');
 
-            // ── STYLE SETUP — fully user-configurable ─────────────────────────
-            const docType = (args.document_type || 'college') as keyof typeof STYLE_PRESETS;
-            const preset = STYLE_PRESETS[docType] || STYLE_PRESETS.college;
+            // ── DUAL-FONT STYLE SETUP ─────────────────────────────────────────
+            // Heading font (for question titles, subheadings) vs Body font (for answer text)
             const styleOverride = args.style || {};
+            const docType = (args.document_type || 'college') as keyof typeof STYLE_PRESETS;
 
-            // Single font system — user specifies what they want, AI picks sensible defaults
-            const fontName    = styleOverride.font       || 'Times New Roman';
-            const fontSize    = (styleOverride.font_size || 12) * 2; // docx half-points
-            const headingPt   = (styleOverride.heading_size || styleOverride.font_size || 14) * 2;
-            const titlePt     = headingPt + 8;
-            const lineSpacing = styleOverride.line_spacing || 1.5;
-            const spacingVal  = Math.round(lineSpacing * 240);
-            const pageBorder  = styleOverride.page_border !== false; // default: true
+            // Heading font — default: Times New Roman (used for question headings & subheadings)
+            const headingFont  = styleOverride.heading_font || styleOverride.font || 'Times New Roman';
+            const headingPt    = ((styleOverride.heading_size || 14) * 2);    // half-points (14pt = 28)
+            const titlePt      = headingPt + 8;                                // title page font (22pt = 44)
+
+            // Body font — default: Arial (used for answer paragraphs, bullets, references)
+            // If user only specifies one font, body = heading font (single-font mode)
+            const bodyFont     = styleOverride.body_font
+                               || (styleOverride.heading_font && !styleOverride.body_font ? styleOverride.font || 'Arial' : null)
+                               || (styleOverride.font ? 'Arial' : 'Arial');
+            const bodyFontSize = ((styleOverride.font_size || styleOverride.body_font_size || 12) * 2); // 12pt = 24
+
+            const lineSpacing  = styleOverride.line_spacing || 1.5;
+            const spacingVal   = Math.round(lineSpacing * 240);
+            const pageBorder   = styleOverride.page_border !== false;
             const hasHeaderFooter = styleOverride.header_footer !== false;
 
             // ── CONTENT HELPERS ───────────────────────────────────────────────
+
+            // makePara — BODY TEXT: uses bodyFont + bodyFontSize (e.g. Arial 12pt)
             const makePara = (text: string, opts?: {
                 bold?: boolean; italic?: boolean; size?: number; font?: string;
                 align?: typeof AlignmentType[keyof typeof AlignmentType];
@@ -113,8 +122,8 @@ export const MSWordSkill: AgentSkill = {
                         text: line,
                         bold: opts?.bold,
                         italics: opts?.italic,
-                        size: opts?.size || fontSize,
-                        font: opts?.font || fontName,
+                        size: opts?.size || bodyFontSize,   // ← body size (12pt)
+                        font: opts?.font || bodyFont,       // ← body font (Arial)
                         break: i > 0 ? 1 : 0,
                         underline: opts?.underline ? { type: UnderlineType.SINGLE } : undefined,
                     })
@@ -127,39 +136,46 @@ export const MSWordSkill: AgentSkill = {
                         line: spacingVal,
                         lineRule: LineRuleType.AUTO,
                         before: opts?.spaceBefore ?? 0,
-                        after:  opts?.spaceAfter  ?? 60,  // reduced from 100 to avoid page bloat
+                        after:  opts?.spaceAfter  ?? 60,
                     },
-                    widowControl: true,   // prevent orphan/widow single lines at page breaks
+                    widowControl: true,
                     keepLines: opts?.keepLines ?? false,
                 });
             };
 
-            // makeHeading — question headings, keepNext keeps it with its first paragraph
+            // makeHeading — QUESTION HEADINGS: headingFont + headingPt (Times New Roman 14pt)
+            // keepNext: true ensures heading never appears alone at bottom of page
             const makeHeading = (text: string, level: 1 | 2 | 3) => {
                 const sizes: Record<1|2|3, number> = { 1: titlePt, 2: headingPt, 3: headingPt - 2 };
                 return new Paragraph({
                     children: [new TextRun({
-                        text, bold: true, size: sizes[level], font: fontName,
+                        text, bold: true,
+                        size: sizes[level],
+                        font: headingFont,   // ← heading font (Times New Roman)
                         underline: level === 2 ? { type: UnderlineType.SINGLE } : undefined,
                     })],
                     alignment: level === 1 ? AlignmentType.CENTER : AlignmentType.LEFT,
                     spacing: { before: level === 1 ? 0 : 200, after: 80, line: spacingVal, lineRule: LineRuleType.AUTO },
-                    keepNext: true,          // heading always stays with the next paragraph
+                    keepNext: true,
                     widowControl: true,
                 });
             };
 
-            // makeSubHeading — inline section titles (Definition:, Advantages:, etc.)
+            // makeSubHeading — INLINE SUBHEADINGS: headingFont, slightly smaller (13pt)
+            // keepNext: true ensures subheading never appears alone at bottom of page
             const makeSubHeading = (text: string) => new Paragraph({
                 children: [new TextRun({
-                    text, bold: true, size: headingPt - 2, font: fontName,
+                    text, bold: true,
+                    size: headingPt - 2,    // ← heading font size - 1pt (13pt)
+                    font: headingFont,      // ← heading font (Times New Roman)
                     underline: { type: UnderlineType.SINGLE },
                 })],
                 alignment: AlignmentType.LEFT,
                 spacing: { before: 120, after: 40, line: spacingVal, lineRule: LineRuleType.AUTO },
-                keepNext: true,    // subheading always stays with the next paragraph
+                keepNext: true,
                 widowControl: true,
             });
+
 
             // ── PAGE BORDER CONFIG ────────────────────────────────────────────
             const borderConfig = pageBorder ? {
@@ -170,27 +186,29 @@ export const MSWordSkill: AgentSkill = {
             } : undefined;
 
             // ── TITLE PAGE ────────────────────────────────────────────────────
+            // Title page uses headingFont for all text (professional look)
             const titlePageChildren: any[] = [
                 makePara('', { spaceAfter: 600 }),
                 makePara('', { spaceAfter: 400 }),
-                ...(args.institution ? [new Paragraph({ children: [new TextRun({ text: args.institution.toUpperCase(), bold: true, size: titlePt + 4, font: fontName })], alignment: AlignmentType.CENTER, spacing: { after: 160 } })] : []),
-                ...(args.department  ? [new Paragraph({ children: [new TextRun({ text: args.department,  bold: false, size: fontSize + 4, font: fontName })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
+                ...(args.institution ? [new Paragraph({ children: [new TextRun({ text: args.institution.toUpperCase(), bold: true, size: titlePt + 4, font: headingFont })], alignment: AlignmentType.CENTER, spacing: { after: 160 } })] : []),
+                ...(args.department  ? [new Paragraph({ children: [new TextRun({ text: args.department,  bold: false, size: bodyFontSize + 4, font: headingFont })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
                 makePara('', { spaceAfter: 400 }),
-                new Paragraph({ children: [new TextRun({ text: '─'.repeat(40), size: fontSize, font: fontName })], alignment: AlignmentType.CENTER }),
+                new Paragraph({ children: [new TextRun({ text: '─'.repeat(40), size: bodyFontSize, font: headingFont })], alignment: AlignmentType.CENTER }),
                 makePara('', { spaceAfter: 200 }),
                 makeHeading(args.title || 'Untitled Document', 1),
-                ...(args.subtitle ? [new Paragraph({ children: [new TextRun({ text: args.subtitle, bold: false, size: fontSize + 2, font: fontName, italics: true })], alignment: AlignmentType.CENTER, spacing: { after: 120 } })] : []),
-                ...(args.subject_code ? [new Paragraph({ children: [new TextRun({ text: `Subject Code: ${args.subject_code}`, size: fontSize, font: fontName })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
+                ...(args.subtitle ? [new Paragraph({ children: [new TextRun({ text: args.subtitle, bold: false, size: bodyFontSize + 2, font: headingFont, italics: true })], alignment: AlignmentType.CENTER, spacing: { after: 120 } })] : []),
+                ...(args.subject_code ? [new Paragraph({ children: [new TextRun({ text: `Subject Code: ${args.subject_code}`, size: bodyFontSize, font: headingFont })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
                 makePara('', { spaceAfter: 400 }),
-                new Paragraph({ children: [new TextRun({ text: '─'.repeat(40), size: fontSize, font: fontName })], alignment: AlignmentType.CENTER }),
+                new Paragraph({ children: [new TextRun({ text: '─'.repeat(40), size: bodyFontSize, font: headingFont })], alignment: AlignmentType.CENTER }),
                 makePara('', { spaceAfter: 200 }),
-                ...(args.student_name  ? [new Paragraph({ children: [new TextRun({ text: `Student Name : ${args.student_name}`, bold: true, size: fontSize, font: fontName })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
-                ...(args.roll_number   ? [new Paragraph({ children: [new TextRun({ text: `Roll Number  : ${args.roll_number}`, bold: true, size: fontSize, font: fontName })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
-                ...(args.year          ? [new Paragraph({ children: [new TextRun({ text: args.year, size: fontSize, font: fontName })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
-                ...(args.year_academic ? [new Paragraph({ children: [new TextRun({ text: `Academic Year: ${args.year_academic}`, size: fontSize, font: fontName })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
+                ...(args.student_name  ? [new Paragraph({ children: [new TextRun({ text: `Student Name : ${args.student_name}`, bold: true, size: bodyFontSize, font: headingFont })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
+                ...(args.roll_number   ? [new Paragraph({ children: [new TextRun({ text: `Roll Number  : ${args.roll_number}`, bold: true, size: bodyFontSize, font: headingFont })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
+                ...(args.year          ? [new Paragraph({ children: [new TextRun({ text: args.year, size: bodyFontSize, font: headingFont })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
+                ...(args.year_academic ? [new Paragraph({ children: [new TextRun({ text: `Academic Year: ${args.year_academic}`, size: bodyFontSize, font: headingFont })], alignment: AlignmentType.CENTER, spacing: { after: 80 } })] : []),
                 makePara('', { spaceAfter: 400 }),
 
             ];
+
 
             // ── SECTIONS ──────────────────────────────────────────────────────
             const sectionChildren: any[] = [];
@@ -253,30 +271,32 @@ export const MSWordSkill: AgentSkill = {
                     if (trimmed.match(/^\d+\.\s/)) {
                         const itemText = trimmed.replace(/\*\*/g, '');
                         sectionChildren.push(new Paragraph({
-                            children: [new TextRun({ text: itemText, size: fontSize, font: fontName })],
+                            children: [new TextRun({ text: itemText, size: bodyFontSize, font: bodyFont })],
                             indent: { left: convertInchesToTwip(0.3) },
                             spacing: { line: spacingVal, lineRule: LineRuleType.AUTO, after: 60 },
                             alignment: AlignmentType.JUSTIFIED,
+                            widowControl: true,
                         }));
                         continue;
                     }
 
-                    // ── Bullet points (- or •)
+                    // ── Bullet points (- or •) — BODY FONT (Arial 12pt)
                     if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) {
                         const bulletText = trimmed.replace(/^[-•*]\s*/, '').replace(/\*\*/g, '');
                         sectionChildren.push(new Paragraph({
-                            children: [new TextRun({ text: '• ' + bulletText, size: fontSize, font: fontName })],
+                            children: [new TextRun({ text: '• ' + bulletText, size: bodyFontSize, font: bodyFont })],
                             indent: { left: convertInchesToTwip(0.3) },
                             spacing: { line: spacingVal, lineRule: LineRuleType.AUTO, after: 60 },
                             alignment: AlignmentType.JUSTIFIED,
+                            widowControl: true,
                         }));
                         continue;
                     }
 
-                    // ── References [1] ... → italic
+                    // ── References [1] ... → italic BODY FONT
                     if (trimmed.match(/^\[\d+\]/) || (trimmed.toLowerCase() === 'references:')) {
                         sectionChildren.push(new Paragraph({
-                            children: [new TextRun({ text: trimmed, size: fontSize, font: fontName, italics: true })],
+                            children: [new TextRun({ text: trimmed, size: bodyFontSize, font: bodyFont, italics: true })],
                             spacing: { line: spacingVal, lineRule: LineRuleType.AUTO, after: 40 },
                         }));
                         continue;
@@ -296,9 +316,9 @@ export const MSWordSkill: AgentSkill = {
                                 new TableCell({
                                     children: [new Paragraph({ children: [new TextRun({
                                         text: cell,
-                                        bold: section.table.indexOf(row) === 0, // header row bold
-                                        size: fontSize,
-                                        font: fontName,
+                                        bold: section.table.indexOf(row) === 0,
+                                        size: bodyFontSize,
+                                        font: bodyFont,
                                     })] })],
                                     width: { size: Math.floor(9000 / row.length), type: WidthType.DXA },
                                 })
@@ -306,7 +326,7 @@ export const MSWordSkill: AgentSkill = {
                         })
                     );
                     sectionChildren.push(new Paragraph({ children: [] }));
-                    sectionChildren.push(new Paragraph({ children: [new TextRun({ text: section.table_title || 'Table:', bold: true, size: fontSize, font: fontName })] }));
+                    sectionChildren.push(new Paragraph({ children: [new TextRun({ text: section.table_title || 'Table:', bold: true, size: bodyFontSize, font: headingFont })] }));
                     // @ts-ignore — Table is valid child
                     sectionChildren.push(new Table({ rows: tblRows, width: { size: 9000, type: WidthType.DXA } }));
                     sectionChildren.push(new Paragraph({ children: [] }));
@@ -337,7 +357,8 @@ export const MSWordSkill: AgentSkill = {
                     headers: hasHeaderFooter ? {
                         default: new Header({
                             children: [new Paragraph({
-                                children: [new TextRun({ text: args.title || 'Document', size: fontSize - 2, font: fontName, italics: true })],
+                                // Header uses headingFont (Times New Roman) — document title
+                                children: [new TextRun({ text: args.title || 'Document', size: bodyFontSize - 2, font: headingFont, italics: true })],
                                 alignment: AlignmentType.RIGHT,
                             })],
                         }),
@@ -353,8 +374,8 @@ export const MSWordSkill: AgentSkill = {
                                             args.roll_number   || '',
                                             args.year          || '',
                                         ].filter(Boolean).join('  |  '),
-                                        size: fontSize - 4,
-                                        font: fontName,
+                                        size: bodyFontSize - 4,
+                                        font: bodyFont,
                                         italics: true,
                                     }),
                                 ],
@@ -390,10 +411,11 @@ export const MSWordSkill: AgentSkill = {
                 `📊 Stats:`,
                 `   • Sections: ${args.sections.length}`,
                 `   • Approx. words: ~${totalWords}`,
-                `   • Font: ${fontName} ${(fontSize / 2)}pt`,
+                `   • Heading font: ${headingFont} ${(headingPt / 2)}pt (questions & subheadings)`,
+                `   • Body font   : ${bodyFont} ${(bodyFontSize / 2)}pt (answer text, bullets)`,
                 `   • Style: ${docType}`,
                 `   • Page border: ${pageBorder ? 'Yes' : 'No'}`,
-                `   • Header/Footer: ${hasHeaderFooter ? 'Yes' : 'No'}`,
+                `   • Header/Footer: ${hasHeaderFooter ? 'Yes (no page numbers)' : 'No'}`,
                 ``,
                 `💡 Open with: Microsoft Word, LibreOffice, or Google Docs (upload)`,
             ].join('\n');
