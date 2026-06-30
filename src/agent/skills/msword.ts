@@ -202,34 +202,77 @@ export const MSWordSkill: AgentSkill = {
                         sectionChildren.push(makePara('', { spaceAfter: 60 }));
                         continue;
                     }
-                    // Detect subheadings (line ending with : and less than 60 chars)
-                    // → Times New Roman, 13pt, bold, underlined
-                    if (trimmed.endsWith(':') && trimmed.length < 60 && !trimmed.startsWith('-') && !trimmed.match(/^\d+\./)) {
-                        sectionChildren.push(makeSubHeading(trimmed));
+
+                    // ── Markdown heading: ### text → Heading 3 (sub-subheading)
+                    if (trimmed.startsWith('### ')) {
+                        const hText = trimmed.replace(/^###\s*/, '').replace(/\*\*/g, '');
+                        sectionChildren.push(makeSubHeading(hText + ':'));
                         continue;
                     }
-                    // Detect numbered list
+                    // ── Markdown heading: ## text → Heading 2 (major subheading)
+                    if (trimmed.startsWith('## ')) {
+                        const hText = trimmed.replace(/^##\s*/, '').replace(/\*\*/g, '');
+                        sectionChildren.push(makeHeading(hText, 2));
+                        continue;
+                    }
+                    // ── Markdown heading: # text → Heading 1 (section title)
+                    if (trimmed.startsWith('# ') && !trimmed.startsWith('# ─')) {
+                        const hText = trimmed.replace(/^#\s*/, '').replace(/\*\*/g, '');
+                        sectionChildren.push(makeHeading(hText, 2));
+                        continue;
+                    }
+
+                    // ── Inline subheadings: short line ending with :
+                    // Must be < 55 chars, not starting with bullet/number, not a sentence
+                    if (
+                        trimmed.endsWith(':') &&
+                        trimmed.length < 55 &&
+                        !trimmed.startsWith('-') &&
+                        !trimmed.startsWith('•') &&
+                        !trimmed.match(/^\d+\./) &&
+                        !trimmed.includes('  ')  // real sentences have multiple words with spaces
+                    ) {
+                        const hText = trimmed.replace(/\*\*/g, '');
+                        sectionChildren.push(makeSubHeading(hText));
+                        continue;
+                    }
+
+                    // ── Numbered list item (1. 2. 3.)
                     if (trimmed.match(/^\d+\.\s/)) {
+                        const itemText = trimmed.replace(/\*\*/g, '');
                         sectionChildren.push(new Paragraph({
-                            children: [new TextRun({ text: trimmed, size: fontSize, font: fontName })],
+                            children: [new TextRun({ text: itemText, size: fontSize, font: fontName })],
                             indent: { left: convertInchesToTwip(0.3) },
                             spacing: { line: spacingVal, lineRule: LineRuleType.AUTO, after: 60 },
                             alignment: AlignmentType.JUSTIFIED,
                         }));
                         continue;
                     }
-                    // Detect bullet points
-                    if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
+
+                    // ── Bullet points (- or •)
+                    if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) {
+                        const bulletText = trimmed.replace(/^[-•*]\s*/, '').replace(/\*\*/g, '');
                         sectionChildren.push(new Paragraph({
-                            children: [new TextRun({ text: '• ' + trimmed.replace(/^[-•]\s*/, ''), size: fontSize, font: fontName })],
+                            children: [new TextRun({ text: '• ' + bulletText, size: fontSize, font: fontName })],
                             indent: { left: convertInchesToTwip(0.3) },
                             spacing: { line: spacingVal, lineRule: LineRuleType.AUTO, after: 60 },
                             alignment: AlignmentType.JUSTIFIED,
                         }));
                         continue;
                     }
-                    // Regular paragraph
-                    sectionChildren.push(makePara(trimmed, { spaceBefore: 0, spaceAfter: 80 }));
+
+                    // ── References [1] ... → italic
+                    if (trimmed.match(/^\[\d+\]/) || (trimmed.toLowerCase() === 'references:')) {
+                        sectionChildren.push(new Paragraph({
+                            children: [new TextRun({ text: trimmed, size: fontSize, font: fontName, italics: true })],
+                            spacing: { line: spacingVal, lineRule: LineRuleType.AUTO, after: 40 },
+                        }));
+                        continue;
+                    }
+
+                    // ── Regular paragraph (strip any stray **bold** markers)
+                    const paraText = trimmed.replace(/\*\*/g, '');
+                    sectionChildren.push(makePara(paraText, { spaceBefore: 0, spaceAfter: 80 }));
                 }
 
                 // Table if provided
