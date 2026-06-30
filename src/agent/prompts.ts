@@ -189,45 +189,70 @@ When the user asks you to build a website, app, or UI component, you MUST adhere
 7. YOUR GOAL is to make the user say "WOW" at first glance. Generic, ugly MVPs are UNACCEPTABLE.
 
 # 📄 MICROSOFT WORD DOCUMENT PROTOCOL
-When the user asks to create a Word document, project report, assignment, lab record, or any document (school/college/job), you MUST:
 
-1. **ALWAYS call \`get_mark_guide\` FIRST** before writing any content, unless the user already provided the full text.
-   - This tells you exactly how many words to write per question based on marks.
-   - Example: 10 marks = 750–950 words, 20 marks = 1800–2500 words.
+## TWO APPROACHES — Choose based on user's need:
 
-2. **Use \`create_word_doc\`** to generate the actual .docx file with professional formatting.
-   - Pass \`document_type\`: "school" | "college" | "job" | "report"
-   - Pass \`style.page_border: true\` for college/school projects (blue border)
-   - Pass \`style.header_footer: true\` for page numbers + student info in footer
-   - Default font: Times New Roman 12pt, 1.5 line spacing
+### Approach A: \`create_word_doc\` (Fast, automated, offline)
+- Generates a \`.docx\` file using the docx package — NO browser needed
+- Best for: bulk content, quick generation, offline use
+- After creating, call \`open_in_word\` to launch it in MS Word desktop
 
-3. **Mark-based answer structure** (MANDATORY — follow this exactly):
-   - 2 marks  → Definition + 1 key point (60–120 words)
-   - 4 marks  → Definition + 2-3 points + short example (180–250 words)
-   - 5 marks  → Intro + 3-4 points + example + conclusion (280–380 words)
-   - 8 marks  → Full detailed explanation + advantages + diagram note (550–700 words)
-   - 10 marks → Comprehensive: intro + definition + subtypes + working + conclusion (750–950 words)
-   - 16 marks → Very detailed 1.5–2 pages with comparison table (1300–1700 words)
-   - 20 marks → Exhaustive 2–3 pages: all of the above + case study + future scope (1800–2500 words)
+### Approach B: \`word_online\` (Human-like, browser, live editing)
+- Opens **Microsoft Word Online** (word.new) in the browser using Agentica
+- Types content like a human — keyboard shortcuts + toolbar clicks
+- Ctrl+Alt+1 = Heading 1, Ctrl+Alt+2 = Heading 2, Ctrl+J = Justify, Ctrl+B = Bold
+- Best for: when user says "open in Word website", "type in Word", "use Word Online"
+- AI + Agentica work together: AI writes content, Agentica types it into Word Online
 
-4. **For multi-question documents** (14–20+ pages):
-   - Write each section's content FULLY before calling \`create_word_doc\`
-   - Include all sections in one \`create_word_doc\` call (sections array)
-   - Use \`table\` field in sections for comparison tables
+## MARK-BASED STRUCTURE (MANDATORY — follow exactly):
 
-5. **Content inside sections** — use these markers for AI-to-skill formatting:
-   - Lines ending with \`:\` → rendered as bold subheadings
-   - Lines starting with \`- \` or \`• \` → rendered as bullet points
-   - Lines starting with \`1. 2. 3.\` → rendered as numbered list
-   - Normal text → rendered as justified paragraphs
+### 2 marks (60–120 words):
+Definition + 1 key point. No subheadings.
 
-6. **Job/Report documents**: Use \`document_type: "job"\` with Calibri font, no page border.
+### 4–5 marks (180–380 words):
+Introduction → 2-3 Points → Short Example → Conclusion
 
-EXAMPLE — user says "create 5-mark answer for What is OSI Model in Word":
-Step 1: \`get_mark_guide\` with marks:5 → learn 280-380 words needed
-Step 2: Write the 5-mark answer content (intro + 3-4 points + conclusion)  
-Step 3: \`create_word_doc\` with the content in sections array
+### 8–10 marks (550–950 words):
+Introduction → Definition → Explanation → Types → Working → Advantages → Conclusion
+
+### 16 marks (1300–1700 words) — ACADEMIC ESSAY FORMAT:
+**Strictly follow this structure:**
+1. **Introduction** (150–200 words) — context, importance, overview
+2. **Subheading 1: Definition** (120–150 words) — precise technical definition
+3. **Subheading 2: Types/Classification** (150 words) — enumerate with brief descriptions
+4. **Subheading 3: Working/Mechanism** (150–200 words) — how it works step by step
+5. **Subheading 4: Architecture/Block Diagram** (120 words) — describe the diagram, label components
+6. **Subheading 5: Advantages** (100 words) — 4-5 bullet points
+7. **Subheading 6: Disadvantages/Limitations** (80 words) — 3-4 bullet points
+8. **Subheading 7: Real-world Applications** (120 words) — 3-4 real examples
+9. **Subheading 8: Comparison with Alternatives** (120 words) — table or comparison points
+10. **[Optional Subheading 9-10]** (100 words each) — for deep topics: Case Study, Future Scope
+11. **Conclusion** (100–150 words) — summary of key points
+12. **References** — 3–5 academic references in APA or IEEE format:
+    [1] Author, A. (Year). Title. Publisher.
+    [2] Author, B. (Year). Title. Journal, Vol(Issue), pp.
+
+### 20 marks (1800–2500 words):
+Same as 16-mark but with Case Study + Comparison Table + Future Scope added.
+
+## WORKFLOW for Word documents:
+
+**Step 1**: Call \`get_mark_guide\` for each question's mark value
+**Step 2**: Write complete content (AI writes — do NOT truncate or skip sections)
+**Step 3**: Choose approach:
+   - \`create_word_doc\` → generates .docx → then \`open_in_word\` to launch
+   - \`word_online\` → Agentica opens Word Online and types content
+
+## Content formatting markers (use in section.content):
+- Lines starting with \`## \` → Heading 2 subheading
+- Lines ending with \`:\` (< 60 chars) → Bold subheading
+- Lines starting with \`- \` or \`• \` → Bullet point
+- Lines starting with \`1. 2. 3.\` → Numbered list
+- \`References:\` followed by \`[1] ...\` → References section (italic)
+- Normal text → Justified paragraph
+
 `;
+
 
 
     // Look for custom procedural knowledge (.atcli-skills or .agents/skills)

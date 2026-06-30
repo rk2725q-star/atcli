@@ -8,16 +8,16 @@ import * as fs from 'fs';
 // Used by AI to know how much to write per question.
 // ─────────────────────────────────────────────────────────────────────────────
 export const MARK_GUIDE: Record<number, { minWords: number; maxWords: number; paragraphs: number; depth: string; structure: string }> = {
-    2:  { minWords: 60,   maxWords: 120,  paragraphs: 1, depth: 'definition only',             structure: 'Definition + 1 key point' },
-    3:  { minWords: 120,  maxWords: 180,  paragraphs: 2, depth: 'brief explanation',            structure: 'Definition + explanation + example' },
-    4:  { minWords: 180,  maxWords: 250,  paragraphs: 2, depth: 'short explanation',            structure: 'Definition + 2-3 key points + short example' },
-    5:  { minWords: 280,  maxWords: 380,  paragraphs: 3, depth: 'medium explanation',           structure: 'Intro + 3-4 points + example + conclusion' },
-    6:  { minWords: 380,  maxWords: 480,  paragraphs: 4, depth: 'medium explanation with diagram note', structure: 'Intro + 4 points + advantages + example' },
-    8:  { minWords: 550,  maxWords: 700,  paragraphs: 5, depth: 'detailed explanation',         structure: 'Intro + 5 points + table/diagram + advantages + conclusion' },
-    10: { minWords: 750,  maxWords: 950,  paragraphs: 6, depth: 'full page detailed answer',   structure: 'Intro + definition + detailed explanation + subtypes + diagram + example + conclusion' },
-    12: { minWords: 950,  maxWords: 1200, paragraphs: 7, depth: 'comprehensive answer',         structure: 'Intro + definition + types + working + advantages + disadvantages + applications + conclusion' },
-    16: { minWords: 1300, maxWords: 1700, paragraphs: 9, depth: 'very detailed 1.5-2 pages',   structure: 'Title + intro + definition + types + detailed working + diagram description + advantages + disadvantages + real-world applications + comparison table + conclusion' },
-    20: { minWords: 1800, maxWords: 2500, paragraphs: 12, depth: 'exhaustive 2-3 page answer', structure: 'Title + abstract + intro + detailed definition + classification + working mechanism + architecture + diagram + types + advantages + disadvantages + applications + case study + comparison + future scope + conclusion' },
+    2:  { minWords: 60,   maxWords: 120,  paragraphs: 1,  depth: 'definition only',                            structure: 'Definition + 1 key point' },
+    3:  { minWords: 120,  maxWords: 180,  paragraphs: 2,  depth: 'brief explanation',                          structure: 'Definition + explanation + 1 example' },
+    4:  { minWords: 180,  maxWords: 250,  paragraphs: 2,  depth: 'short explanation',                          structure: 'Definition + 2-3 key points + short example' },
+    5:  { minWords: 280,  maxWords: 380,  paragraphs: 3,  depth: 'medium explanation',                         structure: 'Intro + 3-4 points + example + conclusion' },
+    6:  { minWords: 380,  maxWords: 480,  paragraphs: 4,  depth: 'medium with advantages',                     structure: 'Intro + 4 points + advantages + example' },
+    8:  { minWords: 550,  maxWords: 700,  paragraphs: 5,  depth: 'detailed with diagram note',                 structure: 'Intro + 5 points + table/diagram + advantages + conclusion' },
+    10: { minWords: 750,  maxWords: 950,  paragraphs: 6,  depth: 'full-page detailed answer',                  structure: 'Intro + definition + detailed explanation + subtypes + diagram + example + conclusion' },
+    12: { minWords: 950,  maxWords: 1200, paragraphs: 7,  depth: 'comprehensive answer',                       structure: 'Intro + definition + types + working + advantages + disadvantages + applications + conclusion' },
+    16: { minWords: 1300, maxWords: 1700, paragraphs: 12, depth: 'academic essay — 8-10 subheadings',         structure: 'Introduction → Subheading 1: Definition → Subheading 2: Types/Classification → Subheading 3: Working/Mechanism → Subheading 4: Architecture/Block diagram description → Subheading 5: Advantages → Subheading 6: Disadvantages → Subheading 7: Applications → Subheading 8: Comparison with alternatives → [Subheading 9-10 for deep topics] → Conclusion → References' },
+    20: { minWords: 1800, maxWords: 2500, paragraphs: 15, depth: 'exhaustive essay — 10+ subheadings + case study', structure: 'Introduction → Definition → Types → Detailed Working → Architecture → Diagram description → Advantages → Disadvantages → Real-world Applications → Case Study → Comparison table → Future Scope → Conclusion → References' },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
