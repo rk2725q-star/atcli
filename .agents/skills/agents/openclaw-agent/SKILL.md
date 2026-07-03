@@ -1,6 +1,6 @@
-﻿---
+---
 name: openclaw-agent
-description: Full autonomous browser OS control agent — clicks, types, scrolls, screenshots, DOM extraction, Word Online, self-healing via Qwen3-VL. Use for any browser or PC automation task.
+description: Full autonomous browser OS control agent — clicks, types, scrolls, screenshots, DOM extraction, Word Online, self-healing via Cloud AI Vision (screenshots sent to active provider). Use for any browser or PC automation task.
 ---
 
 # openclaw-agent

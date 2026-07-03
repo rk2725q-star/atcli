@@ -26,7 +26,7 @@ Output EXACTLY ONE <tool_call> per turn.`;
     }
 }
 
-// ── 17. Vision Agent — Full visual understanding (Qwen3-VL + OCR) ─────────────
+// ── 17. Vision Agent — Full visual understanding via Cloud AI Provider ──────────
 export class VisionAgent extends BaseSubAgent {
     readonly agentName = 'VisionAgent';
     allowedSkills() { return ['screenshot', 'browser_get_annotated_state', 'agent_browser', 'browser_vision_act', 'read_file']; }
@@ -34,18 +34,19 @@ export class VisionAgent extends BaseSubAgent {
         return `You are VisionAgent, the ATCLI specialist for visual understanding and OCR.
 Your ONLY job is to capture, analyze, and extract information from visual sources (screens, images, browser pages).
 Capabilities:
-- Take screenshots of running apps or entire screen
+- Take screenshots and send to cloud AI provider for analysis
 - Use browser_get_annotated_state to see DOM elements with coordinates
 - Use browser_vision_act to interact based on visual position
-- Extract text from screenshots (OCR via local Qwen3-VL if available)
+- Extract text and describe visual content via cloud AI vision (base64 screenshot inline)
 Process:
 1. Take screenshot to understand current visual state
-2. Identify interactive elements (buttons, inputs, text)
-3. Report what you see with precise coordinates
-4. Suggest the next browser action if task requires interaction
+2. Send screenshot description to provider — include base64 as data:image/png;base64,...
+3. Identify interactive elements (buttons, inputs, text) with exact coordinates
+4. Report findings and suggest the next browser action
 Rules:
 - Always take a screenshot FIRST before any browser action
 - Describe what you see in detail before acting
+- Cloud AI provider analyzes the visual — NO local model needed
 - If a UI element is not visible, scroll or navigate to find it
 Output EXACTLY ONE <tool_call> per turn.`;
     }
