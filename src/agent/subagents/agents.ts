@@ -260,7 +260,10 @@ Output EXACTLY ONE <tool_call> per turn.`;
 // ─────────────────────────────────────────────────────────────────────────────
 // AGENT REGISTRY — Maps agent names to their classes for Orchestrator
 // ─────────────────────────────────────────────────────────────────────────────
+import { EXTENDED_AGENT_REGISTRY } from './agents_extended';
+
 export const AGENT_REGISTRY: Record<string, new (provider: any) => BaseSubAgent> = {
+    // ── Original 15 Agents ─────────────────────────────────────────────────
     'openclaw':    OpenClawAgent,
     'coder':       CoderAgent,
     'terminal':    TerminalAgent,
@@ -276,6 +279,8 @@ export const AGENT_REGISTRY: Record<string, new (provider: any) => BaseSubAgent>
     'design':      DesignAgent,
     'data':        DataAgent,
     'deploy':      DeployAgent,
+    // ── Extended 10 Agents (16–25) — OpenClaw + Hermes Level ──────────────
+    ...EXTENDED_AGENT_REGISTRY,
 };
 
 export const ALL_AGENT_NAMES = Object.keys(AGENT_REGISTRY);

@@ -1,8 +1,10 @@
 import { AgentProvider } from '../providers/interface';
 import { OrchestratorAgent, OrchestratorPlan } from './orchestrator';
 import { SkillManager } from './skillManager';
+import { memoryStore, ATCLI_MEMORY_ROOT } from './memory/store';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HERMES — Master Brain + Self-Learning Agent
@@ -11,19 +13,21 @@ import * as path from 'path';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HERMES_SYSTEM_PROMPT = `You are HERMES, the Master Brain of ATCLI — a self-improving, self-learning AI orchestrator.
+Modelled after the Hermes Agent (Nous Research) and OpenClaw persistent agent architecture.
 
 ## Your Role
-You receive a user task, PLAN it into structured subtasks, then delegate to the Orchestrator which runs 15 specialist sub-agents.
-You also LEARN: after every session, you write what you learned into a SKILL.md file for future use.
+You receive a user task, PLAN it into structured subtasks via execute_plan, delegate to Orchestrator (25 specialist sub-agents), then LEARN.
+Persistent memory is stored globally at ~/.atcli/memory/ — survives all sessions and projects.
 
-## Step 1: Load Memory
-Always start by reading AGENTICA_MEMORY.md (if it exists) to recall past patterns for this type of task.
+## Step 1: Intelligent Memory Recall
+Use memory_recall to search past sessions for relevant patterns BEFORE planning.
+If recall returns results, use them to create a FASTER, SMARTER plan.
 
-## Step 2: Search for Relevant Skills
-Before planning, search for existing skills that could accelerate the task using search_skills_marketplace.
+## Step 2: Search for Relevant Skills (optional)
+If the task needs external capabilities, use search_skills_marketplace.
 
-## Step 3: Create a Plan
-Output a JSON plan in this EXACT format inside a <tool_call> block:
+## Step 3: Create a Structured Plan
+Output a JSON plan in this EXACT format:
 
 <tool_call>
 {"action": "execute_plan", "plan": {
@@ -36,24 +40,21 @@ Output a JSON plan in this EXACT format inside a <tool_call> block:
 }}
 </tool_call>
 
-## Available Agents (use exact names):
-- openclaw: Full browser OS control (clicks, types, screenshots, Word Online)
-- coder: Write/edit code files only
-- terminal: Run terminal commands only
+## All 25 Available Agents (use exact names):
+### Original 15:
+- openclaw: Full browser OS control (clicks, types, screenshots, Word Online, self-healing)
+- coder: Write/edit/fix code files only
+- terminal: Run safe terminal commands
 - fileops: File system operations (read, list, move, delete)
 - git: Git and GitHub operations
 - package: npm/yarn/pip installs and skills.sh installs
 - search: Web search and local code search
-- word: MS Word document creation
-- security: Security audit (always run FIRST for dangerous tasks)
-- skills: Find and install skills from skills.sh
-- devserver: Start/stop dev servers
-- audit: Code quality and TypeScript error checking
+- word: MS Word document creation (Times New Roman 14pt headings, Arial 12pt body)
+- security: Security audit (ALWAYS run id:1 for destructive tasks)
+- skills: Find and install skills from skills.sh marketplace
+- devserver: Start/stop development servers in background
+- audit: Code quality and TypeScript error checking via aecl_check
 - design: Visual UI/UX checking via browser screenshots
-- data: Data analysis and extraction
-- deploy: Deploy to Vercel, Netlify, Railway etc.
-
-## Step 4: After Execution — Learn
 After the Orchestrator returns results, write what you learned to .atcli-skills/auto-learned/<task-type>/SKILL.md
 using write_file. This teaches future HERMES sessions to be faster.
 
@@ -182,6 +183,20 @@ export class HermesAgent {
                 continue;
             }
 
+            // ── Handle memory_recall (Hermes FTS recall) ─────────────────────
+            if (toolCall.action === 'memory_recall') {
+                const recalled = memoryStore.recall(toolCall.query || '', 2000);
+                currentMessage = `<tool_result>\n${recalled || 'No past sessions found.'}\n</tool_result>\n[Use this context to create your plan. Output <tool_call> with execute_plan.]`;
+                continue;
+            }
+
+            // ── Handle memory_write (Hermes learning) ────────────────────────
+            if (toolCall.action === 'memory_write') {
+                const result = await this.skillManager.executeSkill('memory_write', toolCall);
+                currentMessage = `<tool_result>\n${result}\n</tool_result>\n[Continue.]`;
+                continue;
+            }
+
             // ── Handle search_skills_marketplace ───────────────────────────
             if (toolCall.action === 'search_skills_marketplace') {
                 const result = await this.skillManager.executeSkill('search_skills_marketplace', toolCall);
@@ -196,29 +211,29 @@ export class HermesAgent {
     }
 
     private triggerLearning(task: string, summary: string): void {
-        // Background learning — write compressed lesson to AGENTICA_MEMORY.md
+        // Hermes-style persistent learning — writes to ~/.atcli/memory/ globally
         try {
-            const memPath = path.join(
-                (global as any).atcli_project_root || process.cwd(),
-                'AGENTICA_MEMORY.md'
-            );
-            const entry = `\n## Session: ${new Date().toISOString().substring(0, 10)}\n**Task**: ${task.substring(0, 100)}\n**Outcome**: ${summary.substring(0, 300)}\n`;
-            if (!fs.existsSync(memPath)) {
-                fs.writeFileSync(memPath, '# AGENTICA MEMORY\n> Hermes self-learning log.\n', 'utf-8');
-            }
-            fs.appendFileSync(memPath, entry, 'utf-8');
-            console.log(`\n📚 [HERMES] Learning written to AGENTICA_MEMORY.md`);
+            const keywords = task.toLowerCase().split(/\s+/).filter(w => w.length > 4).slice(0, 8);
+            memoryStore.writeSession({
+                date: new Date().toISOString(),
+                task: task.substring(0, 150),
+                outcome: summary.substring(0, 300),
+                keywords,
+                agentsUsed: ['hermes', 'orchestrator'],
+            });
+            console.log(`\n📚 [HERMES] Session written to ${ATCLI_MEMORY_ROOT}`);
         } catch { /* non-critical */ }
     }
 
     private listAutoLearnedSkills(): string {
+        // List from persistent memory's skills-learned/ dir
         try {
-            if (!fs.existsSync(this.learningDir)) return '';
-            const skills = fs.readdirSync(this.learningDir, { withFileTypes: true })
+            const skillsDir = path.join(ATCLI_MEMORY_ROOT, 'skills-learned');
+            if (!fs.existsSync(skillsDir)) return '';
+            return fs.readdirSync(skillsDir, { withFileTypes: true })
                 .filter(e => e.isDirectory())
                 .map(e => `- ${e.name}`)
                 .join('\n');
-            return skills || '';
         } catch { return ''; }
     }
 
