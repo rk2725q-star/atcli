@@ -368,9 +368,20 @@ export class AgentLoop {
             
             let response;
             if ((this as any).pendingVisionImage) {
-                const imagePath = (this as any).pendingVisionImage;
-                (this as any).pendingVisionImage = null; // reset
-                response = await this.provider.sendImageAndMessage(imagePath, currentMessage);
+                const imageData: string = (this as any).pendingVisionImage;
+                (this as any).pendingVisionImage = null; // clear immediately — no disk, no persistence
+
+                if (imageData.startsWith('base64::')) {
+                    // ✅ In-memory base64 path — never touched disk, send directly to provider
+                    const base64 = imageData.slice('base64::'.length);
+                    response = await this.provider.sendImageAndMessage(
+                        `__BASE64__${base64}`, // signal to provider: use base64, not file path
+                        currentMessage
+                    );
+                } else {
+                    // Legacy fallback: file path (should no longer occur after this fix)
+                    response = await this.provider.sendImageAndMessage(imageData, currentMessage);
+                }
             } else {
                 response = await this.provider.sendMessage(currentMessage);
             }
@@ -744,14 +755,17 @@ export class AgentLoop {
 
             // Handle Native Vision Payload Interception
             if (result.startsWith('__ATCLI_VISION_PAYLOAD__')) {
-                const parts = result.split('__');
-                if (parts.length >= 3) {
-                    const imagePath = parts[2];
-                    const prompt = parts.slice(3).join('__');
-                    // Store the vision payload to be sent at the START of the next iteration
-                    (this as any).pendingVisionImage = imagePath;
-                    (this as any).pendingVisionMessage = `<tool_result>\nVision payload attached.\n</tool_result>\n[SYSTEM REMINDER: ${prompt}]`;
+                // Format: __ATCLI_VISION_PAYLOAD__base64::<data>__<prompt>
+                const markerEnd = result.indexOf('__', '__ATCLI_VISION_PAYLOAD__'.length);
+                if (markerEnd !== -1) {
+                    const imageData = result.slice('__ATCLI_VISION_PAYLOAD__'.length, markerEnd);
+                    const prompt = result.slice(markerEnd + '__'.length);
+
+                    // Store in-memory base64 — NEVER a file path, NEVER written to disk
+                    (this as any).pendingVisionImage = imageData; // e.g. "base64::<data>"
+                    (this as any).pendingVisionMessage = `<tool_result>\nVision snapshot captured (in-memory, not saved to disk).\n</tool_result>\n[SYSTEM REMINDER: ${prompt}]`;
                     currentMessage = (this as any).pendingVisionMessage;
+                    console.log('[VISION] 📸 Screenshot captured in-memory — never written to disk. Sending to AI...');
                 }
             } else {
                 // ── ASSEMBLE currentMessage in safe order ─────────────────────────────

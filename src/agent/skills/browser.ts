@@ -165,22 +165,17 @@ export const BrowserVisionActSkill: AgentSkill = {
     execute: async (args: any) => {
         try {
             const page = await sessionManager.getPage();
-            const path = require('path');
-            const fs = require('fs');
-            
-            // Create a temp directory for screenshots
-            const tmpDir = path.resolve(process.cwd(), '.atcli-tmp');
-            if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-            
-            const screenshotPath = path.resolve(tmpDir, `vision_${Date.now()}.png`);
-            
-            // Wait for network idle to ensure page is fully rendered
+
+            // Wait for page to settle
             await page.waitForLoadState('networkidle').catch(() => {});
-            
-            await page.screenshot({ path: screenshotPath, fullPage: false }); // Just viewport so AI sees what user sees
-            
-            // Return a special payload that AgentLoop can intercept
-            return `__ATCLI_VISION_PAYLOAD__${screenshotPath}__Please analyze this screenshot and tell me the next coordinates or action based on my instruction: ${args.instruction || 'Analyze screen'}`;
+
+            // ✅ In-memory only — screenshot captured as Buffer, NEVER written to disk
+            // The buffer lives in RAM for this single send and is then garbage collected.
+            const screenshotBuffer = await page.screenshot({ fullPage: false });
+            const base64Image = screenshotBuffer.toString('base64');
+
+            // Embed base64 directly in the vision payload — no file path, no disk write
+            return `__ATCLI_VISION_PAYLOAD__base64::${base64Image}__Please analyze this screenshot and tell me the next coordinates or action based on my instruction: ${args.instruction || 'Analyze screen'}`;
         } catch (e: any) {
             return `Error capturing vision state: ${e.message}`;
         }

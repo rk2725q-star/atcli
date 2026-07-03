@@ -15,49 +15,61 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
         this.page = null;
     }
 
-    public async sendImageAndMessage(imagePath: string, message: string): Promise<ProviderResponse> {
+    public async sendImageAndMessage(imageSource: string, message: string): Promise<ProviderResponse> {
         await this.ensurePage();
-        console.log(`[${this.id.toUpperCase()}] Attempting to upload image ${imagePath}...`);
+
+        // ── Resolve base64 from in-memory or file ──────────────────────────────
+        // imageSource is either:
+        //   "__BASE64__<base64data>" — in-memory, NEVER from disk (the new default)
+        //   "/path/to/file.png"      — legacy fallback (user-uploaded file, not screenshots)
+        let base64: string;
+        let isInMemory = false;
+
+        if (imageSource.startsWith('__BASE64__')) {
+            // ✅ In-memory path: extract base64 directly — zero disk I/O
+            base64 = imageSource.slice('__BASE64__'.length);
+            isInMemory = true;
+            console.log(`[${this.id.toUpperCase()}] 📸 Vision: using in-memory base64 (no disk) — sending to AI...`);
+        } else {
+            // Legacy: user uploaded a real file (not a screenshot) — read from disk
+            const fs = require('fs');
+            base64 = fs.readFileSync(imageSource).toString('base64');
+            console.log(`[${this.id.toUpperCase()}] 📎 Vision: reading uploaded file from disk...`);
+        }
+
         try {
-            // Universal fallback strategy for web LLMs: find the file input
+            // Strategy 1: file input injection
             const fileInputs = this.page!.locator('input[type="file"]');
             const count = await fileInputs.count();
-            if (count > 0) {
-                console.log(`[${this.id.toUpperCase()}] Found ${count} file input(s). Injecting image into all...`);
+
+            if (count > 0 && !isInMemory) {
+                // File inputs only work with real disk paths — only use for user-uploaded files
+                console.log(`[${this.id.toUpperCase()}] Found ${count} file input(s). Injecting file...`);
                 let uploaded = false;
                 for (let i = 0; i < count; i++) {
                     try {
-                        await fileInputs.nth(i).setInputFiles(imagePath);
+                        await fileInputs.nth(i).setInputFiles(imageSource);
                         uploaded = true;
-                    } catch (err) {
-                        // Ignore errors on specific inputs (some might be disabled or restricted)
-                    }
+                    } catch (_) {}
                 }
                 if (uploaded) {
-                    console.log(`[${this.id.toUpperCase()}] Image successfully injected. Waiting 5 seconds for UI processing...`);
+                    console.log(`[${this.id.toUpperCase()}] ✅ File injected. Waiting for UI...`);
                     await this.page!.waitForTimeout(5000);
-                } else {
-                    console.log(`[${this.id.toUpperCase()}] ⚠️ Found inputs but injection failed on all of them.`);
                 }
             } else {
-                console.log(`[${this.id.toUpperCase()}] ⚠️ No input[type="file"] found. Attempting DataTransfer Drag-and-Drop fallback...`);
-                // Fallback: Inject the file using DataTransfer API directly onto the chat input area
-                const fs = require('fs');
-                const path = require('path');
+                // Strategy 2: DataTransfer Drag-and-Drop using in-memory base64
+                // ✅ No disk read — base64 already in RAM
+                console.log(`[${this.id.toUpperCase()}] Using DataTransfer injection with in-memory base64...`);
                 const mime = 'image/png';
-                const buffer = fs.readFileSync(imagePath);
-                const base64 = buffer.toString('base64');
-                const filename = path.basename(imagePath);
-                
+                const filename = `screenshot_${Date.now()}.png`; // name only, no file created
+
                 await this.page!.evaluate(
                     async ({ b64, mimeType, name }) => {
-                        // Create a file object from base64
                         const res = await fetch(`data:${mimeType};base64,${b64}`);
                         const blob = await res.blob();
                         const file = new File([blob], name, { type: mimeType });
-                        
-                        // Create a DataTransfer object
                         const dt = new DataTransfer();
+
                         dt.items.add(file);
                         
                         // Find the chat textarea to drop the file onto
