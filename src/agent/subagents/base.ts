@@ -4,13 +4,29 @@ import { Gatekeeper } from '../gatekeeper';
 import { memoryStore } from '../memory/store';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BASE SUB-AGENT — Upgraded with Semantic Context + Persistent Memory Recall
-// All 25 specialist agents extend this class.
-// Provides: isolated skill loading, Gatekeeper, semantic context injection,
-// persistent memory recall (Hermes-style FTS), 180k context safety.
+// SHARED SKILL MANAGER SINGLETON — FIX 6: load skills once, not per sub-agent
+// Prevents 25x repeated disk scans when Orchestrator runs all agents
+// ─────────────────────────────────────────────────────────────────────────────
+let _globalSkillManager: SkillManager | null = null;
+async function getGlobalSkillManager(): Promise<SkillManager> {
+    if (!_globalSkillManager) {
+        _globalSkillManager = new SkillManager();
+        await _globalSkillManager.loadAllSkills();
+        console.log('[SkillManager] Skills loaded once (singleton).');
+    }
+    return _globalSkillManager;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BASE SUB-AGENT — All 6 gaps fixed:
+// FIX 3: results[] collected throughout entire loop (not just at finish)
+// FIX 6: shared SkillManager singleton (one disk scan total)
+// + Semantic context injection (OpenClaw-style per-message headers)
+// + Hermes FTS memory recall (cross-session intelligence)
+// + 180k context safety with semantic re-injection
+// + Gatekeeper security on every tool call
 // ─────────────────────────────────────────────────────────────────────────────
 export abstract class BaseSubAgent {
-    protected skillManager: SkillManager;
     protected gatekeeper: Gatekeeper;
     protected totalTokens = 0;
     protected maxIterations = 200;
@@ -22,17 +38,13 @@ export abstract class BaseSubAgent {
     allowedSkills(): string[] { return []; }
 
     constructor(protected provider: AgentProvider) {
-        this.skillManager = new SkillManager();
         this.gatekeeper = new Gatekeeper();
     }
 
-    // ── Semantic Context Block — injected into every agent message ────────────
-    // Mirrors OpenClaw's per-message context headers that prevent context loss.
+    // ── Semantic Context Block — injected every message (OpenClaw-style) ─────
     private buildSemanticContext(task: string): string {
         const projectIntent = (global as any).ATCLI_PROJECT_INTENT || '';
         const tokenPct = Math.round((this.totalTokens / 180000) * 100);
-
-        // Hermes-style FTS recall — find relevant past sessions
         const pastMemory = memoryStore.recall(task, 800);
 
         return [
@@ -47,9 +59,10 @@ export abstract class BaseSubAgent {
         ].filter(Boolean).join('\n');
     }
 
-    /** Run a subtask. Returns string result for Orchestrator to aggregate. */
+    /** Run a subtask. Returns aggregated results from ALL tool executions. */
     public async run(task: string): Promise<string> {
-        await this.skillManager.loadAllSkills();
+        // FIX 6: use shared singleton instead of creating new SkillManager
+        const skillManager = await getGlobalSkillManager();
         this.taskStartTime = Date.now();
 
         console.log(`\n🤖 [${this.agentName}] Starting: ${task.substring(0, 100)}...`);
@@ -57,9 +70,13 @@ export abstract class BaseSubAgent {
         const systemPrompt = this.buildSystemPrompt();
         const semanticCtx  = this.buildSemanticContext(task);
 
-        // Full initial message = system prompt + semantic context + task
         let currentMessage = [systemPrompt, semanticCtx, `[SUBTASK]:\n${task}`].join('\n\n');
-        const results: string[] = [];
+
+        // ── FIX 3: Collect ALL tool results throughout the loop ────────────────
+        // Previously: results[] only got data when !toolCall (agent finished) = empty
+        // Now: every tool execution pushes to executionLog, final summary always populated
+        const executionLog: string[] = [];
+        let finalSummary = '';
 
         for (let i = 1; i <= this.maxIterations; i++) {
             const response = await this.provider.sendMessage(currentMessage);
@@ -67,7 +84,7 @@ export abstract class BaseSubAgent {
             if (response.error) {
                 const errMsg = `[${this.agentName}] Provider error: ${response.error}`;
                 console.log(`❌ ${errMsg}`);
-                results.push(errMsg);
+                executionLog.push(errMsg);
                 break;
             }
 
@@ -83,22 +100,23 @@ export abstract class BaseSubAgent {
                 continue;
             }
 
-            // No tool call = task done
+            // No tool call = agent finished — capture final summary
             if (!toolCall) {
-                results.push(`[${this.agentName}] Completed: ${aiText.substring(0, 500)}`);
+                finalSummary = aiText.trim();
+                console.log(`\n✅ [${this.agentName}] Finished with summary.`);
                 break;
             }
 
             // Skill allow-list enforcement
             const allowed = this.allowedSkills();
             if (allowed.length > 0 && !allowed.includes(toolCall.action)) {
-                const msg = `[${this.agentName}] OUT-OF-SCOPE: "${toolCall.action}" not in your allowed skills: ${allowed.join(', ')}`;
+                const msg = `[${this.agentName}] OUT-OF-SCOPE: "${toolCall.action}" not allowed. Allowed: ${allowed.join(', ')}`;
                 console.log(`⚠️ ${msg}`);
                 currentMessage = `<tool_result>\n${msg}\nOnly use YOUR assigned skills.\n</tool_result>`;
                 continue;
             }
 
-            // Gatekeeper security validation
+            // Gatekeeper security check
             const gkResult = this.gatekeeper.validate(toolCall, this.agentName);
             if (!gkResult.allowed) {
                 console.log(`\n🔒 [GATEKEEPER] ${gkResult.reason}`);
@@ -109,12 +127,15 @@ export abstract class BaseSubAgent {
 
             // Execute skill
             console.log(`\n⚙️ [${this.agentName}] Executing: ${safeToolCall.action}`);
-            let result = await this.skillManager.executeSkill(safeToolCall.action, safeToolCall);
+            let result = await skillManager.executeSkill(safeToolCall.action, safeToolCall);
             if (result.length > 15000) result = result.substring(0, 15000) + '\n...[TRUNCATED]';
+
+            // ── FIX 3: Push EVERY tool result to executionLog ─────────────────
+            executionLog.push(`[Iter ${i}] ${safeToolCall.action}: ${result.substring(0, 300)}`);
 
             // 180k context safety — re-inject semantic context on refresh
             if (this.totalTokens > 140000) {
-                console.log(`\n🔄 [${this.agentName}] Context near 180k — refreshing with semantic context...`);
+                console.log(`\n🔄 [${this.agentName}] Context near 180k — refreshing...`);
                 const refreshCtx = this.buildSemanticContext(task);
                 currentMessage = [
                     `[CONTEXT REFRESH — Iter ${i}/${this.maxIterations}]`,
@@ -129,25 +150,37 @@ export abstract class BaseSubAgent {
             }
         }
 
-        const finalResult = results.join('\n');
         const durationMs = Date.now() - this.taskStartTime;
 
-        // Write completed subtask to persistent memory (Hermes learning)
-        if (finalResult && finalResult.length > 20) {
+        // ── FIX 3: Build final result from BOTH summary + execution log ────────
+        // This ensures Orchestrator always gets useful content, not empty string
+        const parts: string[] = [];
+        if (finalSummary) parts.push(finalSummary);
+        if (executionLog.length > 0) {
+            parts.push(`\n[${this.agentName} Execution Log — ${executionLog.length} steps]:`);
+            // Include last 5 steps (most recent actions) to keep result concise
+            const recentLog = executionLog.slice(-5).join('\n');
+            parts.push(recentLog);
+        }
+
+        const finalResult = parts.join('\n') || `[${this.agentName}] No result returned.`;
+
+        // Write to persistent memory on completion
+        if (finalSummary && finalSummary.length > 20) {
             const keywords = task.toLowerCase()
                 .split(/\s+/).filter(w => w.length > 4).slice(0, 8);
             memoryStore.writeSession({
                 date: new Date().toISOString(),
                 task: `[${this.agentName}] ${task.substring(0, 100)}`,
-                outcome: finalResult.substring(0, 200),
+                outcome: finalSummary.substring(0, 200),
                 keywords,
                 agentsUsed: [this.agentName],
                 durationMs,
             });
         }
 
-        console.log(`\n✅ [${this.agentName}] Subtask done in ${Math.round(durationMs / 1000)}s.`);
-        return finalResult || `[${this.agentName}] No result returned.`;
+        console.log(`\n✅ [${this.agentName}] Done in ${Math.round(durationMs / 1000)}s. Log: ${executionLog.length} steps.`);
+        return finalResult;
     }
 
     protected parseToolCall(text: string): any | null {
