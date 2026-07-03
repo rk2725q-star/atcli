@@ -2,6 +2,7 @@ import * as readline from 'readline';
 import { handleSlashCommand } from './commands';
 import { PromptRouter } from '../broker/router';
 import { AgentLoop } from '../agent/loop';
+import { HermesAgent } from '../agent/hermes';
 import { BrowserManager } from '../browser/manager';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -246,8 +247,7 @@ export async function startRepl() {
                     
                     // 🚨 CHATGPT AGENTICA BLOCK & AUTO-SWITCH PROTOCOL
                     if (state.currentProvider === 'chatgpt') {
-                        console.log(`\n⚠️  [SECURITY BLOCK] ChatGPT does not perform well in Agentica mode. ChatGPT is blocked for Agentica (only allowed for Vibecoding).`);
-                        console.log(`⚠️  Auto-switching from 'chatgpt' to 'qwen' as the default Agentica provider.`);
+                        console.log(`\n⚠️  [SECURITY BLOCK] ChatGPT does not perform well in Agentica mode. Auto-switching to 'qwen'.`);
                         state.currentProvider = 'qwen';
                     }
 
@@ -257,9 +257,6 @@ export async function startRepl() {
                             console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
                         } else {
                             // ── SESSION MANAGEMENT ─────────────────────────────────────────────
-                            // FIRST call → open fresh browser chat (isFirstForProvider = true)
-                            // SUBSEQUENT calls → reuse the SAME chat session (isFirstForProvider = false)
-                            // Never reset the browser between tasks in the same session!
                             const hasSession = agenticaSessions.get(state.currentProvider) === true;
                             const isFirstForProvider = !hasSession;
 
@@ -269,26 +266,32 @@ export async function startRepl() {
                                 console.log(`\n♻️  [Agentica] Reusing existing session — sending next task in same chat...`);
                             }
 
-                            // 🛡️ LOCAL INPUT INTERCEPTOR (SECRET SCANNER)
+                            // 🛡️ SECRET SCANNER
                             const { masked: safeArgs, changed: secretMasked } = maskSecrets(result.args || '');
                             if (secretMasked) {
-                                console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your Agentica request!`);
-                                console.log(`⚠️  It has been LOCALLY MASKED before sending to the Cloud AI.`);
+                                console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your Agentica request! Masked before sending.`);
                             }
 
-                            const continuousPrompt = `[AGENTICA OPENCLAW MODE: You are now running in continuous autonomous mode with full PC and browser control capabilities. Execute the following task continuously without stopping for user confirmation until the goal is 100% achieved:]\n\n${safeArgs}`;
+                            // ── HERMES NESTED AGENT MODE ──────────────────────────────────────
+                            // /agentica now routes through: Hermes → Orchestrator → 15 Sub-Agents
+                            // This gives task decomposition, specialist focus, and self-learning.
+                            console.log(`\n👑 [HERMES] Master Brain + 15 Nested Agents activated.`);
+                            
+                            // Initialize browser/provider session first if needed
+                            if (isFirstForProvider) {
+                                await adapter.init();
+                            }
 
-                            const agent = new AgentLoop(adapter, isFirstForProvider);
-                            (agent as any).isAgenticaMode = true;
+                            const hermes = new HermesAgent(adapter);
+                            hermes.isAgenticaMode = true;
 
                             agenticaRunning = true;
-                            await agent.run(continuousPrompt);
+                            await hermes.run(safeArgs || '');
                             agenticaRunning = false;
 
-                            // Mark session as open — next /agentica will reuse this chat
                             agenticaSessions.set(state.currentProvider, true);
                             initializedProviders.set(state.currentProvider, 'agentica');
-                            console.log(`\n✅ [Agentica] Task complete. Type /agentica <next task> to continue in same session, or chat normally.`);
+                            console.log(`\n✅ [Agentica] Task complete. Hermes has updated AGENTICA_MEMORY.md with lessons learned.`);
                         }
                     } catch (error: any) {
                         agenticaRunning = false;
