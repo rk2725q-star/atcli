@@ -11,6 +11,31 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
     }
 
     public async sendMessage(message: string): Promise<ProviderResponse> {
+        // ── Rate-limit retry loop (Fix: "Messages too frequent") ─────────────
+        // DeepSeek throttles rapid fire messages. On detection, wait and retry.
+        const MAX_RATE_RETRIES = 4;
+        let rateLimitWait = 6000; // start at 6s, double each retry
+
+        for (let attempt = 1; attempt <= MAX_RATE_RETRIES; attempt++) {
+            const result = await this._sendMessageOnce(message);
+
+            // Detect rate-limit in response text
+            const isRateLimit = result.text?.toLowerCase().includes('messages too frequent') ||
+                                result.text?.toLowerCase().includes('too many requests') ||
+                                result.error?.toLowerCase().includes('messages too frequent');
+
+            if (!isRateLimit) return result; // ✅ normal response — return immediately
+
+            // Rate-limited — wait and retry
+            console.log(`\n⏳ [DeepSeek] Rate limited ("Messages too frequent"). Waiting ${rateLimitWait / 1000}s before retry ${attempt}/${MAX_RATE_RETRIES}...`);
+            await this.page!.waitForTimeout(rateLimitWait);
+            rateLimitWait = Math.min(rateLimitWait * 2, 30000); // cap at 30s
+        }
+
+        return { text: '', error: 'DeepSeek: Rate limit persists after retries. Try again in a minute.' };
+    }
+
+    private async _sendMessageOnce(message: string): Promise<ProviderResponse> {
         await this.ensurePage();
 
         try {
@@ -30,43 +55,33 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
 
             console.log(`[DeepSeek] Attempting to click input field...`);
 
-            // 1. Intelligently find the real visible input field
             const textareaSelector = '#chat-input, textarea, [contenteditable], [placeholder*="Message"]';
             const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
 
             try {
-                // Force click to ensure it has physical focus
                 await inputLocator.click({ force: true, timeout: 5000 });
             } catch (e) {
                 console.log(`[DeepSeek] Click timeout. Forcing focus via evaluate...`);
             }
 
             console.log(`[DeepSeek] Typing message...`);
-
-            // 2. Select all existing text
             await this.page!.keyboard.press('Control+A');
-
-            // 3. Inject massive text natively via Playwright. This emits TRUSTED input events 
-            // that React accepts perfectly, replacing the selection.
             await this.page!.keyboard.insertText(message);
-
-            await this.page!.waitForTimeout(500);
+            await this.page!.waitForTimeout(300); // reduced from 500ms
 
             console.log(`[DeepSeek] Sending message...`);
-            // DeepSeek usually sends on Enter
             await this.page!.keyboard.press('Enter');
-            await this.page!.waitForTimeout(500);
+            await this.page!.waitForTimeout(300); // reduced from 500ms
 
-            // Fallback click on send button if Enter didn't work
+            // Fallback click send button if Enter didn't work
             await this.page!.evaluate(() => {
-                const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => el.innerHTML.includes('M10 21L14 3') || el.innerHTML.includes('send') || (el as any).innerText.includes('Send')) as HTMLElement;
+                const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el =>
+                    el.innerHTML.includes('M10 21L14 3') || el.innerHTML.includes('send') || (el as any).innerText.includes('Send')
+                ) as HTMLElement;
                 if (sendBtn) sendBtn.click();
             });
 
-            // 3. Wait for response generation
-            // Deepseek's text generation takes time. We wait for the specific AI response element to appear.
-            // Wait a brief moment for the generation to start
-            await this.page!.waitForTimeout(1000);
+            await this.page!.waitForTimeout(800); // brief wait for generation to start
 
             const responseText = await this.pollForResponse(() => {
                 const elements = document.querySelectorAll('.ds-markdown, .markdown-body, div[class*="markdown"]');
@@ -79,17 +94,15 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 return await this.page!.evaluate(() => {
                     const buttons = Array.from(document.querySelectorAll('div[role="button"], button')) as HTMLElement[];
                     const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
-                    if (stopBtn) return true;
-                    return false;
+                    return !!stopBtn;
                 });
             });
 
             return { text: responseText.trim() };
         } catch (error: any) {
-            console.error(`[DeepSeek] 🚨 Encountered error during message send. Falling back to Dual-Layer Safety Net!`);
+            console.error(`[DeepSeek] 🚨 DOM error. Falling back to Dual-Layer Safety Net!`);
             const recovered = await this.handleDomFailure(error, message);
             if (recovered) {
-                // If Level 1 SmartLocator worked, it already typed and pressed send. We just need to poll for response!
                 const responseText = await this.pollForResponse(() => {
                     const elements = document.querySelectorAll('.ds-markdown, .markdown-body, div[class*="markdown"]');
                     if (elements.length > 0) {
@@ -101,13 +114,12 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     return await this.page!.evaluate(() => {
                         const buttons = Array.from(document.querySelectorAll('div[role="button"], button')) as HTMLElement[];
                         const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
-                        if (stopBtn) return true;
-                        return false;
+                        return !!stopBtn;
                     });
                 });
                 return { text: responseText.trim() };
             }
-            return { text: '', error: `DeepSeek provider failed: ${error.message}. Initiating Doomsday protocol...` };
+            return { text: '', error: `DeepSeek provider failed: ${error.message}` };
         }
     }
 }
