@@ -6,7 +6,7 @@ export interface AppState {
     currentModel: string;
 }
 
-export function handleSlashCommand(input: string, state: AppState): { handled: boolean, action?: 'manage' | 'upload' | 'agentica', args?: string } {
+export function handleSlashCommand(input: string, state: AppState): { handled: boolean, action?: 'manage' | 'upload' | 'agentica' | 'session', args?: string } {
     const parts = input.trim().split(' ');
     const command = parts[0];
     const args = parts.slice(1);
@@ -17,6 +17,10 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
 
         case '/upload':
             return { handled: true, action: 'upload', args: args.length > 0 ? args.join(' ') : 'Analyze the uploaded file(s).' };
+            
+        case '/session':
+            return { handled: true, action: 'session' };
+
             
         case '/audit':
             return { handled: true, action: 'manage', args: args.length > 0 ? args.join(' ') : 'Perform a full deep architectural and bug audit on the entire codebase using all your available auditing skills.' };
@@ -94,6 +98,7 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
             console.log('  /review <task>    - Alias for /manage');
             console.log('  /agentica <task>  - Enter OpenClaw autonomous continuous execution mode (Whole PC + Browser Control)');
             console.log('  /upload <prompt>  - Pause terminal so you can manually upload an image in the browser');
+            console.log('  /session          - Reset the context/session of all active AI providers');
             console.log('  /audit            - Perform a full codebase scaling and bug audit');
             console.log('  /exit             - Exit ATCLI');
             console.log('  /help             - Show this help message');

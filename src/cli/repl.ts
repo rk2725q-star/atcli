@@ -200,6 +200,19 @@ export async function startRepl() {
                     } catch (error: any) {
                         console.log(`\n❌ Error: ${error.message}`);
                     }
+                } else if (result.action === 'session') {
+                    console.log(`\n[ATCLI] 🧹 Resetting sessions for all active AI providers...`);
+                    for (const providerName of initializedProviders.keys()) {
+                        const adapter = router.getAdapter(providerName);
+                        if (adapter) {
+                            try {
+                                adapter.reset();
+                                console.log(`  - Reset ${providerName}`);
+                            } catch (e) { /* ignore */ }
+                        }
+                    }
+                    initializedProviders.clear();
+                    console.log(`✅ All active sessions cleared. The next request will start a fresh context.`);
                 } else if (result.action === 'upload') {
                     console.log(`\n[ATCLI] 🖼️  Vision Mode Initiated!`);
                     try {
