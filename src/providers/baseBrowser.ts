@@ -203,27 +203,40 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
                     continue;
                 }
 
-                // 2. Unclosed Tool Call Check
-                if (finalResponse.includes('<tool_call>') && !finalResponse.includes('</tool_call>')) {
-                    if (stableCount % 5 === 0) console.log(`\n⏳ [${this.id.toUpperCase()}] AI is typing a tool call (Paused)... Auto-waiting.`);
-                    stableCount = 0;
-                    continue;
+                // Smart Generation Check
+                let isActivelyGenerating = false;
+                if (isGeneratingFn) {
+                    isActivelyGenerating = await isGeneratingFn();
+                }
+
+                // 2. Unclosed Tool Call Check (Only wait if we suspect it's still generating or we lack a clear UI signal)
+                const hasUnclosedTool = finalResponse.includes('<tool_call>') && 
+                                        !finalResponse.includes('</tool_call>') && 
+                                        !finalResponse.includes('</function>') && 
+                                        !finalResponse.includes('</tool>');
+
+                if (hasUnclosedTool) {
+                    if (isGeneratingFn && !isActivelyGenerating) {
+                        // The UI says it's completely done. The AI just hallucinated the closing tag.
+                        console.log(`\n⚠️ [${this.id.toUpperCase()}] AI stopped generating, but tool call appears unclosed. Proceeding anyway...`);
+                    } else {
+                        if (stableCount % 5 === 0) console.log(`\n⏳ [${this.id.toUpperCase()}] AI is typing a tool call (Paused)... Auto-waiting.`);
+                        stableCount = 0;
+                        continue;
+                    }
                 }
 
                 // INSTANT BREAK OPTIMIZATION: If we see a completed tool_call, don't wait!
-                if (finalResponse.includes('</tool_call>')) {
+                if (finalResponse.includes('</tool_call>') || finalResponse.includes('</function>') || finalResponse.includes('</tool>')) {
                     console.log(`\n⚡ [${this.id.toUpperCase()}] Tool execution finished. Bypassing stability wait for instant action!`);
                     break;
                 }
                 
                 // 3. UI Generation State Check (Smart Wait)
-                if (isGeneratingFn) {
-                    const isGenerating = await isGeneratingFn();
-                    if (isGenerating) {
-                        if (stableCount % 5 === 0) console.log(`\n⏳ [${this.id.toUpperCase()}] Web UI is actively generating... Auto-waiting.`);
-                        stableCount = 0; // Reset stability, do not break!
-                        continue;
-                    }
+                if (isActivelyGenerating) {
+                    if (stableCount % 5 === 0) console.log(`\n⏳ [${this.id.toUpperCase()}] Web UI is actively generating... Auto-waiting.`);
+                    stableCount = 0; // Reset stability, do not break!
+                    continue;
                 }
                 
                 stableCount++;
