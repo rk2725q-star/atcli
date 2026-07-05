@@ -74,8 +74,10 @@ After recall, output a JSON plan in this EXACT format:
 After Orchestrator returns results:
 1. Write what you learned to memory using:
    <tool_call>{"action": "memory_write", "type": "session", "content": "Task: ..., Outcome: ..., Learned: ..."}</tool_call>
-2. If a reusable pattern was found, write it as a SKILL.md:
-   <tool_call>{"action": "write_file", "path": ".atcli-skills/auto-learned/<task-slug>/SKILL.md", "content": "..."}</tool_call>
+2. If a reusable pattern was found, write it as a SKILL.md to the GLOBAL skills dir (NOT the workspace):
+   <tool_call>{"action": "write_file", "path": "D:\\.atcli\\skills\\auto-learned\\<task-slug>\\SKILL.md", "content": "..."}</tool_call>
+   On Mac/Linux use: ~/.atcli/skills/auto-learned/<task-slug>/SKILL.md
+   ⚠️ NEVER write to .atcli-skills/ in the current directory — workspace must stay clean.
 3. Output your final summary to the user WITHOUT a <tool_call> block.
 
 ## Rules
@@ -105,10 +107,12 @@ export class HermesAgent {
 
     constructor(private provider: AgentProvider) {
         this.orchestrator = new OrchestratorAgent(provider);
-        this.learningDir = path.join(
-            (global as any).atcli_project_root || process.cwd(),
-            '.atcli-skills', 'auto-learned'
-        );
+        // ✅ FIX: auto-learned skills go to GLOBAL ~/.atcli/skills/auto-learned/
+        // NEVER to the IDE workspace — no more .atcli-skills/ folders in projects
+        const globalAtcliRoot = fs.existsSync('D:\\') && process.platform === 'win32'
+            ? path.join('D:', '.atcli')
+            : path.join(os.homedir(), '.atcli');
+        this.learningDir = path.join(globalAtcliRoot, 'skills', 'auto-learned');
     }
 
     public async run(userTask: string): Promise<void> {
@@ -269,10 +273,10 @@ export class HermesAgent {
         }
     }
 
-    // ── FIX 5: triggerLearning now writes to BOTH systems ────────────────────
+    // ── triggerLearning: writes to GLOBAL only — NEVER to IDE workspace ──────
     private triggerLearning(task: string, summary: string): void {
         try {
-            // 1. Write to global persistent memory (new system — cross-project recall)
+            // 1. Write to global persistent memory (cross-project FTS recall)
             const keywords = task.toLowerCase().split(/\s+/).filter(w => w.length > 4).slice(0, 8);
             memoryStore.writeSession({
                 date: new Date().toISOString(),
@@ -283,14 +287,14 @@ export class HermesAgent {
             });
             console.log(`\n📚 [HERMES] Session written to ${ATCLI_MEMORY_ROOT}`);
 
-            // 2. Also write summary to project AGENTICA_MEMORY.md (backward compat)
-            const memPath = path.join(
-                (global as any).atcli_project_root || process.cwd(),
-                'AGENTICA_MEMORY.md'
-            );
+            // 2. ✅ FIX: Write AGENTICA_MEMORY.md to GLOBAL ~/.atcli/memory/
+            // Previously: wrote to process.cwd() = inside the IDE workspace ❌
+            // Now: always goes to global ~/.atcli/memory/ — workspace stays clean ✅
+            const globalMemDir = ATCLI_MEMORY_ROOT; // already ~/.atcli/memory/
+            const memPath = path.join(globalMemDir, 'AGENTICA_MEMORY.md');
             const entry = `\n## Session: ${new Date().toISOString().substring(0, 10)}\n**Task**: ${task.substring(0, 100)}\n**Outcome**: ${summary.substring(0, 300)}\n`;
             if (!fs.existsSync(memPath)) {
-                fs.writeFileSync(memPath, '# AGENTICA MEMORY\n> Hermes self-learning log.\n', 'utf-8');
+                fs.writeFileSync(memPath, '# AGENTICA MEMORY\n> Hermes self-learning log. Stored globally — not in IDE workspace.\n', 'utf-8');
             }
             fs.appendFileSync(memPath, entry, 'utf-8');
         } catch { /* non-critical */ }
