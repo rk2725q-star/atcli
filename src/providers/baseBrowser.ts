@@ -228,8 +228,10 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
 
                 // INSTANT BREAK OPTIMIZATION: If we see a completed tool_call, don't wait!
                 if (finalResponse.includes('</tool_call>') || finalResponse.includes('</function>') || finalResponse.includes('</tool>')) {
-                    console.log(`\n⚡ [${this.id.toUpperCase()}] Tool execution finished. Bypassing stability wait for instant action!`);
-                    break;
+                    if (!isActivelyGenerating) {
+                        console.log(`\n⚡ [${this.id.toUpperCase()}] Tool execution finished. Bypassing stability wait for instant action!`);
+                        break;
+                    }
                 }
                 
                 // 3. UI Generation State Check (Smart Wait)

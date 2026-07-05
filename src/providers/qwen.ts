@@ -87,7 +87,12 @@ export class QwenAdapter extends BaseBrowserAdapter {
                     if (aiContainers.length > 0) {
                         // The last one in document order will be the innermost container of the LAST AI turn.
                         const lastAiTurn = aiContainers[aiContainers.length - 1] as HTMLElement;
-                        const text = lastAiTurn.innerText.trim();
+                        
+                        // Strip out "Thinking" blocks to prevent false positive tool executions
+                        const clone = lastAiTurn.cloneNode(true) as HTMLElement;
+                        clone.querySelectorAll('details').forEach(el => el.remove());
+                        
+                        const text = clone.innerText.trim();
                         if (text.length > 0) return text;
                     }
                 }
