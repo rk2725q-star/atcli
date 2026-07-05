@@ -104,6 +104,15 @@ export class QwenAdapter extends BaseBrowserAdapter {
             }, 300, 3, previousTextToIgnore, async () => {
                 // Check if Qwen is still generating (e.g. Stop button exists or Send is disabled)
                 return await this.page!.evaluate(() => {
+                    // 🚨 Auto-resolve A/B Test blocking popup
+                    const preferBtns = Array.from(document.querySelectorAll('button, div[role="button"]')).filter(b => 
+                        (b as HTMLElement).innerText.includes('I prefer this response')
+                    );
+                    if (preferBtns.length > 0) {
+                        (preferBtns[0] as HTMLElement).click();
+                        return true; // Consider it 'generating' while it processes the click
+                    }
+
                     const buttons = Array.from(document.querySelectorAll('button'));
                     const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
                     if (stopBtn) return true;
