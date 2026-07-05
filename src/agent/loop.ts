@@ -2,8 +2,10 @@ import { AgentProvider } from '../providers/interface';
 import { generateSystemPrompt } from './prompts';
 import { SkillManager } from './skillManager';
 import { get_encoding } from 'tiktoken';
+import { Gatekeeper } from './gatekeeper';
 import * as fs from 'fs';
 import * as path from 'path';
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MECHANICAL MEMORY WRITER
@@ -192,6 +194,7 @@ class MemoryWriter {
 export class AgentLoop {
     private maxIterations = 500;
     private skillManager: SkillManager;
+    private gatekeeper: Gatekeeper;
     public isAgenticaMode: boolean = false;
     private totalTokensProcessed: number = 0;
     private tokenizer = get_encoding("cl100k_base");
@@ -205,6 +208,7 @@ export class AgentLoop {
 
     constructor(private provider: AgentProvider, private isFirstMessage: boolean = false) {
         this.skillManager = new SkillManager();
+        this.gatekeeper = new Gatekeeper(process.cwd());
     }
 
     public async run(userMessage: string): Promise<void> {
@@ -212,7 +216,6 @@ export class AgentLoop {
         this.fileRegistry = new Map();
         const cwd = process.cwd();
         const memoryPath = path.join(cwd, 'ATCLI_MEMORY.md');
-        // Mechanical memory writer — writes directly to ATCLI_MEMORY.md for EVERY event
         const memWriter = new MemoryWriter(cwd);
         let bootMemoryContent = '';
         if (fs.existsSync(memoryPath)) {
@@ -623,6 +626,21 @@ export class AgentLoop {
             }
 
             console.log(`\n⚙️ Executing Skill: ${toolCall.action}`);
+
+            // ─── GATEKEEPER (SECURITY WALL) ─────────────────────────────────────────
+            const gkResult = this.gatekeeper.validate(toolCall, 'ATCLI-Main');
+            if (!gkResult.allowed) {
+                console.log(`\n${gkResult.reason}`);
+                currentMessage = `<tool_result>\n${gkResult.reason}\n</tool_result>\n[SYSTEM: The Security Gatekeeper blocked this action. You must choose a safer approach or ask the user for help.]`;
+                continue;
+            }
+            if (gkResult.masked) {
+                // If secrets were detected and masked, we still execute the original
+                // toolCall locally, but the *next* context sent to the cloud AI
+                // will have the masked version to prevent leaking to DeepSeek/Gemini.
+                // (The cloud masking is handled at the provider level, but we log it here)
+                console.log(`\n⚠️  [Gatekeeper] Secret detected and masked for AI provider safety.`);
+            }
 
             // ─── SMART WRITE INTERCEPTOR ────────────────────────────────────────────
             // If AI uses write_file or create_file on an EXISTING file, redirect to replace
