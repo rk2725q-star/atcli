@@ -104,12 +104,35 @@ export class QwenAdapter extends BaseBrowserAdapter {
             }, 300, 3, previousTextToIgnore, async () => {
                 // Check if Qwen is still generating (e.g. Stop button exists or Send is disabled)
                 return await this.page!.evaluate(() => {
-                    // 🚨 Auto-resolve A/B Test blocking popup
+                    // 🚨 Auto-resolve A/B Test blocking popup intelligently
                     const preferBtns = Array.from(document.querySelectorAll('button, div[role="button"]')).filter(b => 
                         (b as HTMLElement).innerText.includes('I prefer this response')
                     );
                     if (preferBtns.length > 0) {
-                        (preferBtns[0] as HTMLElement).click();
+                        let bestBtn = preferBtns[0]; // Default to first
+                        
+                        // Check which response actually followed the rules (contains <tool_call>)
+                        for (const btn of preferBtns) {
+                            let parent = btn.parentElement;
+                            let hasTool = false;
+                            // Traverse up to find the container holding the response text
+                            for (let i = 0; i < 6; i++) {
+                                if (parent) {
+                                    const text = parent.innerText;
+                                    if (text.includes('<tool_call>') || text.includes('```xml')) {
+                                        hasTool = true;
+                                        break;
+                                    }
+                                    parent = parent.parentElement;
+                                }
+                            }
+                            if (hasTool) {
+                                bestBtn = btn;
+                                break;
+                            }
+                        }
+                        
+                        (bestBtn as HTMLElement).click();
                         return true; // Consider it 'generating' while it processes the click
                     }
 
