@@ -63,6 +63,23 @@ export class Gatekeeper {
             }
         }
 
+        // 1.5 Process Kill Safety Check
+        if (action === 'process_kill') {
+            const targetName = (toolCall.name || '').toLowerCase();
+            const forbidden = ['system', 'svchost', 'lsass', 'csrss', 'smss', 'wininit', 'services', 'explorer'];
+            
+            if (targetName === 'node' || targetName === 'node.exe') {
+                this.log(`🚨 BLOCKED [${agentName}] attempt to kill ATCLI (node)`);
+                return { allowed: false, reason: `BLOCKED: Cannot kill 'node' by name as it will terminate the ATCLI agent itself. Use 'process_list' to find the exact PID of your target server, and kill it using {"action": "process_kill", "pid": 1234}` };
+            }
+            
+            if (targetName && forbidden.some(f => targetName.includes(f))) {
+                this.log(`🚨 BLOCKED [${agentName}] attempt to kill system process: ${targetName}`);
+                return { allowed: false, reason: `BLOCKED: Cannot kill critical system process "${targetName}"` };
+            }
+        }
+
+
         // 2. Protected system path write check
         if (['write_file', 'create_file', 'replace'].includes(action)) {
             const fp = toolCall.path || toolCall.file || '';

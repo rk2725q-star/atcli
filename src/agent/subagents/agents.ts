@@ -184,6 +184,7 @@ Checks to run:
 3. Verify no sensitive data is written to public files (README, logs).
 4. Confirm .gitignore includes .env files.
 5. Check for path traversal vulnerabilities.
+6. Validate process termination requests to prevent killing critical OS processes or the 'node' process itself.
 Return a structured security report. Never modify files — only report findings.
 Output EXACTLY ONE <tool_call> per turn.`;
     }
