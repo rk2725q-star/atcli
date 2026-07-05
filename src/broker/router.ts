@@ -6,6 +6,7 @@ import { QwenAdapter } from '../providers/qwen';
 import { KimiAdapter } from '../providers/kimi';
 import { ZaiAdapter } from '../providers/zai';
 import { OllamaApiAdapter } from '../providers/ollama';
+import { AutoModeProvider } from '../providers/auto';
 
 export class PromptRouter {
     private adapters: Map<string, AgentProvider> = new Map();
@@ -19,7 +20,10 @@ export class PromptRouter {
         this.adapters.set('kimi', new KimiAdapter());
         this.adapters.set('zai', new ZaiAdapter());
         this.adapters.set('z.ai', new ZaiAdapter());
-        
+
+        // Auto Mode — DeepSeek + Gemini + Qwen working in parallel
+        this.adapters.set('auto', new AutoModeProvider());
+
         // Local Models via Ollama API
         this.adapters.set('ollama', new OllamaApiAdapter('ollama', 'qwen3-vl:2b'));
         this.adapters.set('local', new OllamaApiAdapter('local', 'qwen3-vl:2b'));

@@ -115,6 +115,22 @@ export class HermesAgent {
         console.log(`\n👑 [HERMES] Master Brain activated.`);
         console.log(`📌 [HERMES] Task: ${userTask.substring(0, 150)}`);
 
+        // ── AUTO MODE SHORTCUT ────────────────────────────────────────────────
+        // If provider is AutoModeProvider, bypass the standard single-provider
+        // Hermes loop entirely and hand off to AutoModeOrchestrator.
+        // AutoModeOrchestrator runs: Research → Split → Parallel Build → Merge → Verify
+        if (this.provider.id === 'auto') {
+            console.log('\n🚀 [HERMES] AUTO MODE detected — handing off to AutoModeOrchestrator...');
+            console.log('⚡ [HERMES] DeepSeek + Gemini + Qwen will work in PARALLEL on your task.\n');
+            const { AutoModeOrchestrator } = await import('./auto_orchestrator');
+            const autoOrch = new AutoModeOrchestrator(this.provider as any);
+            const result = await autoOrch.execute(userTask);
+            console.log('\n' + result);
+            this.triggerLearning(userTask, result);
+            return;
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         // FIX 6 (partial): use shared skill manager (loaded once)
         const skillManager = await getSharedSkillManager();
 
