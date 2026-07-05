@@ -98,7 +98,7 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
             console.log('  /review <task>    - Alias for /manage');
             console.log('  /agentica <task>  - Enter OpenClaw autonomous continuous execution mode (Whole PC + Browser Control)');
             console.log('  /upload <prompt>  - Pause terminal so you can manually upload an image in the browser');
-            console.log('  /session          - Reset the context/session of all active AI providers');
+            console.log('  /session          - Pause terminal so you can manually select a past chat history to resume');
             console.log('  /audit            - Perform a full codebase scaling and bug audit');
             console.log('  /exit             - Exit ATCLI');
             console.log('  /help             - Show this help message');

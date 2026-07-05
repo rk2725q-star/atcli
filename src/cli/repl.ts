@@ -201,18 +201,47 @@ export async function startRepl() {
                         console.log(`\n❌ Error: ${error.message}`);
                     }
                 } else if (result.action === 'session') {
-                    console.log(`\n[ATCLI] 🧹 Resetting sessions for all active AI providers...`);
-                    for (const providerName of initializedProviders.keys()) {
-                        const adapter = router.getAdapter(providerName);
-                        if (adapter) {
-                            try {
-                                adapter.reset();
-                                console.log(`  - Reset ${providerName}`);
-                            } catch (e) { /* ignore */ }
+                    console.log(`\n[ATCLI] 🕒 Session Switch Mode Initiated!`);
+                    try {
+                        const adapter = router.getAdapter(state.currentProvider);
+                        if (!adapter) {
+                            console.log(`❌ Error: Provider '${state.currentProvider}' not found.`);
+                            promptLoop();
+                            return;
                         }
+                        
+                        console.log(`[ATCLI] 🌐 Opening browser to ${state.currentProvider}...`);
+                        await adapter.init();
+                        
+                        console.log(`[ATCLI] ✅ Browser is ready! Please manually click on your PREVIOUS CHAT HISTORY in the provider's sidebar.`);
+                        rl.question(`[ATCLI] Type the task you want to continue with (or press ENTER to just resume): `, async (userPrompt) => {
+                            // Mark provider as initialized so it doesn't trigger 'New Chat' on next run
+                            initializedProviders.set(state.currentProvider, 'vibecoding');
+                            
+                            if (userPrompt.trim().length > 0) {
+                                console.log(`\n[ATCLI] Sending continuation prompt to ${state.currentProvider}...`);
+                                try {
+                                    if (agenticaRunning) {
+                                        console.log(`\n❌ [BUSY] Agentica is currently executing. Wait for it to finish.`);
+                                        promptLoop();
+                                        return;
+                                    }
+                                    const agent = new AgentLoop(adapter, false); // isFirstMessage=false to avoid resending full system prompt needlessly
+                                    await agent.run(userPrompt.trim());
+                                } catch (error: any) {
+                                    console.log(`\n❌ Error: ${error.message}`);
+                                }
+                            } else {
+                                console.log(`\n✅ Session switched successfully. You can now type your next prompt normally.`);
+                            }
+                            promptLoop();
+                        });
+                        return; // Prevent the default promptLoop()
+                    } catch (error: any) {
+                        console.log(`\n❌ Error opening browser: ${error.message}`);
+                        promptLoop();
+                        return;
                     }
-                    initializedProviders.clear();
-                    console.log(`✅ All active sessions cleared. The next request will start a fresh context.`);
                 } else if (result.action === 'upload') {
                     console.log(`\n[ATCLI] 🖼️  Vision Mode Initiated!`);
                     try {
