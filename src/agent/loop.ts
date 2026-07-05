@@ -440,6 +440,23 @@ export class AgentLoop {
             }
             
             if (!toolCall) {
+                // [INTELLIGENT FALLBACK]: If AI hallucinates and outputs plain markdown code blocks with filenames,
+                // instead of ignoring them and exiting, we auto-extract and apply them!
+                const extractedFiles = this.extractImplicitMarkdownFiles(aiText);
+                if (extractedFiles.length > 0) {
+                    console.log(`\n⚡ [Smart Fallback] Detected ${extractedFiles.length} hallucinated markdown files. Auto-applying...`);
+                    for (const file of extractedFiles) {
+                        console.log(`   📝 Auto-writing: ${file.path}`);
+                        await this.skillManager.executeSkill('write_file', { action: 'write_file', path: file.path, content: file.content });
+                    }
+                    console.log(`\n✅ All ${extractedFiles.length} extracted files applied successfully.`);
+                    
+                    // We applied the files. Now what?
+                    // We can either break (finish the task), or send a message back saying "I extracted and applied these."
+                    // Breaking is probably best, as the AI intended to finish.
+                    break;
+                }
+
                 // No tool call found, meaning the AI has finished its task
                 if (aiText.includes('@TRIGGER_FINAL_AUDIT')) {
                     console.log(`\n🎉 Project completion detected! Spawning Tech Lead Auditor...`);
@@ -1034,7 +1051,55 @@ RULES:
         jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
         
         // Let JSON.parse throw if invalid, so the loop can catch it and feed it back to the AI
-        const parsed = JSON.parse(jsonStr);
-        return parsed;
+        return JSON.parse(jsonStr);
+    }
+
+    private extractImplicitMarkdownFiles(text: string): {path: string, content: string}[] {
+        const files: {path: string, content: string}[] = [];
+        
+        // Find all markdown code blocks
+        const blockRegex = /```[\w-]*\n([\s\S]*?)```/g;
+        let match;
+        let lastIndex = 0;
+
+        while ((match = blockRegex.exec(text)) !== null) {
+            let code = match[1];
+            
+            // Look at the text between the last block and this block
+            const precedingText = text.substring(lastIndex, match.index);
+            lastIndex = blockRegex.lastIndex;
+
+            let filepath = "";
+
+            // Strategy 1: Find file path in the preceding text (look for `path/to/file.ext` or **path/to/file.ext**)
+            const pathRegex = /[`*\( ]([a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+)[`*\) ]/g;
+            let pathMatch;
+            let lastPathMatch = null;
+            while ((pathMatch = pathRegex.exec(precedingText)) !== null) {
+                lastPathMatch = pathMatch[1];
+            }
+
+            if (lastPathMatch) {
+                filepath = lastPathMatch;
+            } else {
+                // Strategy 2: Check the first line of the code block for a comment path
+                const firstLine = code.split('\n')[0].trim();
+                const inlinePathMatch = firstLine.match(/^(?:\/\/|#|<!--|\/\*)\s*([a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+)/);
+                if (inlinePathMatch) {
+                    filepath = inlinePathMatch[1];
+                    code = code.substring(code.indexOf('\n') + 1); // remove first line
+                }
+            }
+
+            if (filepath && filepath.includes('.') && filepath.length > 4 && !filepath.endsWith('.')) {
+                // Basic check for valid extensions we care about
+                const ext = filepath.split('.').pop()?.toLowerCase();
+                const validExts = ['ts', 'tsx', 'js', 'jsx', 'json', 'css', 'scss', 'html', 'md', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'h', 'prisma', 'env'];
+                if (ext && validExts.includes(ext)) {
+                    files.push({ path: filepath, content: code.trim() });
+                }
+            }
+        }
+        return files;
     }
 }
