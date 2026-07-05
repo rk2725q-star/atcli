@@ -44,6 +44,13 @@ Arguments:
         if (args.name && forbidden.some(f => args.name.toLowerCase().includes(f))) {
             return `BLOCKED: Cannot kill critical system process "${args.name}"`;
         }
+        
+        // Safety: prevent killing 'node' by name, which kills ATCLI itself
+        if (args.name && (args.name.toLowerCase() === 'node' || args.name.toLowerCase() === 'node.exe')) {
+            return `BLOCKED: Cannot kill 'node' by name as it will terminate the ATCLI agent itself. Use 'process_list' to find the exact PID of your target server, and kill it using {"action": "process_kill", "pid": 1234}`;
+        }
+
+
         const platform = process.platform;
         return new Promise(resolve => {
             let cmd: string;
