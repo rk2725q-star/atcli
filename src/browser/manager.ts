@@ -5,7 +5,8 @@ import * as os from 'os';
 
 export class BrowserManager {
     private static instance: BrowserManager;
-    private context: BrowserContext | null = null;
+    // public so SharedBrowserSession (browser.ts) can open tabs in the same window
+    public context: BrowserContext | null = null;
     private pages: Map<string, Page> = new Map();
 
     private constructor() {}
