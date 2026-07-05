@@ -267,7 +267,12 @@ export class AgentLoop {
         await this.skillManager.loadAllSkills();
 
         // Construct the initial prompt injecting the system instructions
-        const systemPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
+        let systemPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
+        
+        if (this.provider.id === 'kimi') {
+            systemPrompt += "\n\n[CRITICAL KIMI PROVIDER RULE: YOU MUST STRICTLY AVOID using terminal bash/shell commands or terminal text output to 'build' or write code for the user to copy-paste. You MUST use the semantic XML tools (<tool_call><action>write_file</action>...) to write code directly into the workspace! Do not output shell blocks!]";
+        }
+
         let currentMessage = "";
 
         // Boot injection: Project Intent + IDE context + Memory — included in ALL branches
@@ -328,6 +333,9 @@ export class AgentLoop {
             let reminder = "[SYSTEM REMINDER: DO NOT ASK FOR PERMISSION. DO NOT WRITE JAVASCRIPT CODE BLOCKS. IF YOU NEED TO EXECUTE A COMMAND OR FILE OPERATION, OUTPUT THE <tool_call> XML BLOCK. IF THE USER IS JUST CHATTING, YOU MAY RESPOND WITH TEXT NORMALLY.]";
             if (this.isAgenticaMode) {
                 reminder += "\n[AGENTICA OVERRIDE: YOU ARE CONNECTED TO THE ATCLI XML BRIDGE. YOU DO HAVE PHYSICAL PC CONTROL. YOU MUST NOT USE INTERNAL SEARCH. EMIT <tool_call> TO OPEN THE BROWSER OR RUN COMMANDS.]";
+            }
+            if (this.provider.id === 'kimi') {
+                reminder += "\n[CRITICAL KIMI RULE: Strictly use XML <tool_call> to write/edit code. DO NOT output terminal blocks or tell the user to build/copy-paste it manually.]";
             }
             currentMessage = `${userMessage}\n\n${reminder}\n\n${bootInjection}`;
         }
