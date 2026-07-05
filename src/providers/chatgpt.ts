@@ -84,6 +84,9 @@ export class ChatGPTAdapter extends BaseBrowserAdapter {
 
             return { text: responseText.trim() };
         } catch (error: any) {
+            if ((global as any).abortRequested) {
+                return { text: '', error: `Execution context was destroyed (aborted)` };
+            }
             console.error(`[ChatGPT] 🚨 Encountered error during message send. Falling back to Doomsday Healer!`);
             await this.handleDomFailure(error);
             return { text: '', error: `ChatGPT provider failed: ${error.message}. Initiating autonomous healing...` };

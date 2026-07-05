@@ -61,6 +61,9 @@ export class ZaiAdapter extends BaseBrowserAdapter {
 
             return { text: responseText.trim() };
         } catch (error: any) {
+            if ((global as any).abortRequested) {
+                return { text: '', error: `Execution context was destroyed (aborted)` };
+            }
             console.error(`[Zai] 🚨 Encountered error during message send. Falling back to Doomsday Healer!`);
             await this.handleDomFailure(error);
             return { text: '', error: `Zai provider failed: ${error.message}. Initiating autonomous healing...` };

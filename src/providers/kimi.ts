@@ -71,6 +71,9 @@ export class KimiAdapter extends BaseBrowserAdapter {
             
             return { text: responseText.trim() };
         } catch (error: any) {
+            if ((global as any).abortRequested) {
+                return { text: '', error: `Execution context was destroyed (aborted)` };
+            }
             console.error(`[Kimi] 🚨 Encountered error during message send. Falling back to Doomsday Healer!`);
             await this.handleDomFailure(error);
             return { text: '', error: `Kimi provider failed: ${error.message}. Initiating autonomous healing...` };
