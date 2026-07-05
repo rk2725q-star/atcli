@@ -16,7 +16,7 @@ export class KimiAdapter extends BaseBrowserAdapter {
         
         try {
             // Wait for textarea or contenteditable
-            const inputSelector = 'textarea, [contenteditable="true"]';
+            const inputSelector = '.chat-input-editor, textarea, [contenteditable="true"]';
             await this.waitForChatInput(inputSelector);
             
             // Capture the current last response so we can ignore it during polling
@@ -42,18 +42,18 @@ export class KimiAdapter extends BaseBrowserAdapter {
             await this.page!.waitForTimeout(500); // Wait for send button to become active
 
             // Try to click the send button if it exists, otherwise fallback to Enter
-            try {
-                // Kimi's send button usually has a send icon or specific label
-                // Let's look for common send button selectors
-                const sendBtn = this.page!.locator('button[aria-label*="Send"], button[aria-label*="send"], button[type="submit"], svg[viewBox="0 0 24 24"]').last();
-                if (await sendBtn.isVisible({ timeout: 1000 })) {
-                    await sendBtn.click();
-                } else {
-                    await this.page!.keyboard.press('Enter');
-                }
-            } catch {
-                await this.page!.keyboard.press('Enter');
-            }
+            await this.page!.keyboard.press('Enter');
+            await this.page!.waitForTimeout(300);
+
+            // Fallback: forcefully click the actual send button using DOM heuristics if Enter didn't trigger
+            await this.page!.evaluate(() => {
+                const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button, svg')).find(el => {
+                    const html = el.innerHTML.toLowerCase();
+                    // Kimi's specific send button SVG paths or properties
+                    return (el.getAttribute('aria-label') === 'Send' || html.includes('send') || html.includes('fas fa-paper-plane'));
+                }) as HTMLElement;
+                if (sendBtn) sendBtn.click();
+            });
 
             await this.page!.waitForTimeout(1000);
 
