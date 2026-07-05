@@ -9,4 +9,5 @@ export interface AgentProvider {
     sendMessage(message: string): Promise<ProviderResponse>;
     sendImageAndMessage(imagePath: string, message: string): Promise<ProviderResponse>;
     reset(): void;
+    abort(): void;
 }

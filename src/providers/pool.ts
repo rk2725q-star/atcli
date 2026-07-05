@@ -90,4 +90,16 @@ export class ProviderPool {
         }
         return entry.provider;
     }
+
+    public resetAll(): void {
+        for (const entry of this.pool.values()) {
+            if (entry.provider.reset) entry.provider.reset();
+        }
+    }
+
+    public abortAll(): void {
+        for (const entry of this.pool.values()) {
+            if (entry.provider.abort) entry.provider.abort();
+        }
+    }
 }

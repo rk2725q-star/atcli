@@ -58,7 +58,11 @@ export class AutoModeProvider implements AgentProvider {
     }
 
     public reset(): void {
-        this.primaryProvider?.reset?.();
+        this.pool.resetAll();
+    }
+
+    public abort(): void {
+        this.pool.abortAll();
     }
 
     // ── PARALLEL SEND — the core of Auto Mode ───────────────────────────────

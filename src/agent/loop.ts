@@ -191,6 +191,13 @@ class MemoryWriter {
     }
 }
 
+export class UserInterruptError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'UserInterruptError';
+    }
+}
+
 export class AgentLoop {
     private maxIterations = 500;
     private skillManager: SkillManager;
@@ -389,10 +396,20 @@ export class AgentLoop {
                 response = await this.provider.sendMessage(currentMessage);
             }
             
+            if ((global as any).abortRequested) {
+                (global as any).abortRequested = false;
+                throw new UserInterruptError('Request cancelled by user (Esc pressed).');
+            }
+
             if (response.error) {
-                // Suppress expected errors during graceful shutdown
-                if (!response.error.includes('Target page, context or browser has been closed')) {
+                // Suppress expected errors during graceful shutdown or manual abort
+                if (!response.error.includes('Target page, context or browser has been closed') && 
+                    !response.error.includes('Execution context was destroyed')) {
                     console.log(`❌ Provider Error: ${response.error}`);
+                }
+                if ((global as any).abortRequested) {
+                    (global as any).abortRequested = false;
+                    throw new UserInterruptError('Request cancelled by user (Esc pressed).');
                 }
                 break;
             }

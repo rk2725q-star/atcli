@@ -2,6 +2,7 @@ import { AgentProvider } from '../providers/interface';
 import { OrchestratorAgent, OrchestratorPlan } from './orchestrator';
 import { SkillManager } from './skillManager';
 import { memoryStore, ATCLI_MEMORY_ROOT } from './memory/store';
+import { UserInterruptError } from './loop';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -184,8 +185,20 @@ export class HermesAgent {
 
             const response = await this.provider.sendMessage(currentMessage);
 
+            if ((global as any).abortRequested) {
+                (global as any).abortRequested = false;
+                throw new UserInterruptError('Request cancelled by user (Esc pressed).');
+            }
+
             if (response.error) {
-                console.log(`❌ [HERMES] Provider error: ${response.error}`);
+                if (!response.error.includes('Target page, context or browser has been closed') && 
+                    !response.error.includes('Execution context was destroyed')) {
+                    console.log(`❌ [HERMES] Provider error: ${response.error}`);
+                }
+                if ((global as any).abortRequested) {
+                    (global as any).abortRequested = false;
+                    throw new UserInterruptError('Request cancelled by user (Esc pressed).');
+                }
                 break;
             }
 

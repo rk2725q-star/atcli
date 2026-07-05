@@ -15,6 +15,13 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
         this.page = null;
     }
 
+    public abort(): void {
+        if (this.page) {
+            console.log(`\n[${this.id.toUpperCase()}] 🛑 Abort requested. Reloading page to instantly kill generation...`);
+            this.page.reload().catch(() => {});
+        }
+    }
+
     public async sendImageAndMessage(imageSource: string, message: string): Promise<ProviderResponse> {
         await this.ensurePage();
 

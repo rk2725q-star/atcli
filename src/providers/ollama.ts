@@ -36,6 +36,7 @@ import * as fs from 'fs/promises';
 
 export class OllamaApiAdapter implements AgentProvider {
     private baseUrl = 'http://localhost:11434/api/generate';
+    private abortController: AbortController | null = null;
 
     constructor(public readonly id: string, private modelName: string = 'qwen3-vl:2b') {}
 
@@ -44,12 +45,21 @@ export class OllamaApiAdapter implements AgentProvider {
         // Can optionally verify connection to localhost:11434 here
     }
 
+    public abort(): void {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
+    }
+
     public async sendMessage(message: string): Promise<ProviderResponse> {
         console.log(`[OLLAMA] Sending request to local model ${this.modelName}...`);
+        this.abortController = new AbortController();
         try {
             const response = await fetch(this.baseUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal: this.abortController.signal,
                 body: JSON.stringify({
                     model: this.modelName,
                     prompt: message,
@@ -71,23 +81,29 @@ export class OllamaApiAdapter implements AgentProvider {
         }
     }
 
-    public async sendImageAndMessage(imagePath: string, message: string): Promise<ProviderResponse> {
-        console.log(`[OLLAMA] Sending image request to local model ${this.modelName}...`);
-        try {
-            const buffer = await fs.readFile(imagePath);
-            const base64Image = buffer.toString('base64');
+    public async sendImageAndMessage(imageSource: string, message: string): Promise<ProviderResponse> {
+        console.log(`[OLLAMA] Sending request with image to local model ${this.modelName}...`);
+        this.abortController = new AbortController();
+        
+        let base64: string;
+        if (imageSource.startsWith('__BASE64__')) {
+            base64 = imageSource.slice('__BASE64__'.length);
+        } else {
+            const fs = require('fs');
+            base64 = fs.readFileSync(imageSource).toString('base64');
+        }
 
+        try {
             const response = await fetch(this.baseUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal: this.abortController.signal,
                 body: JSON.stringify({
                     model: this.modelName,
                     prompt: message,
-                    images: [base64Image],
+                    images: [base64],
                     stream: false,
-                    options: {
-                        num_ctx: 32000
-                    }
+                    options: { num_ctx: 32000 }
                 })
             });
 

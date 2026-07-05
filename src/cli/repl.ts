@@ -139,6 +139,38 @@ rl.on('SIGINT', async () => {
     setTimeout(() => { sigintCount = 0; }, 3000);
 });
 
+export let isExecutingTask = false;
+export let savedPromptForEsc = '';
+let escPressCount = 0;
+let lastEscTime = 0;
+
+readline.emitKeypressEvents(process.stdin);
+process.stdin.on('keypress', (str, key) => {
+    if (key && key.name === 'escape' && isExecutingTask) {
+        const now = Date.now();
+        if (now - lastEscTime < 500) {
+            escPressCount++;
+        } else {
+            escPressCount = 1;
+        }
+        lastEscTime = now;
+
+        (global as any).abortRequested = true;
+
+        const adapter = router.getAdapter(state.currentProvider);
+        if (adapter && (adapter as any).abort) {
+            (adapter as any).abort();
+        }
+
+        if (escPressCount >= 2) {
+            savedPromptForEsc = '';
+            console.log('\n\n[ATCLI] 🛑 Request CANCELLED (Double Esc) - Prompt Cleared.');
+        } else {
+            console.log('\n\n[ATCLI] 🛑 Request CANCELLED - Prompt Restored.');
+        }
+    }
+});
+
 const state: AppState = {
     currentProvider: 'deepseek',
     currentModel: 'default'
@@ -328,8 +360,14 @@ export async function startRepl() {
                             hermes.isAgenticaMode = true;
 
                             agenticaRunning = true;
-                            await hermes.run(safeArgs || '');
-                            agenticaRunning = false;
+                            isExecutingTask = true;
+                            savedPromptForEsc = safeArgs || '';
+                            try {
+                                await hermes.run(safeArgs || '');
+                            } finally {
+                                isExecutingTask = false;
+                                agenticaRunning = false;
+                            }
 
                             agenticaSessions.set(state.currentProvider, true);
                             initializedProviders.set(state.currentProvider, 'agentica');
@@ -337,7 +375,12 @@ export async function startRepl() {
                         }
                     } catch (error: any) {
                         agenticaRunning = false;
-                        console.log(`\n❌ Error in Agentica Mode: ${error.message}`);
+                        isExecutingTask = false;
+                        if (error.name === 'UserInterruptError') {
+                            if (savedPromptForEsc) rl.write(savedPromptForEsc);
+                        } else {
+                            console.log(`\n❌ Error in Agentica Mode: ${error.message}`);
+                        }
                     }
                 }
                 promptLoop();
@@ -367,11 +410,26 @@ export async function startRepl() {
                         }
                         const isFirstForProvider = !initializedProviders.has(state.currentProvider);
                         const agent = new AgentLoop(adapter, isFirstForProvider);
-                        await agent.run(safeInput);
+                        
+                        isExecutingTask = true;
+                        savedPromptForEsc = safeInput;
+                        try {
+                            await agent.run(safeInput);
+                        } finally {
+                            isExecutingTask = false;
+                        }
+                        
                         initializedProviders.set(state.currentProvider, 'vibecoding');
                     }
                 } catch (error: any) {
-                    console.log(`\n❌ Error: ${error.message}`);
+                    if (error.name === 'UserInterruptError') {
+                        // The user pressed Esc, don't log a scary error, just restore prompt if needed
+                        if (savedPromptForEsc) {
+                            rl.write(savedPromptForEsc);
+                        }
+                    } else {
+                        console.log(`\n❌ Error: ${error.message}`);
+                    }
                 }
                 promptLoop();
             }
