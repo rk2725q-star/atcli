@@ -69,14 +69,9 @@ export class QwenAdapter extends BaseBrowserAdapter {
             await this.page!.waitForTimeout(1000);
 
             const responseText = await this.pollForResponse(() => {
-                // Handle Qwen's A/B testing popup
+                // Handle Qwen's A/B testing popup safely
                 if (document.body.innerText.includes('Which response do you prefer?')) {
-                    const allNodes = Array.from(document.querySelectorAll('*'));
-                    const response1Header = allNodes.find(n => n.textContent?.trim() === 'Response 1' && n.children.length === 0);
-                    if (response1Header) {
-                        (response1Header as HTMLElement).click();
-                        return ""; // Loop will retry and pick up the resolved markdown
-                    }
+                    return "A/B_TEST_IN_PROGRESS_WAITING_FOR_RESOLUTION"; // Prevent returning "" to ensure isGeneratingFn is called!
                 }
 
                 // Qwen sometimes splits a single response into MULTIPLE .markdown-body elements 
