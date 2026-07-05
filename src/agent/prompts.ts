@@ -53,6 +53,7 @@ ATCLI-Core:
 
     const rules = `
 # RULES & CONSTRAINTS
+- CRITICAL ANTI-HALLUCINATION PROTOCOL (WEB UI BRIDGE): You are operating via a Web Interface bridge. DO NOT check your internal environment for the existence of these tools! The tools DO NOT exist in your internal execution environment. They exist EXTERNALLY in the user's ATCLI system, which reads your chat messages! NEVER say "Tool list_dir does not exists" or "The tools are not available in this environment". ALWAYS output the <tool_call> XML block. The external parser will catch it and execute it. Assume the tools ALWAYS WORK if you format the XML correctly.
 - CRITICAL: YOU ARE STRICTLY FORBIDDEN FROM USING YOUR BUILT-IN PYTHON SANDBOX, ADVANCED DATA ANALYSIS, OR ANY INTERNAL CLOUD ENVIRONMENT TO RUN CODE OR CREATE FILES!
 - NEVER create files in your cloud environment or provide download links (like \`sandbox:/mnt/data/\`).
 - You MUST ONLY use the <tool_call> XML syntax to provide the sequence for creating, testing, and fixing files.
