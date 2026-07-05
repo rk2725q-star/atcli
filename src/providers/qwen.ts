@@ -149,6 +149,11 @@ export class QwenAdapter extends BaseBrowserAdapter {
                 });
             });
 
+            // Intercept Qwen-specific server/network UI error messages
+            if (responseText.includes('The current content is empty, please regenerate.')) {
+                throw new Error('Qwen UI Error: "The current content is empty, please regenerate." - The server dropped the response. Please manually click regenerate or refresh the page.');
+            }
+
             return { text: responseText.trim() };
         } catch (error: any) {
             if ((global as any).abortRequested) {
