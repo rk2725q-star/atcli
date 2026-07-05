@@ -79,7 +79,25 @@ export class QwenAdapter extends BaseBrowserAdapter {
                     }
                 }
 
-                // Qwen's actual answer is inside a markdown wrapper, usually separate from the "think" block
+                // Qwen sometimes splits a single response into MULTIPLE .markdown-body elements 
+                // (e.g., separate blocks for 'Thinking' and the actual response).
+                // To get the full text of the LAST turn without truncating, we find the last message container.
+                const messageContainers = document.querySelectorAll('[class*="message"], [class*="chat-content"], [class*="msg"]');
+                if (messageContainers.length > 0) {
+                    // Filter to only containers that HAVE a markdown block inside them (identifies them as AI messages)
+                    const aiContainers = Array.from(messageContainers).filter(el => {
+                        return el.querySelector('.markdown-body, .markdown, [class*="markdown"]') !== null;
+                    });
+                    
+                    if (aiContainers.length > 0) {
+                        // The last one in document order will be the innermost container of the LAST AI turn.
+                        const lastAiTurn = aiContainers[aiContainers.length - 1] as HTMLElement;
+                        const text = lastAiTurn.innerText.trim();
+                        if (text.length > 0) return text;
+                    }
+                }
+
+                // Fallback if the container strategy fails
                 const blocks = document.querySelectorAll('.markdown-body, .markdown, [class*="markdown"]');
                 if (blocks.length > 0) {
                     const validBlocks = Array.from(blocks).filter(el => (el as HTMLElement).innerText.trim().length > 0);
@@ -88,18 +106,6 @@ export class QwenAdapter extends BaseBrowserAdapter {
                     }
                 }
 
-                // Fallback to content blocks
-                const contentBlocks = document.querySelectorAll('[class*="message-content"], [class*="chat-content"]');
-                const validBlocks = Array.from(contentBlocks).filter(el => {
-                    const t = (el as HTMLElement).innerText.trim();
-                    // Ignore blocks that are just the "think" UI or user prompt
-                    const hasParagraph = el.querySelector('p') !== null;
-                    return t.length > 0 && hasParagraph && !t.includes("AI-generated content");
-                });
-
-                if (validBlocks.length > 0) {
-                    return (validBlocks[validBlocks.length - 1] as HTMLElement).innerText;
-                }
                 return "";
             }, 300, 3, previousTextToIgnore, async () => {
                 // Check if Qwen is still generating (e.g. Stop button exists or Send is disabled)
