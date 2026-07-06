@@ -48,6 +48,9 @@ class MemoryWriter {
                 '',
                 '## 💻 Commands Run',
                 '',
+                '## 📖 Project Summary',
+                '> Describe what this project is, the tech stack, features built, and the exact state of the codebase. Keep it extremely CRISP, detailed, and highly effective. This is the ONLY context a future AI will have when starting a new session.',
+                '',
                 '## 📦 Packages Installed',
                 '',
                 '## 🔴 AECL Errors',
@@ -57,7 +60,7 @@ class MemoryWriter {
                 '## 🔜 Next Steps',
                 '',
                 '## 🏗️ Architecture Notes',
-                '> AI writes: key design decisions, patterns used, folder structure explanation',
+                '> Key design decisions, patterns used, folder structure explanation. Be concise but highly technical.',
             ].join('\n'), 'utf-8');
         }
     }
@@ -935,14 +938,17 @@ DO NOT use memory or guess — read the code shown above and describe what it AC
 
 For each file, find its current line in ATCLI_MEMORY.md and replace it with the accurate description.
 
-━━━ TASK 2: UPDATE 📖 PROJECT SUMMARY ━━━
-Write or update the Project Summary section:
-  - What is this project building?
-  - Tech stack: (language, framework, key packages you actually installed)
-  - Features built so far: (list actual components/pages/APIs created)
-  - Architecture: (folder structure, key patterns used)
+━━━ TASK 2: UPDATE 📖 PROJECT SUMMARY (CRITICAL FOR NEW SESSIONS) ━━━
+Write or update the Project Summary section. Since you do not carry chat history into new sessions, this section MUST be extremely CRISP, HIGHLY DETAILED, and EFFECTIVE.
+  - Core Identity: What exactly is this project? (1-2 crisp sentences)
+  - Tech Stack: Language, framework, database, and exact key packages used.
+  - Current State: What is fully working? What is half-built? (List actual components/pages/APIs)
+  - Dev Server: What is the exact command to start the dev server? What port does it run on?
 
-━━━ TASK 3: FILL DELETE REASONS ━━━
+━━━ TASK 3: UPDATE 🏗️ ARCHITECTURE NOTES ━━━
+Write a highly technical but concise explanation of the folder structure and design patterns used (e.g., "Uses Next.js App Router with Server Actions. DB is Prisma with SQLite.").
+
+━━━ TASK 4: FILL DELETE REASONS ━━━
 For any deleted file entries with "[AI to fill why...]", update with the real reason:
   Example: "src/old-helper.ts — deleted: unused utility, no imports referenced it. NOT rebuilt."
 
