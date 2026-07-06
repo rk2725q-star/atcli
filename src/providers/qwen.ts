@@ -55,7 +55,7 @@ export class QwenAdapter extends BaseBrowserAdapter {
             await this.page!.evaluate(() => {
                 const input = document.querySelector('textarea, [contenteditable="true"]') as HTMLElement;
                 const hasText = input && (input.innerText?.trim().length > 0 || (input as HTMLTextAreaElement).value?.trim().length > 0);
-                
+
                 if (hasText) {
                     const buttons = Array.from(document.querySelectorAll('button'));
                     // Send button is usually near the input or the last button
@@ -69,35 +69,17 @@ export class QwenAdapter extends BaseBrowserAdapter {
             await this.page!.waitForTimeout(1000);
 
             const responseText = await this.pollForResponse(() => {
-                // Handle Qwen's A/B testing popup safely
+                // Handle Qwen's A/B testing popup
                 if (document.body.innerText.includes('Which response do you prefer?')) {
-                    return "A/B_TEST_IN_PROGRESS_WAITING_FOR_RESOLUTION"; // Prevent returning "" to ensure isGeneratingFn is called!
-                }
-
-                // Qwen sometimes splits a single response into MULTIPLE .markdown-body elements 
-                // (e.g., separate blocks for 'Thinking' and the actual response).
-                // To get the full text of the LAST turn without truncating, we find the last message container.
-                const messageContainers = document.querySelectorAll('[class*="message"], [class*="chat-content"], [class*="msg"]');
-                if (messageContainers.length > 0) {
-                    // Filter to only containers that HAVE a markdown block inside them (identifies them as AI messages)
-                    const aiContainers = Array.from(messageContainers).filter(el => {
-                        return el.querySelector('.markdown-body, .markdown, [class*="markdown"]') !== null;
-                    });
-                    
-                    if (aiContainers.length > 0) {
-                        // The last one in document order will be the innermost container of the LAST AI turn.
-                        const lastAiTurn = aiContainers[aiContainers.length - 1] as HTMLElement;
-                        
-                        // Strip out "Thinking" blocks to prevent false positive tool executions
-                        const clone = lastAiTurn.cloneNode(true) as HTMLElement;
-                        clone.querySelectorAll('details').forEach(el => el.remove());
-                        
-                        const text = clone.innerText.trim();
-                        if (text.length > 0) return text;
+                    const allNodes = Array.from(document.querySelectorAll('*'));
+                    const response1Header = allNodes.find(n => n.textContent?.trim() === 'Response 1' && n.children.length === 0);
+                    if (response1Header) {
+                        (response1Header as HTMLElement).click();
+                        return ""; // Loop will retry and pick up the resolved markdown
                     }
                 }
 
-                // Fallback if the container strategy fails
+                // Qwen's actual answer is inside a markdown wrapper, usually separate from the "think" block
                 const blocks = document.querySelectorAll('.markdown-body, .markdown, [class*="markdown"]');
                 if (blocks.length > 0) {
                     const validBlocks = Array.from(blocks).filter(el => (el as HTMLElement).innerText.trim().length > 0);
@@ -106,17 +88,29 @@ export class QwenAdapter extends BaseBrowserAdapter {
                     }
                 }
 
+                // Fallback to content blocks
+                const contentBlocks = document.querySelectorAll('[class*="message-content"], [class*="chat-content"]');
+                const validBlocks = Array.from(contentBlocks).filter(el => {
+                    const t = (el as HTMLElement).innerText.trim();
+                    // Ignore blocks that are just the "think" UI or user prompt
+                    const hasParagraph = el.querySelector('p') !== null;
+                    return t.length > 0 && hasParagraph && !t.includes("AI-generated content");
+                });
+
+                if (validBlocks.length > 0) {
+                    return (validBlocks[validBlocks.length - 1] as HTMLElement).innerText;
+                }
                 return "";
             }, 300, 3, previousTextToIgnore, async () => {
                 // Check if Qwen is still generating (e.g. Stop button exists or Send is disabled)
                 return await this.page!.evaluate(() => {
                     // 🚨 Auto-resolve A/B Test blocking popup intelligently
-                    const preferBtns = Array.from(document.querySelectorAll('button, div[role="button"]')).filter(b => 
+                    const preferBtns = Array.from(document.querySelectorAll('button, div[role="button"]')).filter(b =>
                         (b as HTMLElement).innerText.includes('I prefer this response')
                     );
                     if (preferBtns.length > 0) {
                         let bestBtn = preferBtns[0]; // Default to first
-                        
+
                         // Check which response actually followed the rules (contains <tool_call>)
                         for (const btn of preferBtns) {
                             let parent = btn.parentElement;
@@ -137,7 +131,7 @@ export class QwenAdapter extends BaseBrowserAdapter {
                                 break;
                             }
                         }
-                        
+
                         (bestBtn as HTMLElement).click();
                         return true; // Consider it 'generating' while it processes the click
                     }
@@ -148,11 +142,6 @@ export class QwenAdapter extends BaseBrowserAdapter {
                     return false;
                 });
             });
-
-            // Intercept Qwen-specific server/network UI error messages
-            if (responseText.includes('The current content is empty, please regenerate.')) {
-                throw new Error('Qwen UI Error: "The current content is empty, please regenerate." - The server dropped the response. Please manually click regenerate or refresh the page.');
-            }
 
             return { text: responseText.trim() };
         } catch (error: any) {
