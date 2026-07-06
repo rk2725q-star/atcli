@@ -1052,28 +1052,39 @@ RULES:
         
         // ── [INTELLIGENT FALLBACK] Auto-XML to JSON Converter ──
         // Many models (like DeepSeek or Claude) natively output XML instead of JSON inside the <tool_call>.
-        // E.g., <tool_name>run_command</tool_name><parameter name="cmd">ls</parameter>
-        if (jsonStr.includes('<tool_name>') || jsonStr.includes('<name>') || jsonStr.includes('<action>')) {
-            const actionMatch = jsonStr.match(/<(?:tool_name|name|action)>([\s\S]*?)<\/(?:tool_name|name|action)>/);
-            if (actionMatch) {
-                let action = actionMatch[1].trim();
-                
+        if (jsonStr.includes('<tool_name>') || jsonStr.includes('<name>') || jsonStr.includes('<action>') || jsonStr.includes('<function')) {
+            let action = '';
+            
+            // Try matching <function name="xxx">
+            const funcMatch = jsonStr.match(/<function\s+name="([^"]+)"/);
+            if (funcMatch) {
+                action = funcMatch[1].trim();
+            } else {
+                // Try matching <tool_name>xxx</tool_name>
+                const actionMatch = jsonStr.match(/<(?:tool_name|name|action)>([\s\S]*?)<\/(?:tool_name|name|action)>/);
+                if (actionMatch) action = actionMatch[1].trim();
+            }
+
+            if (action) {
                 // Auto-map common DeepSeek tool hallucinations to actual ATCLI tools
                 if (action === 'execute_command') action = 'run_command';
                 if (action === 'preview_url' || action === 'open_url') action = 'browser_goto';
                 if (action === 'list_files') action = 'list_dir';
                 
                 const jsonObj: any = { action };
-                
-                const paramRegex = /<parameter\s+name="([^"]+)">([\s\S]*?)<\/parameter>/g;
-                let paramMatch;
                 let foundParams = false;
-                while ((paramMatch = paramRegex.exec(jsonStr)) !== null) {
+
+                // Try matching <parameter name="cmd" content="ls" /> (Self-closing XML tags)
+                const paramContentRegex = /<parameter\s+name="([^"]+)"\s+content="([^"]*)"/g;
+                let paramMatch;
+                while ((paramMatch = paramContentRegex.exec(jsonStr)) !== null) {
                     foundParams = true;
                     let key = paramMatch[1].trim();
                     let value: any = paramMatch[2].trim();
                     
-                    // Auto-map parameter names
+                    // Decode common XML entities
+                    value = value.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                    
                     if (action === 'run_command' && key === 'command') key = 'commandLine';
                     
                     if (value.toLowerCase() === 'true') value = true;
@@ -1082,17 +1093,33 @@ RULES:
                     
                     jsonObj[key] = value;
                 }
+
+                // Try matching <parameter name="cmd">ls</parameter>
+                if (!foundParams) {
+                    const paramRegex = /<parameter\s+name="([^"]+)">([\s\S]*?)<\/parameter>/g;
+                    while ((paramMatch = paramRegex.exec(jsonStr)) !== null) {
+                        foundParams = true;
+                        let key = paramMatch[1].trim();
+                        let value: any = paramMatch[2].trim();
+                        
+                        if (action === 'run_command' && key === 'command') key = 'commandLine';
+                        
+                        if (value.toLowerCase() === 'true') value = true;
+                        else if (value.toLowerCase() === 'false') value = false;
+                        else if (!isNaN(Number(value))) value = Number(value);
+                        
+                        jsonObj[key] = value;
+                    }
+                }
                 
-                // If it didn't find any <parameter> tags, it might just be <tool_call><action>run</action><command>ls</command></tool_call>
+                // If it didn't find any <parameter> tags, try generic tags <cmd>ls</cmd>
                 if (!foundParams) {
                     const genericTagsRegex = /<([^>]+)>([\s\S]*?)<\/\1>/g;
                     let genericMatch;
                     while ((genericMatch = genericTagsRegex.exec(jsonStr)) !== null) {
                         let key = genericMatch[1].trim();
-                        if (!['tool_name', 'name', 'action', 'tool_call'].includes(key)) {
-                            // Auto-map generic tag names
+                        if (!['tool_name', 'name', 'action', 'tool_call', 'function'].includes(key)) {
                             if (action === 'run_command' && key === 'command') key = 'commandLine';
-                            
                             jsonObj[key] = genericMatch[2].trim();
                         }
                     }
