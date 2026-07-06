@@ -343,6 +343,7 @@ export const StartDevServerSkill: AgentSkill = {
       const child = spawn('npm', ['run', 'dev'], {
         cwd: path.resolve(args.directory),
         detached: true,
+        shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let resolved = false;
