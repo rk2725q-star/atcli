@@ -275,13 +275,43 @@ export class AgentLoop {
 
         let currentMessage = "";
 
+        // Helper to get lightweight workspace tree
+        const getWorkspaceTree = (dir: string, maxDepth = 2, currentDepth = 0): string => {
+            if (currentDepth > maxDepth) return '';
+            let result = '';
+            try {
+                const files = fs.readdirSync(dir);
+                let count = 0;
+                for (const file of files) {
+                    if (['node_modules', '.git', '.next', 'dist', 'build', 'coverage', '.cache'].includes(file)) continue;
+                    if (count++ > 20) {
+                        result += '  '.repeat(currentDepth) + `... (+ ${files.length - 20} more items)\n`;
+                        break;
+                    }
+                    const fullPath = path.join(dir, file);
+                    const isDir = fs.statSync(fullPath).isDirectory();
+                    result += '  '.repeat(currentDepth) + (isDir ? '[DIR] ' : '[FILE] ') + file + '\n';
+                    if (isDir) result += getWorkspaceTree(fullPath, maxDepth, currentDepth + 1);
+                }
+            } catch (e) {}
+            return result;
+        };
+
+        const workspaceTree = getWorkspaceTree(cwd);
+
+        let memorySection = '';
+        if (bootMemoryContent) {
+            memorySection = `[ATCLI PROJECT MEMORY]\nThe user has an existing ATCLI_MEMORY.md file in the root directory. To understand the project's history, dependencies, architecture, and current state, you MUST use the \`read_file\` tool to read ATCLI_MEMORY.md BEFORE continuing your task! Do NOT guess what the project is or randomly run commands. Read the memory file and explore the workspace first!`;
+        } else {
+            memorySection = '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. You will create ATCLI_MEMORY.md at your first episodic checkpoint.';
+        }
+
         // Boot injection: Project Intent + IDE context + Memory — included in ALL branches
         const bootInjection = [
             `[PROJECT INTENT]: ${this.projectIntent}`,
             `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code, not .idea/ configs). Do NOT write configs for other IDEs unless the user explicitly asks.`,
-            bootMemoryContent
-                ? `[ATCLI PROJECT MEMORY - READ THIS FIRST]:\n${bootMemoryContent}\n[END OF MEMORY]`
-                : '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. You will create ATCLI_MEMORY.md at your first episodic checkpoint.'
+            `[WORKSPACE STRUCTURE]:\n${workspaceTree || '(Empty workspace)'}`,
+            memorySection
         ].join('\n\n');
 
         if (this.isFirstMessage) {
