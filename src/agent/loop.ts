@@ -280,7 +280,7 @@ export class AgentLoop {
             `[PROJECT INTENT]: ${this.projectIntent}`,
             `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code, not .idea/ configs). Do NOT write configs for other IDEs unless the user explicitly asks.`,
             bootMemoryContent
-                ? `[ATCLI PROJECT MEMORY - READ THIS FIRST]:\n${bootMemoryContent.substring(0, 3000)}\n[END OF MEMORY]`
+                ? `[ATCLI PROJECT MEMORY - READ THIS FIRST]:\n${bootMemoryContent}\n[END OF MEMORY]`
                 : '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. You will create ATCLI_MEMORY.md at your first episodic checkpoint.'
         ].join('\n\n');
 

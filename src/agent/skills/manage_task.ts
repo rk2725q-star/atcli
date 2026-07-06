@@ -22,7 +22,8 @@ export const ManageTaskSkill: AgentSkill = {
             if (tasks.has(taskId)) return `Error: Task ID '${taskId}' is already running. Kill it first.`;
             
             // Execute in shell
-            const child = spawn(args.command, { shell: true, cwd: process.cwd() });
+            const cwdPath = args.cwd ? require('path').resolve(process.cwd(), args.cwd) : process.cwd();
+            const child = spawn(args.command, { shell: true, cwd: cwdPath });
             const taskData = { process: child, logs: [] as string[] };
             tasks.set(taskId, taskData);
 
