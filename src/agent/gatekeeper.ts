@@ -14,6 +14,7 @@ export interface GatekeeperResult {
 }
 
 const DESTRUCTIVE_PATTERNS = [
+    // File system destruction
     /rm\s+-rf\s+[/\\]/i,
     /del\s+\/[fqs]+\s+[/\\]/i,
     /format\s+[a-z]:/i,
@@ -25,20 +26,60 @@ const DESTRUCTIVE_PATTERNS = [
     /bcdedit/i,
     /diskpart/i,
     /Remove-Item.*-Recurse.*Force.*[A-Z]:\\/i,
+    // Execution of remote scripts (supply chain attack)
+    /curl.+\|.*(bash|sh|python|node)/i,
+    /wget.+\|.*(bash|sh|python|node)/i,
+    /Invoke-Expression.*Invoke-WebRequest/i,
+    /iex.*\(New-Object.*WebClient\)/i,
+    // Base64-encoded payload execution (obfuscation attack)
+    /base64.*\|.*(bash|sh|eval)/i,
+    /echo.*[A-Za-z0-9+\/]{40,}.*\|.*base64/i,
+    /powershell.*-EncodedCommand/i,
+    // Python/Node inline code execution via -c flag
+    /python[0-9]?\s+-c\s+["'].*os\.system/i,
+    /node\s+-e\s+["'].*require\(['"](child_process|fs)/i,
+    // Network exfiltration (sending data to external servers)
+    /curl.*(-d|--data).*http[s]?:\/\//i,
+    /wget.*--post-data.*http[s]?:\/\//i,
+    // SSH key/credential theft
+    /cat.*\.ssh.*(id_rsa|authorized_keys)/i,
+    // Crontab/scheduled task abuse
+    /crontab\s+-[el]/i,
+    /schtasks.*\/create/i,
+];
+
+// Command injection: chaining to bypass single-command checks
+const COMMAND_INJECTION_PATTERNS = [
+    // Only flag if dangerous commands appear AFTER the chain operator
+    /[;&|`]\s*(rm\s+-rf|del\s+\/|format\s+|curl.*\|\s*bash|wget.*\|\s*sh)/i,
 ];
 
 const SECRET_PATTERNS = [
-    /sk-[a-zA-Z0-9_\-]{20,}/,
-    /AKIA[0-9A-Z]{16}/,
-    /ghp_[a-zA-Z0-9]{36}/,
-    /xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+/,
-    /AIza[0-9A-Za-z\-_]{35}/,
-    /ya29\.[0-9A-Za-z\-_]+/,
+    /sk-[a-zA-Z0-9_\-]{20,}/,           // OpenAI API key
+    /AKIA[0-9A-Z]{16}/,                   // AWS Access Key
+    /ghp_[a-zA-Z0-9]{36}/,               // GitHub Personal Access Token
+    /xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+/,  // Slack Bot Token
+    /AIza[0-9A-Za-z\-_]{35}/,            // Google API Key
+    /ya29\.[0-9A-Za-z\-_]+/,             // Google OAuth Token
+    /['"]?password['"]?\s*[:=]\s*['"][^'"]{8,}['"]/i,  // Inline password
+    /['"]?secret['"]?\s*[:=]\s*['"][^'"]{8,}['"]/i,    // Inline secret
+    /BEGIN (RSA|EC|OPENSSH) PRIVATE KEY/,  // Private key material
 ];
 
 const PROTECTED_SYSTEM_PATHS = [
+    // Windows system
     'C:\\Windows', 'C:\\Program Files', 'C:\\System32',
+    // Unix system
     '/etc', '/usr/bin', '/bin', '/sbin',
+    // User sensitive dirs (cross-platform)
+    '.ssh', 'AppData\\Roaming\\Microsoft', 'AppData\\Local\\Microsoft',
+];
+
+// Files that MUST NOT be modified by the AI (sensitive configs)
+const PROTECTED_FILE_PATTERNS = [
+    /\.env(\.local|\.production|\.staging)?$/,  // .env files — contain secrets
+    /\.ssh\/(id_rsa|authorized_keys|known_hosts)$/,  // SSH keys
+    /\/etc\/(passwd|shadow|sudoers)$/,              // Linux auth files
 ];
 
 export class Gatekeeper {
@@ -60,6 +101,11 @@ export class Gatekeeper {
             if (DESTRUCTIVE_PATTERNS.some(p => p.test(cmd))) {
                 this.log(`🚨 BLOCKED [${agentName}] destructive command: ${cmd.substring(0, 100)}`);
                 return { allowed: false, reason: `BLOCKED: Destructive command — "${cmd.substring(0, 80)}"` };
+            }
+            // 1b. Command injection check (chained dangerous commands)
+            if (COMMAND_INJECTION_PATTERNS.some(p => p.test(cmd))) {
+                this.log(`🚨 BLOCKED [${agentName}] command injection attempt: ${cmd.substring(0, 100)}`);
+                return { allowed: false, reason: `BLOCKED: Command injection detected — chained dangerous command in: "${cmd.substring(0, 80)}"` };
             }
         }
 
@@ -84,9 +130,14 @@ export class Gatekeeper {
         if (['write_file', 'create_file', 'replace'].includes(action)) {
             const fp = toolCall.path || toolCall.file || '';
             const norm = fp.replace(/\//g, '\\').toLowerCase();
-            if (PROTECTED_SYSTEM_PATHS.some(p => norm.startsWith(p.toLowerCase()))) {
+            if (PROTECTED_SYSTEM_PATHS.some(p => norm.startsWith(p.toLowerCase()) || norm.includes(p.toLowerCase()))) {
                 this.log(`🚨 BLOCKED [${agentName}] system path write: ${fp}`);
                 return { allowed: false, reason: `BLOCKED: Write to protected system path: ${fp}` };
+            }
+            // 2b. Sensitive file protection (.env, SSH keys, etc.)
+            if (PROTECTED_FILE_PATTERNS.some(p => p.test(fp))) {
+                this.log(`🚨 BLOCKED [${agentName}] sensitive file write: ${fp}`);
+                return { allowed: false, reason: `BLOCKED: Cannot overwrite sensitive file: ${fp}. Use environment variable managers instead of hardcoding secrets.` };
             }
         }
 

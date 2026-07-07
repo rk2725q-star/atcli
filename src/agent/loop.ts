@@ -304,10 +304,13 @@ export class AgentLoop {
 
         let memorySection = '';
         if (bootMemoryContent) {
-            memorySection = `[ATCLI PROJECT MEMORY]\nThe user has an existing ATCLI_MEMORY.md file in the root directory. To understand the project's history, dependencies, architecture, and current state, you MUST use the \`read_file\` tool to read ATCLI_MEMORY.md BEFORE continuing your task! Do NOT guess what the project is or randomly run commands. Read the memory file and explore the workspace first!`;
+            // Pre-inject first 3000 chars of memory directly — saves 1 wasted iteration
+            const memPreview = bootMemoryContent.substring(0, 3000);
+            memorySection = `[ATCLI PROJECT MEMORY — AUTO-INJECTED]\nThe following is the content of ATCLI_MEMORY.md for this project. Read it now and use it to understand the project history before starting:\n\n${memPreview}${bootMemoryContent.length > 3000 ? '\n\n[... Memory truncated. Use read_file on ATCLI_MEMORY.md to see full content if needed ...]' : ''}`;
         } else {
             memorySection = '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. You will create ATCLI_MEMORY.md at your first episodic checkpoint.';
         }
+
 
         // Boot injection: Project Intent + IDE context + Memory — included in ALL branches
         const bootInjection = [
@@ -377,9 +380,11 @@ export class AgentLoop {
 
         for (let i = 1; i <= this.maxIterations; i++) {
             
-            // Dynamic Context Refresh Threshold (Browser AI has ~128k-200k, Local AI usually 32k)
+            // Dynamic Context Refresh Threshold
+            // Cloud AI (GPT-4o, Claude, DeepSeek): 128k-200k context — refresh at 120k
+            // Local AI (Ollama, Qwen-local): 32k context — refresh at 20k
             const isLocal = this.provider.id === 'ollama' || this.provider.id === 'local' || this.provider.id === 'qwen-local';
-            const refreshThreshold = isLocal ? 20000 : 80000;
+            const refreshThreshold = isLocal ? 20000 : 120000;
             
             // CONTEXT REFRESH: Re-inject tools + Project Intent + Memory Snapshot to prevent memory loss
             if (this.totalTokensProcessed - lastRefreshTokens > refreshThreshold) {
@@ -392,7 +397,8 @@ export class AgentLoop {
                 if (fs.existsSync(memoryPath)) {
                     try {
                         const memContent = fs.readFileSync(memoryPath, 'utf-8');
-                        liveMemorySnapshot = `\n\n[LIVE ATCLI_MEMORY.md SNAPSHOT (auto-read at context refresh):\n${memContent.substring(0, 2000)}\n]`;
+                        // Inject up to 5000 chars (increased from 2000) to preserve critical project context
+                        liveMemorySnapshot = `\n\n[LIVE ATCLI_MEMORY.md SNAPSHOT (auto-read at context refresh):\n${memContent.substring(0, 5000)}\n]`;
                     } catch(e) { /* ignore */ }
                 }
                 const ideSection = `\n\n[IDE CONTEXT REMINDER]: User is in ${detectedIDE}. Write IDE-appropriate configs only.`;
@@ -400,10 +406,10 @@ export class AgentLoop {
                 lastRefreshTokens = this.totalTokensProcessed;
             }
 
-            // ATCLI_MEMORY 3-Iteration Recall Check
-            if (i > 1 && i % 3 === 0) {
-                currentMessage += `\n\n[SYSTEM INTELLIGENT RECALL: You have been running for 3 iterations. To prevent task hallucination, you MUST immediately use the grep_search tool or view_file tool to check your ATCLI_MEMORY.md or global instructions before writing any more code. Stay on track!]`;
-            }
+            // STALL DETECTION: Block AI from infinitely repeating the same tool call
+            // If AI outputs the SAME action+path/command 3 times in a row, it is stuck
+            const lastActions: string[] = (this as any)._lastActions || [];
+            (this as any)._lastActions = lastActions;
 
             // Active Background Task Reminder (Prevents forgetting status)
             const globalTasks = (global as any).ATCLI_TASKS;
@@ -471,7 +477,21 @@ export class AgentLoop {
                 currentMessage = `<tool_result>\nFailed to parse JSON inside <tool_call>: ${err.message}. Please fix your JSON syntax (e.g. escape inner double quotes with \\\") and try again.\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. 24/7 SECURITY FIREWALL ACTIVE: You are strictly forbidden from running destructive commands.]`;
                 continue;
             }
-            
+
+            // ─── STALL DETECTION ──────────────────────────────────────────────────
+            // If AI issues the SAME tool call (action + target) 3 times in a row → stuck loop
+            if (toolCall) {
+                const actionKey = `${toolCall.action}:${toolCall.path || toolCall.command || toolCall.query || ''}`;
+                lastActions.push(actionKey);
+                if (lastActions.length > 3) lastActions.shift();
+                if (lastActions.length === 3 && lastActions.every((a: string) => a === actionKey)) {
+                    console.log(`\n⚠️ [STALL DETECTED] AI repeated "${actionKey}" 3x in a row. Breaking loop.`);
+                    currentMessage = `<tool_result>\n[STALL DETECTED]: You have issued the exact same tool call (${actionKey}) 3 times in a row — this is an infinite loop. STOP. Choose a completely DIFFERENT approach. Try reading a different file, use grep_search, or ask the user for clarification.\n</tool_result>\n[SYSTEM REMINDER: Do NOT repeat the same action again. You must use a different tool or strategy now.]`;
+                    lastActions.length = 0; // reset
+                    continue;
+                }
+            }
+
             if (!toolCall) {
                 // [INTELLIGENT FALLBACK]: If AI hallucinates and outputs plain markdown code blocks with filenames,
                 // instead of ignoring them and exiting, we auto-extract and apply them!
