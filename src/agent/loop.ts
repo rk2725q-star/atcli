@@ -388,7 +388,7 @@ export class AgentLoop {
             
             // CONTEXT REFRESH: Re-inject tools + Project Intent + Memory Snapshot to prevent memory loss
             if (this.totalTokensProcessed - lastRefreshTokens > refreshThreshold) {
-                console.log(`\n🔄 [Agent] Context window approaching (${refreshThreshold} tokens). Auto-resending System Prompt + Intent + Memory...`);
+                console.log(`\n🔄 [Agent] Context window approaching (${refreshThreshold} tokens). Auto-resending System Prompt + Intent + Memory + Skills...`);
                 const intentSection = this.projectIntent 
                     ? `\n\n[PROJECT INTENT RE-INJECTION: The user's original goal is:\n"${this.projectIntent}"\nStay strictly aligned to this. Do not add unrequested features or delete files not related to this goal.]`
                     : '';
@@ -397,14 +397,25 @@ export class AgentLoop {
                 if (fs.existsSync(memoryPath)) {
                     try {
                         const memContent = fs.readFileSync(memoryPath, 'utf-8');
-                        // Inject up to 5000 chars (increased from 2000) to preserve critical project context
+                        // Inject up to 5000 chars to preserve critical project context
                         liveMemorySnapshot = `\n\n[LIVE ATCLI_MEMORY.md SNAPSHOT (auto-read at context refresh):\n${memContent.substring(0, 5000)}\n]`;
                     } catch(e) { /* ignore */ }
                 }
+                // Re-inject skill index at refresh so AI never forgets which cinematic/game skills exist
+                let skillIndexSection = '';
+                const skillIndexPath = path.join(cwd, '.agents', 'SKILL_INDEX.md');
+                if (fs.existsSync(skillIndexPath)) {
+                    try {
+                        const indexContent = fs.readFileSync(skillIndexPath, 'utf-8');
+                        skillIndexSection = `\n\n[SKILL INDEX RE-INJECTION — Your available global skills:\n${indexContent.substring(0, 1200)}\n]`;
+                    } catch(e) { /* ignore */ }
+                }
                 const ideSection = `\n\n[IDE CONTEXT REMINDER]: User is in ${detectedIDE}. Write IDE-appropriate configs only.`;
-                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Context Protection): Re-injecting tools + project state to prevent memory loss.]\n\n${systemPrompt}${intentSection}${liveMemorySnapshot}${ideSection}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+                const securityReaffirm = `\n\n[24/7 SECURITY REAFFIRMATION]: Destructive commands (rm -rf, format, del /s, curl|bash, base64|eval, powershell -EncodedCommand) are PERMANENTLY BLOCKED. Your sandbox is: ${cwd}. You CANNOT write to .env, .ssh, system paths, or ATCLI source files.`;
+                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Token Protection): Re-injecting core state to prevent memory/skill loss.]\n\n${systemPrompt}${intentSection}${liveMemorySnapshot}${skillIndexSection}${ideSection}${securityReaffirm}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
                 lastRefreshTokens = this.totalTokensProcessed;
             }
+
 
             // STALL DETECTION: Block AI from infinitely repeating the same tool call
             // If AI outputs the SAME action+path/command 3 times in a row, it is stuck

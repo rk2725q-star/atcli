@@ -196,11 +196,11 @@ YOU ARE CURRENTLY RUNNING IN OPENCLAW AUTONOMOUS MODE CONNECTED TO THE ATCLI XML
 
 # TOP-NOTCH UI & AESTHETICS STANDARDS (AUTO-LOADED)
 When the user asks you to build a website, app, or UI component, you MUST adhere to the following premium design standards by default:
-1. Use modern frameworks (like React/Next.js/Vite) with Tailwind CSS v4 or v3.
+1. Use modern frameworks (React/Next.js/Vite). For CSS: (a) if the user requests Tailwind — use Tailwind CSS v3; (b) if the user says "vanilla", "plain CSS", or doesn't specify — use Vanilla CSS with CSS variables. NEVER mix both.
 2. DO NOT build generic "bootstrap-style" sites. You MUST use premium aesthetics: Glassmorphism, subtle gradients, rich dark modes (or clean light modes), and curated HSL color palettes (avoid plain red/blue/green).
 3. Use modern typography (e.g., Inter, Roboto, Outfit) via Google Fonts.
 4. Implement micro-animations (hover effects, smooth transitions) to make the app feel alive and responsive.
-5. Use Shadcn UI component patterns or similar premium component structures. 
+5. Use Shadcn UI patterns or similar premium component structures.
 6. Ensure fully responsive, mobile-first design using Flexbox and CSS Grids.
 7. YOUR GOAL is to make the user say "WOW".
 
@@ -360,8 +360,9 @@ Same as 16-mark but add Case Study + Comparison Table + Future Scope.
                         }
                     }
                     
-                    // Eagerly load core guardrail, architecture, compression, and game skills to enforce them globally
-                    if (lowerName.includes('guardrail') || lowerName.includes('architecture') || lowerName.includes('compression') || lowerName.includes('game')) {
+                    // Eagerly load core guardrail, architecture, compression, game, and cinematic skills
+                    const eagerKeywords = ['guardrail', 'architecture', 'compression', 'game-engine', 'dynamic-scene'];
+                    if (eagerKeywords.some(kw => lowerName.includes(kw))) {
                         try {
                             const skillContent = await fs.readFile(path.join(dir, entry.name, 'SKILL.md'), 'utf-8');
                             customKnowledge += `\n\n[GLOBAL ACTIVE GUARDRAIL: ${entry.name}]\n${skillContent}\n`;
@@ -391,6 +392,14 @@ Same as 16-mark but add Case Study + Comparison Table + Future Scope.
 
     let customKnowledge = "";
     if (customKnowledgeList) {
+        // Also check if SKILL_INDEX.md exists for quick AI reference
+        let skillIndexHint = '';
+        const skillIndexPath = path.resolve(process.cwd(), '.agents', 'SKILL_INDEX.md');
+        try {
+            const indexContent = await fs.readFile(skillIndexPath, 'utf-8');
+            skillIndexHint = `\n\n[SKILL QUICK INDEX — Read this first to pick the right skill]:\n${indexContent.substring(0, 1500)}`;
+        } catch (e) {}
+
         customKnowledge = `
 # PROJECT SPECIFIC KNOWLEDGE & SKILLS (LAZY LOADED)
 We have 40+ custom skills available. To save context space, only their folder names are listed below.
@@ -401,11 +410,11 @@ The skills are physically located in the following absolute paths on this machin
 - ${osGlobalSkillsDir}
 - ${geminiGlobalSkillsDir}
 
-If you are unsure which skill to use, you MUST use the \`grep_search\` tool to search for keywords inside those EXACT absolute paths to find the relevant tool. 
-Once you identify a relevant skill folder, you MUST use \`list_dir\` to explore it using its absolute path, and \`read_file\` to read its \`SKILL.md\` or \`README.md\` documentation before writing any code.
-
-Additionally, you can use the \`find_external_skills\` tool to fetch from the skills.sh website and discover more AI skills.
-You MUST actively search and read documentation to learn about these tools!
+🔑 FASTEST WAY: Read \`.agents/SKILL_INDEX.md\` for a 1-line summary of every skill — no need to explore each folder.
+If you need full instructions for a skill, use \`read_file\` on the \`SKILL.md\` inside its folder.
+If you are unsure which skill to use, use \`grep_search\` inside those absolute paths to find the right tool by keyword.
+Additionally, use \`find_external_skills\` to fetch from the skills.sh website for more AI skills.
+${skillIndexHint}
 
 Available Skill Folders:
 ${customKnowledgeList}
