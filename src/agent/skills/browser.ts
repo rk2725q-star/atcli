@@ -255,3 +255,101 @@ export const BrowserSmartClickSkill: AgentSkill = {
         }
     }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTO-TESTER SKILLS — Used by atcli-auto-tester skill for QA automation
+// Screenshots are STRICTLY in-memory only. NEVER written to disk.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const BrowserScreenshotSkill: AgentSkill = {
+    name: 'browser_screenshot',
+    description: 'Takes a screenshot of a URL and sends it to AI vision for analysis. IN-MEMORY ONLY — never saved to disk, no files created. Use for visual QA testing and layout verification. Result is analyzed by AI vision automatically via ATCLI_VISION_PAYLOAD.',
+    example: `<tool_call>\n{"action": "browser_screenshot", "url": "http://localhost:3000", "fullPage": true}\n</tool_call>`,
+    execute: async (args: any) => {
+        try {
+            const manager = BrowserManager.getInstance();
+            await manager.initialize();
+
+            // Get or create preview page in the shared browser context
+            const previewPage = await manager.getOrCreatePage(
+                'atcli-test-preview',
+                args.url || 'http://localhost:3000'
+            );
+
+            // Navigate if URL provided or different from current
+            if (args.url) {
+                try {
+                    await previewPage.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                    // Brief wait for JS to hydrate
+                    await previewPage.waitForTimeout(1500);
+                } catch (e: any) {
+                    // Page might already be there, continue
+                }
+            }
+
+            // Apply viewport if specified (for mobile testing)
+            if (args.viewport) {
+                await previewPage.setViewportSize({
+                    width: args.viewport.width || 1280,
+                    height: args.viewport.height || 800
+                });
+                await previewPage.waitForTimeout(300);
+            }
+
+            // ✅ IN-MEMORY ONLY — Buffer in RAM, NEVER written to any file or disk
+            const screenshotBuffer = await previewPage.screenshot({
+                fullPage: args.fullPage === true,
+                type: 'png'
+            });
+            const base64Image = screenshotBuffer.toString('base64');
+
+            // Reset viewport if we changed it
+            if (args.viewport) {
+                await previewPage.setViewportSize({ width: 1280, height: 800 });
+            }
+
+            const context = args.context || `Visual QA screenshot of ${args.url || 'current page'}. Analyze: 1) Any blank/white areas? 2) Layout broken or overlapping? 3) All expected sections visible? 4) Any error messages? 5) Rate visual quality 1-10.`;
+
+            // Return as ATCLI_VISION_PAYLOAD — system handles sending to AI vision
+            return `__ATCLI_VISION_PAYLOAD__base64::${base64Image}__${context}`;
+        } catch (e: any) {
+            return `Error capturing screenshot: ${e.message}. Is the dev server running?`;
+        }
+    }
+};
+
+export const BrowserEvaluateSkill: AgentSkill = {
+    name: 'browser_evaluate',
+    description: 'Runs JavaScript code in the browser page context. Use for: checking DOM elements, testing functionality, measuring performance, reading console errors, validating API responses. Returns the result as a JSON string.',
+    example: `<tool_call>\n{"action": "browser_evaluate", "url": "http://localhost:3000", "script": "return document.title"}\n</tool_call>`,
+    execute: async (args: any) => {
+        if (!args.script) return 'Error: script is required';
+        try {
+            const manager = BrowserManager.getInstance();
+            await manager.initialize();
+
+            const previewPage = await manager.getOrCreatePage(
+                'atcli-test-preview',
+                args.url || 'http://localhost:3000'
+            );
+
+            if (args.url) {
+                try {
+                    const currentUrl = previewPage.url();
+                    if (!currentUrl.includes(args.url.replace(/https?:\/\//, ''))) {
+                        await previewPage.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
+                        await previewPage.waitForTimeout(1000);
+                    }
+                } catch { /* continue */ }
+            }
+
+            // Wrap script in AsyncFunction to support top-level await
+            const wrappedScript = `(async () => { ${args.script} })()`;
+            const result = await previewPage.evaluate(wrappedScript);
+
+            return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        } catch (e: any) {
+            return `Evaluate error: ${e.message}`;
+        }
+    }
+};

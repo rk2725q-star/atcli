@@ -1,324 +1,348 @@
 ---
 name: atcli-auto-tester
 description: >
-  Triggered automatically after EVERY project build completion OR when user mentions "test", "verify", "check if it works",
-  "qa", "quality check", "all working", "validate", "topnotch results". Runs full automated testing suite
-  from basic to advanced — visual, accessibility, performance, functional, cross-browser. Auto-fixes all
-  failures and re-tests until 100% pass. This is ATCLI's QA engine. Never skip testing.
-  
+  Triggered automatically after EVERY project build completion OR when user mentions "test", "verify",
+  "check if it works", "qa", "quality check", "all working", "validate", "topnotch results".
+  Runs AI-DRIVEN automated testing — AI thinks about what tests are relevant to THIS specific project,
+  then runs them. Auto-fixes failures. Loops until topnotch. First time: asks permission once.
+  If user approves "always test": never asks again. Screenshots are IN-MEMORY ONLY — never saved to disk.
+
   TRIGGER KEYWORDS: test, testing, verify, check, QA, validate, working, all works, auto-fix, localhost, results
 ---
 
-# ATCLI Auto-Tester — AI-Powered Full-Stack QA Engine
+# ATCLI Auto-Tester — AI-Driven Intelligent QA Engine
 
-You are ATCLI's autonomous QA engineer. After every project build, you MUST run this complete testing
-protocol WITHOUT being asked. Your goal: find every bug, fix it, re-test, until outcome is TOPNOTCH.
+You are ATCLI's autonomous QA engineer. Unlike basic test runners, you THINK about what tests
+are relevant to THIS project specifically, generate the test cases yourself, and execute them.
 
 ## PHILOSOPHY
-- Claude Code, Cursor, Windsurf BUILD and LEAVE. ATCLI BUILDS and VERIFIES until perfect.
-- Every test level MUST pass before declaring success.
-- Auto-fix every failure found. Never report "this might be a problem" — fix it immediately.
-- Use screenshot + AI vision to verify visuals — not just console logs.
-- MAX_RETRY_CYCLES = 5. Loop until ALL levels pass or cycles exhausted.
+- Claude Code builds and leaves. ATCLI builds → thinks → tests → fixes → verifies → delivers.
+- You are the QA brain. You decide what to test based on the project.
+- Screenshots are STRICTLY in-memory only. NEVER write to disk. NEVER save files.
+- Auto-fix every failure. User should never manually test anything.
 
 ---
 
-## PRE-TEST: DETECT PROJECT TYPE
+## STEP 0: PERMISSION GATE (FIRST TIME ONLY)
 
-Before running tests, detect what kind of project this is:
+Before running ANY tests, check ATCLI_MEMORY.md for testing preference:
 
 ```
 <tool_call>
-{"action": "run_command", "command": "cat package.json 2>/dev/null || type package.json", "cwd": "."}
+{"action": "run_command", "command": "grep -i \"AUTO_TEST_PREFERENCE\" ATCLI_MEMORY.md 2>/dev/null || type ATCLI_MEMORY.md | findstr /I \"AUTO_TEST_PREFERENCE\"", "cwd": "."}
 </tool_call>
 ```
 
-Based on package.json detect:
-- **Next.js**: has `next` in dependencies → test at port 3000, check `pages/` or `app/`
-- **Vite/React**: has `vite` → test at port 5173
-- **Express/Node**: has `express` → test API endpoints at port 3000/8000
-- **Python (FastAPI/Flask)**: check `requirements.txt` → port 8000/5000
-- **Static HTML**: no package.json → open `index.html` directly
+**IF** `AUTO_TEST_PREFERENCE: always` found → skip to STEP 1 immediately (no prompt needed)
+**IF** `AUTO_TEST_PREFERENCE: never` found → skip testing entirely, output brief note
+**IF** not found (first time) → ask user ONCE:
 
----
+Output this message to user (NOT a tool call — plain text):
+```
+🧪 [ATCLI Auto-Tester] Ready to run automated tests on your project.
 
-## TESTING LEVELS — Execute ALL 8 in Order
+Choose your testing preference:
+  [1] Test now + always auto-test future builds (recommended)
+  [2] Test now only (ask me next time)
+  [3] Skip testing
 
-### LEVEL 1: Server Health Check (Basic)
-**Purpose:** Is the dev server actually running and responding?
+Your choice saves to ATCLI_MEMORY.md so I never ask again (unless you change it).
+```
 
-Windows/PowerShell:
+Wait for user response. Based on answer:
+- "1" / "always" / "yes always" → save `AUTO_TEST_PREFERENCE: always` to ATCLI_MEMORY.md, proceed to STEP 1
+- "2" / "yes" / "test" → proceed to STEP 1, do NOT save preference
+- "3" / "no" / "skip" → save `AUTO_TEST_PREFERENCE: never`, exit skill
+
+Save preference with:
 ```
 <tool_call>
-{"action": "run_command", "command": "powershell -Command \"try { $r=(Invoke-WebRequest 'http://localhost:3000' -UseBasicParsing -TimeoutSec 5); Write-Host $r.StatusCode } catch { Write-Host 'FAILED:' $_.Exception.Message }\"", "cwd": "."}
-</tool_call>
-```
-
-**Expected output:** `200` or `301`
-**If FAILED:** Server not running → detect correct start command from package.json and run it in background first.
-
-Check common ports: 3000 (Next/React), 5173 (Vite), 8000 (FastAPI), 5000 (Flask), 4200 (Angular)
-
----
-
-### LEVEL 2: Build Validation (Zero Errors)
-**Purpose:** Does the project compile without TypeScript/ESLint errors?
-
-TypeScript check:
-```
-<tool_call>
-{"action": "run_command", "command": "npx tsc --noEmit 2>&1", "cwd": "."}
-</tool_call>
-```
-
-If TS errors exist, auto-fix each one:
-1. Read the file with the error
-2. Fix the type issue (add type annotation, fix null check, add missing property)
-3. Re-run tsc to confirm fixed
-
-ESLint check:
-```
-<tool_call>
-{"action": "run_command", "command": "npx eslint . --ext .ts,.tsx,.js,.jsx --format compact 2>&1 | head -30", "cwd": "."}
-</tool_call>
-```
-
-Auto-fix ESLint:
-```
-<tool_call>
-{"action": "run_command", "command": "npx eslint . --ext .ts,.tsx,.js,.jsx --fix 2>&1", "cwd": "."}
+{"action": "replace", "path": "ATCLI_MEMORY.md", "search": "## 🔜 Next Steps", "replace": "## ⚙️ ATCLI Settings\nAUTO_TEST_PREFERENCE: always\n\n## 🔜 Next Steps"}
 </tool_call>
 ```
 
 ---
 
-### LEVEL 3: Visual Screenshot + AI Vision Verification
-**Purpose:** Does the page LOOK correct? Blank screens, broken layouts, missing elements?
+## STEP 1: INTELLIGENT PROJECT ANALYSIS
 
-Take full-page screenshot:
+Read the project to understand WHAT to test. Don't run generic tests — think specifically.
+
 ```
 <tool_call>
-{"action": "browser_screenshot", "url": "http://localhost:3000", "fullPage": true}
+{"action": "run_command", "command": "cat package.json 2>/dev/null | head -40 || type package.json | head", "cwd": "."}
 </tool_call>
 ```
 
-Analyze with vision AI:
+Also scan for key files:
 ```
 <tool_call>
-{"action": "vision_analyze", "prompt": "Analyze this web app screenshot thoroughly. Report ALL of: 1) Is there a blank/white screen? 2) Any visible JavaScript error messages? 3) Is the layout broken, overlapping, or misaligned? 4) Are all expected UI sections present (navbar, hero, features, footer)? 5) Do colors, fonts, and spacing look professional? 6) Are there any broken images (missing/placeholder icons)? 7) Rate the overall visual quality 1-10. 8) List every specific problem found with its CSS selector or component name."}
+{"action": "list_dir", "path": "."}
 </tool_call>
 ```
 
-**Auto-fix based on AI vision output:**
-- Blank screen → check for JS import errors, missing default export, wrong file path
-- Layout broken → fix flexbox/grid CSS, check z-index conflicts
-- Missing sections → check conditional rendering, verify data is being passed correctly
-- Broken images → fix image paths, add proper public/ folder assets
+Based on what you find, build a CUSTOM TEST PLAN for THIS project:
+
+### Project Type Detection → Custom Tests
+
+**E-commerce (Flipkart-style):**
+- Product listing loads with items
+- Search/filter works
+- Add to cart → cart count updates
+- Checkout flow is accessible
+- Price calculations correct
+- Product images load
+
+**Authentication App:**
+- Login form validates correctly (empty fields, wrong password)
+- Signup with duplicate email shows error
+- Protected routes redirect to login when not authenticated
+- JWT/session persists on page refresh
+- Logout clears session
+
+**Dashboard/Analytics:**
+- Charts render with data (not empty)
+- Date filter updates chart
+- API calls return correct data
+- Tables paginate correctly
+
+**Blog/CMS:**
+- Post list shows all posts
+- Single post page renders correctly
+- Tags/categories filter works
+- Search returns relevant results
+
+**API-Only Backend:**
+- All CRUD endpoints respond (GET, POST, PUT, DELETE)
+- Auth middleware rejects unauthenticated requests (401)
+- Input validation rejects bad data (400)
+- Correct HTTP status codes returned
+- Response JSON schema matches expected shape
+
+**3D/Cinematic Website:**
+- WebGL context initialized (no fallback message)
+- Animations running (RAF active, not frozen)
+- Frame rate acceptable (>= 30 FPS)
+- 3D objects loaded (no missing mesh errors)
+- Scene transitions work
+
+**Game:**
+- Game canvas renders
+- Controls respond (keyboard/mouse events fire)
+- Score/health display updates
+- No physics simulation crashes
 
 ---
 
-### LEVEL 4: Console Error Detection
-**Purpose:** Are there JavaScript runtime errors crashing the app?
+## STEP 2: GENERATE YOUR CUSTOM TEST CASES
+
+After analyzing the project, WRITE your specific test cases before executing.
+Think like a senior QA engineer. For example, for a Next.js e-commerce site:
 
 ```
-<tool_call>
-{"action": "browser_evaluate", "script": "const errors = []; const origError = console.error; console.error = (...args) => { errors.push(args.join(' ')); origError(...args); }; await new Promise(r => setTimeout(r, 3000)); return JSON.stringify({errors: errors.slice(0,10), url: window.location.href, title: document.title})"}
-</tool_call>
+MY TEST PLAN FOR THIS PROJECT:
+1. ✅ Server: GET / returns 200
+2. ✅ Homepage: Hero, Product Grid, Footer visible
+3. ✅ Product API: GET /api/products returns array with price/name/image
+4. ✅ Cart: Add item → localStorage cart count = 1
+5. ✅ Search: Query "laptop" → filters results
+6. ✅ Mobile: 375px no horizontal scroll
+7. ✅ Performance: FCP < 2s
+8. ✅ Console: Zero errors on all pages
 ```
 
-**Auto-fix every console error:**
-| Error Pattern | Auto-Fix |
-|---|---|
-| `Cannot read properties of undefined/null` | Add `?.` optional chaining or null check |
-| `Module not found: 'xyz'` | Run `npm install xyz` |
-| `SyntaxError` | Read file, fix syntax |
-| `404 /api/...` | Fix API route path or create missing endpoint |
-| `CORS error` | Add CORS headers in server config |
-| `ChunkLoadError` | Clear .next or dist cache, rebuild |
-| `Hydration failed` | Fix SSR/CSR mismatch in React component |
+Always include these BASE tests (apply to every project):
+- Server health
+- Visual screenshot (in-memory, AI-analyzed)
+- Console error scan
+- Mobile responsiveness
+- Performance metrics
 
 ---
 
-### LEVEL 5: Functional Navigation & Interaction Test
-**Purpose:** Do all pages work? Are buttons and forms functional?
+## STEP 3: EXECUTE TESTS
 
-Get all routes:
+### BASE TEST A: Server Health
 ```
 <tool_call>
-{"action": "browser_evaluate", "script": "const links = Array.from(document.querySelectorAll('a[href]')).map(a => ({href: a.getAttribute('href'), text: a.textContent?.trim().substring(0,40)})).filter(l => l.href && !l.href.startsWith('http') && !l.href.startsWith('mailto') && !l.href.startsWith('#')); return JSON.stringify({links: links.slice(0,15), totalLinks: links.length})"}
+{"action": "run_command", "command": "powershell -Command \"try{$r=Invoke-WebRequest 'http://localhost:3000' -UseBasicParsing -TimeoutSec 5; $r.StatusCode}catch{Write-Host 'DOWN:'+$_.Exception.Message}\"", "cwd": "."}
 </tool_call>
 ```
 
-For each internal route found, navigate and screenshot:
+For Python backends:
 ```
 <tool_call>
-{"action": "browser_screenshot", "url": "http://localhost:3000/[route]", "fullPage": false}
+{"action": "run_command", "command": "powershell -Command \"(Invoke-WebRequest 'http://localhost:8000' -UseBasicParsing).StatusCode\"", "cwd": "."}
 </tool_call>
 ```
 
-Test interactive elements (buttons, forms, menus):
+### BASE TEST B: Visual Screenshot (IN-MEMORY ONLY — NEVER SAVED TO DISK)
+
+**⚠️ CRITICAL RULE: Screenshots MUST use the vision_analyze tool which keeps images in memory.**
+**NEVER use write_file, save_screenshot, or any tool that writes to disk for test screenshots.**
+
 ```
 <tool_call>
-{"action": "browser_evaluate", "script": "const results = []; const buttons = Array.from(document.querySelectorAll('button:not([disabled])')).slice(0, 8); for (const btn of buttons) { try { const txt = btn.textContent?.trim().substring(0,30); btn.dispatchEvent(new MouseEvent('click', {bubbles:true})); await new Promise(r=>setTimeout(r,200)); results.push({element: 'button', text: txt, status: 'clicked_ok'}); } catch(e) { results.push({element: 'button', error: e.message}); } } return JSON.stringify(results)"}
+{"action": "browser_screenshot", "url": "http://localhost:3000", "fullPage": true, "returnBase64": true}
 </tool_call>
 ```
 
-Test form submission (if form exists):
+The result will be a `__ATCLI_VISION_PAYLOAD__` — the system sends it to AI vision automatically.
+Analyze with specific questions based on project type:
+- E-commerce: "Are product cards visible? Is the nav showing cart icon?"
+- Auth app: "Is the login form visible? Are there input fields and submit button?"
+- Dashboard: "Are charts rendered? Is data showing or are charts empty?"
+- 3D site: "Is the 3D canvas rendering? Is there any WebGL fallback message?"
+
+### BASE TEST C: Console Error Scan
 ```
 <tool_call>
-{"action": "browser_evaluate", "script": "const form = document.querySelector('form'); if (!form) return 'No form found'; const inputs = form.querySelectorAll('input:not([type=submit]):not([type=checkbox])'); inputs.forEach(inp => { if (inp.type === 'email') inp.value = 'test@example.com'; else if (inp.type === 'number') inp.value = '42'; else inp.value = 'Test Input'; }); return JSON.stringify({formFound: true, inputsFilled: inputs.length, formId: form.id})"}
+{"action": "browser_evaluate", "script": "const errors = []; const warns = []; const _error = console.error.bind(console); const _warn = console.warn.bind(console); console.error = (...a) => { errors.push(a.join(' ')); _error(...a); }; console.warn = (...a) => { warns.push(a.join(' ')); _warn(...a); }; await new Promise(r => setTimeout(r, 2500)); const uncaught = window.__uncaughtErrors || []; return JSON.stringify({errors: [...errors, ...uncaught].slice(0,10), warnings: warns.slice(0,5), url: location.href})"}
+</tool_call>
+```
+
+### BASE TEST D: Performance
+```
+<tool_call>
+{"action": "browser_evaluate", "script": "await new Promise(r=>setTimeout(r,500)); const n=performance.getEntriesByType('navigation')[0]; const p=Object.fromEntries(performance.getEntriesByType('paint').map(e=>[e.name.replace('first-','').replace('-','_'),Math.round(e.startTime)])); const res=performance.getEntriesByType('resource'); return JSON.stringify({ttfb:Math.round(n?.responseStart-n?.requestStart)||0, dom:Math.round(n?.domContentLoadedEventEnd)||0, load:Math.round(n?.loadEventEnd)||0, paint:p, resources:res.length, size_kb:Math.round(res.reduce((s,r)=>s+r.transferSize,0)/1024)})"}
+</tool_call>
+```
+
+### BASE TEST E: Mobile Responsiveness
+```
+<tool_call>
+{"action": "browser_evaluate", "script": "const vps=[{w:375,n:'iPhone'},{w:768,n:'iPad'},{w:1440,n:'Desktop'}]; const r=[]; for(const vp of vps){const overflow=Array.from(document.querySelectorAll('*')).filter(el=>{try{const rect=el.getBoundingClientRect();return rect.right>vp.w+10&&getComputedStyle(el).display!=='none'&&el.tagName!=='HTML'&&el.tagName!=='BODY'}catch{return false}}).slice(0,3).map(el=>el.tagName+'.'+el.className.toString().substring(0,15)); r.push({vp:vp.n,width:vp.w,overflow})} return JSON.stringify(r)"}
+</tool_call>
+```
+
+### PROJECT-SPECIFIC TESTS (examples — adapt to actual project):
+
+**API Testing (for any API routes found):**
+```
+<tool_call>
+{"action": "browser_evaluate", "script": "const routes = ['/api/products', '/api/users', '/api/posts', '/api/health']; const results = []; for(const r of routes) { try { const res = await fetch(window.location.origin + r); results.push({route: r, status: res.status, ok: res.ok, type: res.headers.get('content-type')}); } catch(e) { results.push({route: r, error: e.message}); } } return JSON.stringify(results)"}
+</tool_call>
+```
+
+**Auth Testing (if login/signup exists):**
+```
+<tool_call>
+{"action": "browser_evaluate", "script": "// Test empty login form submission\nconst form = document.querySelector('form'); if(!form) return 'No form'; const emailInput = form.querySelector('input[type=\"email\"], input[name*=\"email\"]'); const submit = form.querySelector('[type=\"submit\"], button[type=\"submit\"]'); if(emailInput) emailInput.value = ''; if(submit) submit.click(); await new Promise(r=>setTimeout(r,500)); const errors = Array.from(document.querySelectorAll('[class*=\"error\"], [class*=\"invalid\"], [aria-invalid]')).map(el=>el.textContent?.trim().substring(0,50)); return JSON.stringify({validationErrors: errors, formSubmitted: true})"}
+</tool_call>
+```
+
+**Cart/E-commerce Testing:**
+```
+<tool_call>
+{"action": "browser_evaluate", "script": "// Test add-to-cart\nconst addBtn = Array.from(document.querySelectorAll('button')).find(b=>b.textContent?.toLowerCase().includes('add to cart')||b.textContent?.toLowerCase().includes('add to bag')); if(!addBtn) return JSON.stringify({found: false}); const countBefore = document.querySelector('[class*=\"cart\"] [class*=\"count\"], [data-cart-count]')?.textContent||'0'; addBtn.click(); await new Promise(r=>setTimeout(r,800)); const countAfter = document.querySelector('[class*=\"cart\"] [class*=\"count\"], [data-cart-count]')?.textContent||'0'; return JSON.stringify({addButtonFound: true, countBefore, countAfter, updated: countBefore!==countAfter})"}
+</tool_call>
+```
+
+**3D/WebGL Testing:**
+```
+<tool_call>
+{"action": "browser_evaluate", "script": "const canvas = document.querySelector('canvas'); if(!canvas) return JSON.stringify({canvas: false, error: 'No canvas found'}); const gl = canvas.getContext('webgl2') || canvas.getContext('webgl'); const rafActive = performance.getEntriesByType('frame')?.length > 0; const drawCalls = gl?.getParameter(gl?.DRAW_BUFFER0); return JSON.stringify({canvas: true, webgl: !!gl, width: canvas.width, height: canvas.height, contextType: gl?.constructor?.name, fallbackMessage: document.body.textContent?.includes('WebGL not supported')})"}
 </tool_call>
 ```
 
 ---
 
-### LEVEL 6: Accessibility (a11y) Automated Audit
-**Purpose:** Is the app usable by everyone? WCAG 2.1 compliance?
-
-Inject axe-core and run audit:
-```
-<tool_call>
-{"action": "browser_evaluate", "script": "return new Promise((resolve) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.9.1/axe.min.js'; s.onload = () => axe.run().then(r => { const v = r.violations.map(v => ({id:v.id, impact:v.impact, desc:v.description.substring(0,80), count:v.nodes.length, fix:v.nodes[0]?.failureSummary?.substring(0,100)})); resolve(JSON.stringify({total:v.length, critical:v.filter(x=>x.impact==='critical'), serious:v.filter(x=>x.impact==='serious'), moderate:v.filter(x=>x.impact==='moderate')})); }); document.head.appendChild(s); })"}
-</tool_call>
-```
-
-**Auto-fix by violation type:**
-- `image-alt`: Add `alt=""` to decorative or `alt="description"` to meaningful images
-- `label`: Add `<label htmlFor="inputId">` before each form input
-- `color-contrast`: Darken text color or lighten background in CSS
-- `button-name`: Add `aria-label` attribute to icon-only buttons
-- `landmark-one-main`: Wrap main content in `<main>` element
-- `heading-order`: Fix h1→h2→h3 hierarchy
-
----
-
-### LEVEL 7: Performance Metrics
-**Purpose:** Is the app fast? No bottlenecks?
+## STEP 4: AUTO-FIX LOOP
 
 ```
-<tool_call>
-{"action": "browser_evaluate", "script": "await new Promise(r=>setTimeout(r,1000)); const nav = performance.getEntriesByType('navigation')[0]; const paints = Object.fromEntries(performance.getEntriesByType('paint').map(p=>[p.name.replace('first-',''),Math.round(p.startTime)])); const resources = performance.getEntriesByType('resource'); const slowResources = resources.filter(r=>r.duration>500).map(r=>({name:r.name.split('/').pop().substring(0,40), duration:Math.round(r.duration)+'ms', size:Math.round(r.transferSize/1024)+'KB'})); return JSON.stringify({TTFB_ms: Math.round(nav?.responseStart - nav?.requestStart), DOM_ms: Math.round(nav?.domContentLoadedEventEnd), Load_ms: Math.round(nav?.loadEventEnd), paints, totalResources: resources.length, totalSize_KB: Math.round(resources.reduce((s,r)=>s+r.transferSize,0)/1024), slowResources: slowResources.slice(0,5)})"}
-</tool_call>
+MAX_CYCLES = 5
+cycle = 1
+
+WHILE failures exist AND cycle <= MAX_CYCLES:
+  1. Collect all test failures from STEP 3
+  2. For each failure:
+     a. Read the relevant source file
+     b. Identify root cause
+     c. Apply targeted fix using `replace` tool (never rewrite whole file)
+     d. Log: "🔧 AUTO-FIX [Cycle N]: Fixed [issue] in [file:line]"
+  3. Wait for HMR hot-reload (2-3 seconds)
+  4. Re-run ONLY the failed tests (not all 8)
+  5. cycle++
+
+IF all pass → output FINAL REPORT
+IF still failing after 5 cycles → report remaining issues, mark as "Needs Manual Review"
 ```
 
-**Performance Thresholds:**
-| Metric | GOOD | BAD |
+**Common Auto-Fix Patterns:**
+
+| Failure | Root Cause | Fix |
 |---|---|---|
-| TTFB | < 200ms | > 600ms |
-| paint.contentful | < 1800ms | > 3000ms |
-| Load_ms | < 3000ms | > 8000ms |
-| totalSize_KB | < 1000 KB | > 3000 KB |
-
-**Auto-fix performance issues:**
-- Slow images → wrap in `next/image` or add `loading="lazy"` 
-- Large bundle → add React.lazy() for heavy components, check for duplicate imports
-- Missing caching → add `Cache-Control: max-age=31536000` for static assets
-- Slow fonts → add `font-display: swap` to @font-face declarations
+| Blank screen | Missing default export | Add `export default ComponentName` |
+| "Cannot read of undefined" | No null check | Add `?.` optional chaining |
+| API 404 | Wrong route path | Fix URL in fetch call or route file |
+| 401 on protected route | Missing auth token | Fix auth middleware or token passing |
+| Cart count not updating | State not updating | Fix React state setter / zustand store |
+| Chart empty | Data not fetched | Fix useEffect deps or API endpoint |
+| Mobile horizontal scroll | Fixed width element | Add `max-width: 100%; overflow-x: hidden` |
+| WebGL black screen | Wrong camera position | Adjust camera.position.z or scene setup |
 
 ---
 
-### LEVEL 8: Mobile Responsiveness Test
-**Purpose:** Does it work on iPhone, iPad, and Desktop?
+## STEP 5: FINAL TEST REPORT
 
-Simulate mobile viewport and screenshot:
-```
-<tool_call>
-{"action": "browser_evaluate", "script": "const results = []; const vps = [{w:375,n:'iPhone SE'},{w:390,n:'iPhone 14'},{w:768,n:'iPad'},{w:1440,n:'Desktop'}]; for(const vp of vps){ window.innerWidth; const overflowing = Array.from(document.querySelectorAll('*')).filter(el => { const rect = el.getBoundingClientRect(); return rect.right > vp.w + 5 && el.style.display !== 'none'; }).map(el => el.tagName+' '+el.className.substring(0,20)).slice(0,3); results.push({viewport: vp.n, width: vp.w, overflowingElements: overflowing}); } return JSON.stringify(results)"}
-</tool_call>
-```
-
-Check CSS for missing responsive rules:
-```
-<tool_call>
-{"action": "run_command", "command": "grep -r \"@media\" src/ --include=\"*.css\" --include=\"*.scss\" --include=\"*.module.css\" -l 2>/dev/null | head -10", "cwd": "."}
-</tool_call>
-```
-
-**Auto-fix mobile issues:**
-- Horizontal scroll → `body { overflow-x: hidden; }` + fix absolute positioned elements
-- Text too small → `@media (max-width: 768px) { font-size: 16px; }`  
-- Touch targets too small → `min-height: 44px; min-width: 44px` on interactive elements
-- Missing viewport meta → add to `<head>`: `<meta name="viewport" content="width=device-width, initial-scale=1.0">`
-- Images overflow → add `max-width: 100%; height: auto;`
-
----
-
-## AUTO-FIX LOOP PROTOCOL
+Output the complete report after all testing:
 
 ```
-RETRY_LIMIT = 5
-cycle = 0
-all_pass = false
+╔═══════════════════════════════════════════════════════════════╗
+║                 ATCLI AUTO-TEST REPORT                        ║
+╠═══════════════════════════════════════════════════════════════╣
+║  Project: [name]   |   URL: [localhost:PORT]                  ║
+║  Test Cycles: [N]  |   Auto-fixes Applied: [N]                ║
+║  Test Preference: [always/once]                               ║
+╠═══════════════════════════════════════════════════════════════╣
+║                    RESULTS                                    ║
+╠═══════════════════════════════════════════════════════════════╣
+║  Server Health:      ✅/❌  HTTP [status]                     ║
+║  Visual Check:       ✅/❌  Score [X/10]                      ║
+║  Console Errors:     ✅/❌  [N] errors                        ║
+║  Performance:        ✅/❌  FCP [Xms] | Load [Xms]            ║
+║  Mobile (375px):     ✅/❌  [overflow issues or none]         ║
+║  --- PROJECT-SPECIFIC ---                                     ║
+║  [Custom Test 1]:    ✅/❌  [result]                          ║
+║  [Custom Test 2]:    ✅/❌  [result]                          ║
+║  [Custom Test N]:    ✅/❌  [result]                          ║
+╠═══════════════════════════════════════════════════════════════╣
+║  OVERALL: ✅ TOPNOTCH — Ready for deployment!                 ║
+╚═══════════════════════════════════════════════════════════════╝
 
-while (!all_pass && cycle < RETRY_LIMIT):
-  cycle++
-  failures = run_all_8_levels()
-  
-  if failures.length == 0:
-    all_pass = true
-    break
-  
-  for each failure:
-    - identify the root cause
-    - read the relevant source file(s)
-    - apply fix using replace tool
-    - log: "AUTO-FIX [cycle N]: Fixed [issue] in [file]"
-  
-  // Hot-reload should pick up changes automatically
-  // If HMR not working, restart dev server
+🔧 AUTO-FIXES APPLIED:
+  Cycle 1: Fixed [issue] in [file]
+  Cycle 2: Fixed [issue] in [file]
 
-if all_pass:
-  output FINAL TEST REPORT with ✅ for all levels
-else:
-  output FINAL TEST REPORT with remaining ❌ items + detailed explanation for user
+📸 SCREENSHOTS: All in-memory only. Not saved to disk. ✅
+
+⚠️ MANUAL REVIEW NEEDED (if any):
+  - [remaining issue] in [file] — [why it needs manual attention]
 ```
 
 ---
 
-## FINAL TEST REPORT
+## SCREENSHOT POLICY — STRICTLY ENFORCED
 
-After all testing complete, output this exact format:
+✅ ALLOWED:
+- `browser_screenshot` with `returnBase64: true` → sends as `__ATCLI_VISION_PAYLOAD__`
+- `vision_analyze` tool → analyzes in-memory only
+- `browser_get_annotated_state` → in-memory annotation
 
-```
-╔═══════════════════════════════════════════════════════════╗
-║             ATCLI AUTO-TEST REPORT                        ║
-╠═══════════════════════════════════════════════════════════╣
-║  Project: [name from package.json]                        ║
-║  URL: [localhost URL]                                     ║
-║  Test Cycles: [N]  |  Auto-fixes Applied: [N]             ║
-╠═══════════════════════════════════════════════════════════╣
-║  L1 Server Health:     ✅/❌ [status]                     ║
-║  L2 Build Check:       ✅/❌ [TS errors: 0]               ║
-║  L3 Visual Test:       ✅/❌ [Score: X/10]                ║
-║  L4 Console Errors:    ✅/❌ [0 errors]                   ║
-║  L5 Navigation:        ✅/❌ [X/Y routes OK]              ║
-║  L6 Accessibility:     ✅/❌ [0 critical violations]      ║
-║  L7 Performance:       ✅/❌ [FCP: Xms, Load: Xms]        ║
-║  L8 Mobile:            ✅/❌ [375px ✅ 768px ✅]          ║
-╠═══════════════════════════════════════════════════════════╣
-║  OVERALL: ✅ TOPNOTCH — Ready for deployment!             ║
-╚═══════════════════════════════════════════════════════════╝
+❌ NEVER DO:
+- `write_file` with screenshot data
+- `save_screenshot` to any path
+- Storing base64 strings to files
+- Writing PNG/JPG to project directory or temp folders
 
-🔧 AUTO-FIXES APPLIED THIS SESSION:
-  [list each fix]
-
-⚠️ REMAINING ISSUES (manual review needed):
-  [list any unfixed items if retry limit exceeded]
-```
+Screenshots exist ONLY in RAM. They are sent to AI vision API, analyzed, then discarded.
+This is by design — no privacy leaks, no storage waste, no IDE clutter.
 
 ---
 
-## SKILL CHAINING — USE COMPLEMENTARY SKILLS AUTOMATICALLY
+## SKILL CHAINING
 
-Automatically chain these skills based on bug type found:
-
-| Bug Type | Chain to Skill |
-|---|---|
-| Architecture / code quality issues | `anti-vibecoding-architecture` |
-| 3D scene / Three.js / WebGL broken | `cinematic-3d-threejs` or `cinematic-react-three-fiber` |
-| Security issue (XSS, injection, etc.) | `security` |
-| Performance / bundle too large | `codebase-compression` |
-| Browser DOM interaction failing | `browser-image-hack-architecture` |
-| Complex bugs needing reasoning | Use `reason` skill before fixing |
-
-This skill is the QA CROWN of ATCLI. It validates everything the other skills build.
+After finding specific bug types, chain to specialized skills:
+- Architecture issues → `anti-vibecoding-architecture`
+- 3D/WebGL bugs → `cinematic-3d-threejs` or `cinematic-react-three-fiber`
+- Security vulnerabilities found → `security`
+- Performance issues → `codebase-compression`

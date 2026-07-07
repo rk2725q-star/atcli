@@ -12,24 +12,59 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
 
     public async sendMessage(message: string): Promise<ProviderResponse> {
         // ── Rate-limit retry loop (Fix: "Messages too frequent") ─────────────
-        // DeepSeek throttles rapid fire messages. On detection, wait and retry.
-        const MAX_RATE_RETRIES = 4;
-        let rateLimitWait = 6000; // start at 6s, double each retry
+        // DeepSeek throttles rapid-fire messages. We detect it in BOTH the
+        // response text AND via DOM scanning for toast/popup notifications.
+        const MAX_RATE_RETRIES = 6;
+        let rateLimitWait = 8000; // start at 8s, double each retry (cap 60s)
+
+        // Pre-send delay: prevent rapid-fire message chains from triggering rate limits
+        // Ensures minimum 2s gap between consecutive messages to DeepSeek
+        const now = Date.now();
+        const lastSend = (DeepSeekAdapter as any)._lastSendTime || 0;
+        const timeSinceLast = now - lastSend;
+        if (timeSinceLast < 2000) {
+            const waitMs = 2000 - timeSinceLast;
+            console.log(`\n⏳ [DeepSeek] Throttle guard: waiting ${waitMs}ms to prevent rate limit...`);
+            await new Promise(r => setTimeout(r, waitMs));
+        }
+        (DeepSeekAdapter as any)._lastSendTime = Date.now();
 
         for (let attempt = 1; attempt <= MAX_RATE_RETRIES; attempt++) {
             const result = await this._sendMessageOnce(message);
 
             // Detect rate-limit in response text
-            const isRateLimit = result.text?.toLowerCase().includes('messages too frequent') ||
-                                result.text?.toLowerCase().includes('too many requests') ||
-                                result.error?.toLowerCase().includes('messages too frequent');
+            const responseLower = (result.text || '').toLowerCase();
+            const errorLower = (result.error || '').toLowerCase();
+            const isRateLimit =
+                responseLower.includes('messages too frequent') ||
+                responseLower.includes('too many requests') ||
+                responseLower.includes('rate limit') ||
+                responseLower.includes('please slow down') ||
+                responseLower.includes('request limit') ||
+                errorLower.includes('messages too frequent') ||
+                errorLower.includes('rate limit') ||
+                errorLower.includes('too many');
 
-            if (!isRateLimit) return result; // ✅ normal response — return immediately
+            // Also scan DOM for toast notifications containing rate-limit messages
+            let domRateLimit = false;
+            if (this.page && !isRateLimit) {
+                try {
+                    domRateLimit = await this.page.evaluate(() => {
+                        const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="message"], [class*="error"], [class*="tip"]'));
+                        return toasts.some(el => {
+                            const t = (el as HTMLElement).innerText?.toLowerCase() || '';
+                            return t.includes('too frequent') || t.includes('too many') || t.includes('rate limit') || t.includes('slow down');
+                        });
+                    });
+                } catch { /* ignore */ }
+            }
+
+            if (!isRateLimit && !domRateLimit) return result; // ✅ normal response
 
             // Rate-limited — wait and retry
-            console.log(`\n⏳ [DeepSeek] Rate limited ("Messages too frequent"). Waiting ${rateLimitWait / 1000}s before retry ${attempt}/${MAX_RATE_RETRIES}...`);
+            console.log(`\n⏳ [DeepSeek] Rate limited. Waiting ${rateLimitWait / 1000}s before retry ${attempt}/${MAX_RATE_RETRIES}...`);
             await this.page!.waitForTimeout(rateLimitWait);
-            rateLimitWait = Math.min(rateLimitWait * 2, 30000); // cap at 30s
+            rateLimitWait = Math.min(rateLimitWait * 2, 60000); // cap at 60s
         }
 
         return { text: '', error: 'DeepSeek: Rate limit persists after retries. Try again in a minute.' };

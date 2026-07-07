@@ -527,7 +527,7 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
 
             if (response.error) {
                 // Suppress expected errors during graceful shutdown or manual abort
-                if (!response.error.includes('Target page, context or browser has been closed') && 
+                if (!response.error.includes('Target page, context or browser has been closed') &&
                     !response.error.includes('Execution context was destroyed')) {
                     console.log(`❌ Provider Error: ${response.error}`);
                 }
@@ -535,6 +535,36 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     (global as any).abortRequested = false;
                     throw new UserInterruptError('Request cancelled by user (Esc pressed).');
                 }
+
+                // ── SMART RATE-LIMIT RECOVERY ──────────────────────────────────────
+                // DeepSeek and other providers sometimes rate-limit mid-session.
+                // Instead of dying silently (break), offer user a live retry option.
+                const isRateLimit =
+                    response.error.toLowerCase().includes('rate limit') ||
+                    response.error.toLowerCase().includes('too frequent') ||
+                    response.error.toLowerCase().includes('too many') ||
+                    response.error.toLowerCase().includes('429') ||
+                    response.error.toLowerCase().includes('quota') ||
+                    response.error.toLowerCase().includes('throttl') ||
+                    response.error.toLowerCase().includes('persists after retries');
+
+                if (isRateLimit) {
+                    console.log(`\n⏳ [Rate Limit] ${this.provider.id.toUpperCase()} is throttling requests.`);
+                    console.log(`   Auto-waiting 30 seconds before offering manual retry...`);
+                    await new Promise(r => setTimeout(r, 30000));
+                    const userChoice = await (global as any).askQuestion(
+                        `\n🔄 [${this.provider.id.toUpperCase()} RATE LIMIT] Press ENTER to retry now, or type 'skip' to cancel this iteration: `
+                    );
+                    if (typeof userChoice === 'string' && userChoice.toLowerCase().includes('skip')) {
+                        console.log(`[Rate Limit] User skipped retry. Stopping loop.`);
+                        break;
+                    }
+                    console.log(`[Rate Limit] Retrying last message...`);
+                    // Re-inject the last message into currentMessage so loop retries it
+                    // currentMessage is already set — just continue the loop
+                    continue;
+                }
+
                 break;
             }
 
