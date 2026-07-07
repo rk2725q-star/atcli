@@ -77,8 +77,8 @@ export class MemoryStore {
         const block = [
             ``,
             `### ${new Date().toISOString().replace('T', ' ').substring(0, 19)}`,
-            `**Task**: ${entry.task.substring(0, 200)}`,
-            `**Outcome**: ${entry.outcome.substring(0, 400)}`,
+            `**Task**: ${entry.task.substring(0, 500)}`,
+            `**Outcome**: ${entry.outcome.substring(0, 1000)}`,
             `**Agents**: ${entry.agentsUsed.join(', ')}`,
             `**Keywords**: ${entry.keywords.join(', ')}`,
             entry.durationMs ? `**Duration**: ${Math.round(entry.durationMs / 1000)}s` : '',
@@ -98,7 +98,7 @@ export class MemoryStore {
     }
 
     // ── Intelligent recall (Hermes FTS-style) ───────────────────────────────
-    public recall(taskDescription: string, maxChars = 2000): string {
+    public recall(taskDescription: string, maxChars = 10000): string {
         const keywords = this.extractKeywords(taskDescription);
         const index = this.loadIndex();
 
@@ -181,7 +181,7 @@ export class MemoryStore {
             if (!index[kw]) index[kw] = [];
             if (!index[kw].includes(sessionFile)) {
                 index[kw].push(sessionFile);
-                if (index[kw].length > 10) index[kw].shift(); // Keep last 10
+                if (index[kw].length > 20) index[kw].shift(); // Keep last 20
             }
         }
         fs.writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2), 'utf-8');

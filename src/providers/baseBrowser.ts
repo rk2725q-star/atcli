@@ -139,7 +139,7 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
      */
     protected async pollForResponse(
         evaluateFn: any,
-        maxWaitSeconds: number = 60,
+        maxWaitSeconds: number = 180,  // Raised from 60 → 180s for large code generation tasks (Flipkart-size)
         stableSecondsRequired: number = 3,
         previousTextToIgnore: string = "",
         isGeneratingFn?: () => Promise<boolean>
