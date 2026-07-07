@@ -933,7 +933,47 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     const installMatch = cmd.match(/(?:npm install|npm i|pip install|yarn add|pnpm add)\s+([\w@/\-\.]+)/i);
                     if (installMatch) memWriter.onPackageInstalled(installMatch[1]);
                 }
+
+                // ── AUTO LOCALHOST OPENER ──────────────────────────────────────────────
+                // When ANY command outputs a localhost URL (dev server started), auto-open
+                // it in the browser immediately — no user prompt needed.
+                const localhostPattern = /(?:Local|localhost|server|running|ready|started|listening).*?(https?:\/\/(?:localhost|127\.0\.0\.1):\d+[^\s"'\]]*)/gi;
+                const portPattern = /(?:port|:\s*)(\d{4,5})/gi;
+                
+                let localUrl: string | null = null;
+                let urlMatch = localhostPattern.exec(result);
+                if (urlMatch) {
+                    localUrl = urlMatch[1].replace(/[,;]+$/, ''); // clean trailing punctuation
+                } else {
+                    // Fallback: look for bare port numbers in typical dev server output
+                    const devServerKeywords = ['vite', 'next', 'webpack', 'react-scripts', 'nodemon', 'serve', 'http-server', 'fastapi', 'uvicorn', 'flask', 'express'];
+                    const isDevServerCmd = devServerKeywords.some(kw => cmd.toLowerCase().includes(kw));
+                    const portMatch = portPattern.exec(result);
+                    if (isDevServerCmd && portMatch) {
+                        localUrl = `http://localhost:${portMatch[1]}`;
+                    }
+                }
+
+                if (localUrl) {
+                    console.log(`\n🌐 [Auto Browser] Dev server detected at: ${localUrl}`);
+                    console.log(`🌐 [Auto Browser] Auto-opening in browser (no user prompt needed)...`);
+                    // Non-blocking open — don't await, just fire-and-forget
+                    const { BrowserManager } = await import('../browser/manager');
+                    const manager = BrowserManager.getInstance();
+                    manager.getOrCreatePage('atcli-preview', localUrl).then(async (previewPage) => {
+                        try {
+                            await previewPage.goto(localUrl!, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                            console.log(`✅ [Auto Browser] Opened: ${localUrl}`);
+                        } catch (e: any) {
+                            console.log(`⚠️  [Auto Browser] Could not navigate: ${e.message}`);
+                        }
+                    }).catch(() => {});
+                    // Inject URL into tool result so AI knows to proceed to testing
+                    result += `\n\n[ATCLI AUTO-BROWSER] Dev server detected and browser opened automatically at: ${localUrl}\nThe browser is now showing your project. Proceed to run the atcli-auto-tester skill to validate the full project.`;
+                }
             }
+
+
 
             // Global safety truncation to prevent web UI crashes from massive outputs
             if (result.length > 30000 && !result.startsWith('__ATCLI_VISION_PAYLOAD__')) {
