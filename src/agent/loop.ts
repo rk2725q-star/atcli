@@ -278,17 +278,17 @@ export class AgentLoop {
 
         let currentMessage = "";
 
-        // Helper to get lightweight workspace tree
-        const getWorkspaceTree = (dir: string, maxDepth = 2, currentDepth = 0): string => {
+        // Helper to get workspace tree (3 levels deep for new-session context)
+        const getWorkspaceTree = (dir: string, maxDepth = 3, currentDepth = 0): string => {
             if (currentDepth > maxDepth) return '';
             let result = '';
             try {
                 const files = fs.readdirSync(dir);
                 let count = 0;
                 for (const file of files) {
-                    if (['node_modules', '.git', '.next', 'dist', 'build', 'coverage', '.cache'].includes(file)) continue;
-                    if (count++ > 20) {
-                        result += '  '.repeat(currentDepth) + `... (+ ${files.length - 20} more items)\n`;
+                    if (['node_modules', '.git', '.next', 'dist', 'build', 'coverage', '.cache', '__pycache__', '.yarn'].includes(file)) continue;
+                    if (count++ > 40) {
+                        result += '  '.repeat(currentDepth) + `... (+ ${files.length - 40} more)\n`;
                         break;
                     }
                     const fullPath = path.join(dir, file);
@@ -300,25 +300,47 @@ export class AgentLoop {
             return result;
         };
 
+        // AUTO-READ KEY FILES for cold-start context (saves AI from spending iterations discovering project)
+        let coldStartContext = '';
+        const keyFiles = ['package.json', 'tsconfig.json', 'next.config.ts', 'next.config.js', 'vite.config.ts', 'pyproject.toml', 'requirements.txt', '.env.example', 'README.md'];
+        const autoReadFiles: string[] = [];
+        for (const kf of keyFiles) {
+            const kfPath = path.join(cwd, kf);
+            if (fs.existsSync(kfPath)) {
+                try {
+                    const content = fs.readFileSync(kfPath, 'utf-8').substring(0, 1500);
+                    autoReadFiles.push(`--- ${kf} ---\n${content}`);
+                } catch(e) { /* ignore */ }
+                if (autoReadFiles.length >= 3) break; // Max 3 key files to keep context lean
+            }
+        }
+        if (autoReadFiles.length > 0) {
+            coldStartContext = `[AUTO-READ KEY FILES (cold-start context, no iteration wasted)]:\n${autoReadFiles.join('\n\n')}`;
+        }
+
         const workspaceTree = getWorkspaceTree(cwd);
 
         let memorySection = '';
         if (bootMemoryContent) {
-            // Pre-inject first 3000 chars of memory directly — saves 1 wasted iteration
-            const memPreview = bootMemoryContent.substring(0, 3000);
-            memorySection = `[ATCLI PROJECT MEMORY — AUTO-INJECTED]\nThe following is the content of ATCLI_MEMORY.md for this project. Read it now and use it to understand the project history before starting:\n\n${memPreview}${bootMemoryContent.length > 3000 ? '\n\n[... Memory truncated. Use read_file on ATCLI_MEMORY.md to see full content if needed ...]' : ''}`;
+            // Pre-inject up to 8000 chars of memory — gives AI full project state in new sessions
+            const memPreview = bootMemoryContent.substring(0, 8000);
+            memorySection = `[ATCLI PROJECT MEMORY — AUTO-INJECTED FOR NEW SESSION]\n` +
+                `The following is the full ATCLI_MEMORY.md content. This is your ONLY context about this project in this new session. ` +
+                `Read it carefully — it contains the tech stack, all files created, architecture decisions, and next steps. ` +
+                `DO NOT ask the user "what project is this" — the answer is below:\n\n${memPreview}` +
+                (bootMemoryContent.length > 8000 ? '\n\n[Memory truncated at 8000 chars. Use read_file ATCLI_MEMORY.md for the full file.]' : '');
         } else {
-            memorySection = '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. You will create ATCLI_MEMORY.md at your first episodic checkpoint.';
+            memorySection = '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. Create ATCLI_MEMORY.md at your first episodic checkpoint.';
         }
 
-
-        // Boot injection: Project Intent + IDE context + Memory — included in ALL branches
+        // Boot injection: full cold-start context for new sessions
         const bootInjection = [
             `[PROJECT INTENT]: ${this.projectIntent}`,
-            `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code, not .idea/ configs). Do NOT write configs for other IDEs unless the user explicitly asks.`,
-            `[WORKSPACE STRUCTURE]:\n${workspaceTree || '(Empty workspace)'}`,
+            `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code). Do NOT write configs for other IDEs unless asked.`,
+            `[WORKSPACE STRUCTURE — 3 levels deep]:\n${workspaceTree || '(Empty workspace)'}`,
+            coldStartContext,
             memorySection
-        ].join('\n\n');
+        ].filter(Boolean).join('\n\n');
 
         if (this.isFirstMessage) {
             const MAX_CHUNK_LENGTH = 100000; // Increased to 100k to prevent splitting JSON definitions across chunks
@@ -366,12 +388,27 @@ export class AgentLoop {
                 currentMessage = `${systemPrompt}\n\nUser Request:\n${userMessage}\n\n${bootInjection}`;
             }
         } else {
-            let reminder = "[SYSTEM REMINDER: DO NOT ASK FOR PERMISSION. DO NOT WRITE JAVASCRIPT CODE BLOCKS. IF YOU NEED TO EXECUTE A COMMAND OR FILE OPERATION, OUTPUT THE <tool_call> XML BLOCK. IF THE USER IS JUST CHATTING, YOU MAY RESPOND WITH TEXT NORMALLY.]";
+            let reminder = `[SYSTEM REMINDER: DO NOT ASK FOR PERMISSION. DO NOT WRITE JAVASCRIPT CODE BLOCKS. USE <tool_call>JSON</tool_call> XML FORMAT ONLY.
+
+CORRECT TOOL CALL FORMAT (copy this exactly):
+<tool_call>
+{"action": "list_dir", "path": "."}
+</tool_call>
+
+DO NOT wrap tool calls in markdown. DO NOT use <tool_call_name> tags. Use ONLY the format above.
+IF the user is just chatting, respond with plain text only (no tool call needed).`;
             if (this.isAgenticaMode) {
-                reminder += "\n[AGENTICA OVERRIDE: YOU ARE CONNECTED TO THE ATCLI XML BRIDGE. YOU DO HAVE PHYSICAL PC CONTROL. YOU MUST NOT USE INTERNAL SEARCH. EMIT <tool_call> TO OPEN THE BROWSER OR RUN COMMANDS.]";
+                reminder += '\n[AGENTICA OVERRIDE: YOU ARE CONNECTED TO THE ATCLI XML BRIDGE. YOU DO HAVE PHYSICAL PC CONTROL. EMIT <tool_call> TO OPEN THE BROWSER OR RUN COMMANDS.]';
             }
             if (this.provider.id === 'kimi') {
-                reminder += "\n[CRITICAL KIMI RULE: Strictly use XML <tool_call> to write/edit code. DO NOT output terminal blocks or tell the user to build/copy-paste it manually.]";
+                reminder += '\n[CRITICAL KIMI RULE: Strictly use XML <tool_call> to write/edit code. DO NOT output terminal blocks.]';
+            }
+            if (this.provider.id === 'deepseek') {
+                reminder += `\n[CRITICAL DEEPSEEK RULE: You MUST use ONLY this exact tool call format:
+<tool_call>
+{"action": "ACTION_NAME", "key": "value"}
+</tool_call>
+DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XML tags. ONLY the format above works!]`;
             }
             currentMessage = `${userMessage}\n\n${reminder}\n\n${bootInjection}`;
         }
@@ -1118,81 +1155,134 @@ RULES:
         jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
         
         // ── [INTELLIGENT FALLBACK] Auto-XML to JSON Converter ──
-        // Many models (like DeepSeek or Claude) natively output XML instead of JSON inside the <tool_call>.
-        if (jsonStr.includes('<tool_name>') || jsonStr.includes('<name>') || jsonStr.includes('<action>') || jsonStr.includes('<function')) {
+        // Handles hallucinated XML formats from DeepSeek, Claude, Qwen, etc.
+        // Patterns supported:
+        //   1. <tool_call_name name="xxx"> ... <tool_call_parameters>{...}</tool_call_parameters>  ← DeepSeek format
+        //   2. <function name="xxx"> ... </function>                                               ← OpenAI format
+        //   3. <tool_name>xxx</tool_name> <parameter name="p">v</parameter>                       ← Claude XML format
+        //   4. <action>xxx</action> <cmd>value</cmd>                                               ← Generic XML
+        if (
+            jsonStr.includes('<tool_call_name') ||
+            jsonStr.includes('<tool_call_parameters') ||
+            jsonStr.includes('<tool_name>') ||
+            jsonStr.includes('<name>') ||
+            jsonStr.includes('<action>') ||
+            jsonStr.includes('<function')
+        ) {
             let action = '';
-            
-            // Try matching <function name="xxx">
-            const funcMatch = jsonStr.match(/<function\s+name="([^"]+)"/);
-            if (funcMatch) {
-                action = funcMatch[1].trim();
-            } else {
-                // Try matching <tool_name>xxx</tool_name>
+
+            // PATTERN 1: DeepSeek — <tool_call_name name="execute_command">
+            const deepseekNameMatch = jsonStr.match(/<tool_call_name\s+name="([^"]+)"/);
+            if (deepseekNameMatch) {
+                action = deepseekNameMatch[1].trim();
+                console.log(`\n⚡ [DeepSeek XML] Detected <tool_call_name name="${action}"> format`);
+            }
+
+            // PATTERN 2: <function name="xxx">
+            if (!action) {
+                const funcMatch = jsonStr.match(/<function\s+name="([^"]+)"/);
+                if (funcMatch) action = funcMatch[1].trim();
+            }
+
+            // PATTERN 3: <tool_name>xxx</tool_name> or <name>xxx</name> or <action>xxx</action>
+            if (!action) {
                 const actionMatch = jsonStr.match(/<(?:tool_name|name|action)>([\s\S]*?)<\/(?:tool_name|name|action)>/);
                 if (actionMatch) action = actionMatch[1].trim();
             }
 
             if (action) {
-                // Auto-map common DeepSeek tool hallucinations to actual ATCLI tools
-                if (action === 'execute_command') action = 'run_command';
-                if (action === 'preview_url' || action === 'open_url') action = 'browser_goto';
-                if (action === 'list_files') action = 'list_dir';
-                
+                // ── Auto-map DeepSeek/Claude tool name hallucinations to real ATCLI tools ──
+                const toolAliases: Record<string, string> = {
+                    'execute_command': 'run_command',
+                    'bash': 'run_command',
+                    'shell': 'run_command',
+                    'terminal': 'run_command',
+                    'run_bash': 'run_command',
+                    'preview_url': 'browser_goto',
+                    'open_url': 'browser_goto',
+                    'navigate_to': 'browser_goto',
+                    'list_files': 'list_dir',
+                    'ls': 'list_dir',
+                    'cat': 'read_file',
+                    'read': 'read_file',
+                    'write_to_file': 'write_file',
+                    'create_file': 'write_file',
+                    'file_write': 'write_file',
+                    'task': 'manage_task',
+                    'str_replace_editor': 'replace',
+                };
+                if (toolAliases[action]) {
+                    console.log(`\n⚡ [Tool Alias] Mapped "${action}" → "${toolAliases[action]}"`);
+                    action = toolAliases[action];
+                }
+
                 const jsonObj: any = { action };
                 let foundParams = false;
 
-                // Try matching <parameter name="cmd" content="ls" /> (Self-closing XML tags)
-                const paramContentRegex = /<parameter\s+name="([^"]+)"\s+content="([^"]*)"/g;
-                let paramMatch;
-                while ((paramMatch = paramContentRegex.exec(jsonStr)) !== null) {
-                    foundParams = true;
-                    let key = paramMatch[1].trim();
-                    let value: any = paramMatch[2].trim();
-                    
-                    // Decode common XML entities
-                    value = value.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-                    
-                    if (action === 'run_command' && key === 'command') key = 'commandLine';
-                    
-                    if (value.toLowerCase() === 'true') value = true;
-                    else if (value.toLowerCase() === 'false') value = false;
-                    else if (!isNaN(Number(value))) value = Number(value);
-                    
-                    jsonObj[key] = value;
+                // PATTERN 1b: DeepSeek — extract JSON from <tool_call_parameters>{...}</tool_call_parameters>
+                const paramsBlockMatch = jsonStr.match(/<tool_call_parameters>([\s\S]*?)<\/tool_call_parameters>/);
+                if (paramsBlockMatch) {
+                    try {
+                        const paramsJson = JSON.parse(paramsBlockMatch[1].trim());
+                        // Merge params into jsonObj; remap 'command' → 'command' for run_command
+                        for (const [k, v] of Object.entries(paramsJson)) {
+                            const key = (action === 'run_command' && (k === 'commandLine' || k === 'command')) ? 'command' : k;
+                            jsonObj[key] = v;
+                        }
+                        foundParams = true;
+                        console.log(`\n⚡ [DeepSeek XML] Extracted params from <tool_call_parameters>: ${JSON.stringify(paramsJson).substring(0, 120)}`);
+                    } catch (e) {
+                        // JSON inside tool_call_parameters is malformed — fall through to other strategies
+                    }
                 }
 
-                // Try matching <parameter name="cmd">ls</parameter>
+                // PATTERN 2: <parameter name="cmd" content="ls" />  (self-closing)
+                if (!foundParams) {
+                    const paramContentRegex = /<parameter\s+name="([^"]+)"\s+content="([^"]*)"/g;
+                    let paramMatch;
+                    while ((paramMatch = paramContentRegex.exec(jsonStr)) !== null) {
+                        foundParams = true;
+                        let key = paramMatch[1].trim();
+                        let value: any = paramMatch[2].trim();
+                        value = value.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                        if (action === 'run_command' && key === 'command') key = 'command';
+                        if (value.toLowerCase() === 'true') value = true;
+                        else if (value.toLowerCase() === 'false') value = false;
+                        else if (!isNaN(Number(value)) && value !== '') value = Number(value);
+                        jsonObj[key] = value;
+                    }
+                }
+
+                // PATTERN 3: <parameter name="cmd">ls</parameter>
                 if (!foundParams) {
                     const paramRegex = /<parameter\s+name="([^"]+)">([\s\S]*?)<\/parameter>/g;
+                    let paramMatch;
                     while ((paramMatch = paramRegex.exec(jsonStr)) !== null) {
                         foundParams = true;
                         let key = paramMatch[1].trim();
                         let value: any = paramMatch[2].trim();
-                        
-                        if (action === 'run_command' && key === 'command') key = 'commandLine';
-                        
+                        if (action === 'run_command' && key === 'command') key = 'command';
                         if (value.toLowerCase() === 'true') value = true;
                         else if (value.toLowerCase() === 'false') value = false;
-                        else if (!isNaN(Number(value))) value = Number(value);
-                        
+                        else if (!isNaN(Number(value)) && value !== '') value = Number(value);
                         jsonObj[key] = value;
                     }
                 }
-                
-                // If it didn't find any <parameter> tags, try generic tags <cmd>ls</cmd>
+
+                // PATTERN 4: Generic <cmd>ls</cmd> tag pairs (catch-all)
                 if (!foundParams) {
-                    const genericTagsRegex = /<([^>]+)>([\s\S]*?)<\/\1>/g;
+                    const genericTagsRegex = /<([^>\s/]+)>([\s\S]*?)<\/\1>/g;
                     let genericMatch;
                     while ((genericMatch = genericTagsRegex.exec(jsonStr)) !== null) {
                         let key = genericMatch[1].trim();
-                        if (!['tool_name', 'name', 'action', 'tool_call', 'function'].includes(key)) {
-                            if (action === 'run_command' && key === 'command') key = 'commandLine';
+                        if (!['tool_name', 'tool_call_name', 'name', 'action', 'tool_call', 'function', 'tool_call_id'].includes(key)) {
+                            if (action === 'run_command' && key === 'command') key = 'command';
                             jsonObj[key] = genericMatch[2].trim();
                         }
                     }
                 }
-                
-                console.log(`\n⚡ [Intelligent Fallback] Detected hallucinated XML tool call. Auto-converted to JSON object for tool: ${action}`);
+
+                console.log(`\n⚡ [Intelligent XML→JSON] Converted "${action}": ${JSON.stringify(jsonObj).substring(0, 150)}`);
                 return jsonObj;
             }
         }
