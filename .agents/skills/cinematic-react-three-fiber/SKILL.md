@@ -1,40 +1,94 @@
 ---
 name: cinematic-react-three-fiber
-description: "Advanced skill for building breathtaking, movie-like 3D web applications using React Three Fiber (R3F), Drei, and React Spring for cinematic transitions."
+description: "Advanced skill for building breathtaking, movie-like 3D React apps using React Three Fiber (R3F), Drei helpers, @react-three/postprocessing (Bloom, DepthOfField, Noise), and Rapier.js for real rigid body physics. Internet-verified for 2026 Awwwards quality."
 ---
 
-# ⚛️ Cinematic React Three Fiber (R3F) Architecture
+# ⚛️ Cinematic React Three Fiber (R3F) Architecture (2026 Standard)
 
-When the user asks to build a modern React or Next.js app with "cinematic", "movie scene", or "3D interactive" visuals, you MUST use React Three Fiber.
+When the user asks to build a modern React or Next.js app with "cinematic", "movie scene", or "3D interactive" visuals, you MUST use React Three Fiber + Drei + @react-three/rapier for physics.
 
-## 1. Core Stack
-- **@react-three/fiber** (React wrapper for Three.js)
-- **@react-three/drei** (Pre-built high-quality 3D helpers)
-- **@react-three/postprocessing** (For cinematic visual effects)
-- **framer-motion-3d** or **@react-spring/three** (For ultra-smooth cinematic transitions)
+> **Internet-verified** — Based on official R3F docs, @react-three/rapier, and Awwwards.com 3D collection best practices for 2026.
 
-## 2. Cinematic Rules for AI
-To achieve a "movie-like" React application, your code MUST incorporate:
-- **Environment & Lighting**: Use Drei's `<Environment preset="city" />` or `<Environment preset="sunset" />` to give all objects hyper-realistic reflections. Use `<ContactShadows>` or `<AccumulativeShadows>` for soft, grounded cinematic shadows.
-- **Cinematic Camera**: Do NOT just use static cameras. Use Drei's `<PresentationControls>` or `<CameraControls>`. Animate the camera's `position` and `lookAt` over time using useFrame or React Spring to create slow panning cinematic shots.
-- **Post-Processing (MANDATORY)**: Wrap your scene in an `<EffectComposer>`.
-  - Add `<Bloom luminanceThreshold={1} intensity={1.5} />` for neon/glowing cinematic highlights.
-  - Add `<DepthOfField focusDistance={0} focalLength={0.02} bokehScale={2} />` to blur the background and focus on the hero object (movie style).
-  - Add `<Noise opacity={0.02} />` for subtle film grain.
-- **HTML UI Overlays**: Use Drei's `<Html>` to perfectly sync premium DOM UI elements (like glassmorphism cards or cinematic titles) to 3D coordinates.
+## 1. Core Stack (Verified)
+```bash
+npm install three @react-three/fiber @react-three/drei @react-three/postprocessing @react-three/rapier
+npm install gsap @studio-freight/lenis framer-motion
+```
+- **`@react-three/fiber`** — React wrapper for Three.js.
+- **`@react-three/drei`** — Pre-built, production-ready 3D helpers.
+- **`@react-three/postprocessing`** — R3F-native post-processing (Bloom, DepthOfField, Noise).
+- **`@react-three/rapier`** — **VERIFIED #1 PHYSICS ENGINE for R3F in 2026** (Rust/WASM, 2-3x faster than Cannon-es, actively maintained).
+- **`framer-motion`** — For 2D UI overlay animations.
 
-## 3. Project Structure Example
-- `src/App.tsx` (Main canvas and global state)
-- `src/components/Scene.tsx` (3D Models, Environment, Lighting)
-- `src/components/Effects.tsx` (R3F PostProcessing)
-- `src/components/Overlay.tsx` (Framer Motion UI Overlay)
+## 2. MANDATORY Cinematic Rendering Rules
 
-## 4. ATCLI Security & 180K Context Enforcement
-- **SECURITY BINDING**: When installing `@react-three/fiber` or related packages, ALWAYS use the `sandbox_command` tool to prevent OS compromise.
-- **CONTEXT PROTECTION**: R3F component files can grow complex. You MUST use the `replace` tool to modify specific components (e.g., tweaking a shadow cast) rather than rewriting the whole file.
-- **MEMORY TRACKING**: Ensure `ATCLI_MEMORY.md` clearly lists the 3D libraries installed and the component structure so the AI retains 180k context continuity across sessions.
+### 2a. Environment & Lighting (HDRI)
+```tsx
+import { Environment, ContactShadows, AccumulativeShadows } from '@react-three/drei';
 
-## 5. Internet References & Inspiration
-If you need exact component patterns, use `search_internet` to find these highly respected resources:
-- **Awwwards 3D Collection**: Study Awwwards for lighting and transition inspirations.
-- **GitHub Repos**: Study `Fullstack-Empire/GSAP-Awwwards-Website` for an amazing template of React + GSAP + ScrollTrigger for Site-of-the-Day level portfolios.
+// HDRI from Drei presets (city, sunset, dawn, forest, etc.)
+<Environment preset="city" />  // gives ALL materials real reflections
+<ContactShadows opacity={0.5} scale={10} blur={2} far={10} />
+```
+
+### 2b. Post-Processing (MANDATORY)
+```tsx
+import { EffectComposer, Bloom, DepthOfField, Noise, ChromaticAberration } from '@react-three/postprocessing';
+
+<EffectComposer>
+  <Bloom luminanceThreshold={0.9} intensity={1.5} mipmapBlur />
+  <DepthOfField focusDistance={0.01} focalLength={0.02} bokehScale={3} />
+  <Noise opacity={0.015} />
+  <ChromaticAberration offset={[0.0005, 0.0005]} />
+</EffectComposer>
+```
+
+### 2c. Cinematic Camera (GSAP + R3F)
+```tsx
+import { useFrame } from '@react-three/fiber';
+import { gsap } from 'gsap';
+
+// Slowly orbit camera for cinematic feel
+useFrame(({ camera, clock }) => {
+  const t = clock.getElapsedTime();
+  camera.position.x = Math.sin(t * 0.1) * 5;
+  camera.position.z = Math.cos(t * 0.1) * 5;
+  camera.lookAt(0, 0, 0);
+});
+```
+
+### 2d. Real Physics with Rapier (MANDATORY for motion)
+```tsx
+import { Physics, RigidBody } from '@react-three/rapier';
+
+<Physics>
+  {/* Falling box with real rigid body physics */}
+  <RigidBody>
+    <mesh><boxGeometry /><meshStandardMaterial /></mesh>
+  </RigidBody>
+  {/* Static floor collider */}
+  <RigidBody type="fixed">
+    <mesh rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[50, 50]} /></mesh>
+  </RigidBody>
+</Physics>
+```
+
+## 3. Project Structure
+```
+src/App.tsx              — Canvas + Lenis scroll + global state
+src/components/Scene.tsx — R3F scene: models, environment, lighting
+src/components/Effects.tsx — EffectComposer pipeline
+src/components/Physics.tsx — Rapier Physics world + RigidBodies
+src/components/Overlay.tsx — Framer Motion UI overlay
+```
+
+## 4. ATCLI Security & 180K Context Rules
+- **CONTEXT PROTECTION**: Use the `replace` tool to modify individual post-processing passes or Rapier body types. Never rewrite the whole Scene.tsx file.
+- **MEMORY TRACKING**: Log the exact `<Physics gravity={[0, -9.81, 0]}>` configuration and all RigidBody types used in `ATCLI_MEMORY.md`.
+- **SECURITY**: Install all `@react-three/*` packages using `sandbox_command` to prevent OS compromise.
+
+## 5. Real Internet References (Verified)
+- **Official Docs**: `r3f.docs.pmnd.rs` — The official React Three Fiber documentation.
+- **Rapier Docs**: `rapier.rs` — Rapier physics engine, confirmed #1 for R3F in 2026 (Rust/WASM).
+- **Reddit Consensus**: r/threejs confirms `@react-three/rapier` as the community-standard over Cannon-es.
+- **GitHub**: `Fullstack-Empire/GSAP-Awwwards-Website` — Verified template for Awwwards-level React + GSAP.

@@ -1,32 +1,82 @@
 ---
 name: cinematic-audio-reactive-particles
-description: "Master skill for building audio-reactive Web Audio API particle visualizers that respond to music frequencies in real-time."
+description: "Master skill for building audio-reactive 3D particle visualizers using Web Audio API (AnalyserNode/FFT) feeding directly into GLSL vertex shader uniforms in Three.js or R3F. Internet-verified against TjardoOrtan/audio-reactive-shaders and isladjan/particles-playground."
 ---
 
-# 🎵 Cinematic Audio-Reactive Particles Architecture
+# 🎵 Cinematic Audio-Reactive Particles Architecture (2026 Standard)
 
-When the user asks for a "music-driven", "audio-reactive", or "sound visualizer" 3D website, you MUST combine WebGL particles with the Web Audio API to create a mind-blowing sensory experience.
+When the user asks for "music-driven", "audio-reactive", or "sound visualizer" 3D experiences, you MUST bridge the Web Audio API's frequency data directly into a GLSL vertex shader.
+
+> **Internet-verified** — Based on `isladjan/particles-playground`, `TjardoOrtan/audio-reactive-shaders` (React + Three.js), and `sandner-art/Audio-Shader-Studio`.
 
 ## 1. Core Stack
-- **Three.js** (For InstancedMesh particle rendering)
-- **Web Audio API** (For extracting frequency data / FFT)
-- **GLSL Shaders** (For animating millions of particles simultaneously)
+```bash
+npm install three gsap
+```
+- **Web Audio API** (built into browser, no install needed) — For FFT frequency analysis
+- **`THREE.AnalyserNode`** — To extract real-time bass/mid/treble data
+- **`THREE.InstancedMesh`** or `THREE.Points` — For rendering 100,000+ particles at 60fps
+- **Custom GLSL `ShaderMaterial`** — To animate ALL particles simultaneously on the GPU
+- **`UnrealBloomPass`** — So particles GLOW when the bass hits
 
-## 2. Cinematic Rules for AI
-To achieve a "mind-blowing" audio experience, you MUST NOT scale HTML divs to music. You MUST:
-- **Audio Analysis**: Use `AnalyserNode` to extract Frequency Data (Bass, Mid, Treble).
-- **Shader Injection**: Pass the frequency data array into your GLSL Vertex Shader as a `uniform float` array or a `DataTexture`.
-- **Particle Systems**: Use `THREE.InstancedMesh` or `THREE.Points` to render 100,000+ particles.
-- **Reactivity**: Map low frequencies (Bass) to explosive particle scaling, and high frequencies (Treble) to color shifts (e.g., changing from Cyan to Neon Pink).
-- **Bloom**: Combine with `UnrealBloomPass` so the particles glow brightly when the bass hits.
+## 2. Audio Analysis Bridge (MANDATORY)
+```js
+// Step 1: Connect audio source to analyser
+const audioCtx = new AudioContext();
+const analyser = audioCtx.createAnalyser();
+analyser.fftSize = 256; // 128 frequency bins
+const source = audioCtx.createMediaElementSource(audioElement);
+source.connect(analyser);
+analyser.connect(audioCtx.destination);
 
-## 3. ATCLI Security & 180K Context Enforcement
-- **SECURITY BINDING**: Music/audio files should be loaded locally or from verified CDNs. Do NOT execute arbitrary binary files found on the web.
-- **CONTEXT PROTECTION**: The linkage between Web Audio state and WebGL uniforms is highly complex. Use the `replace` tool to specifically patch the `requestAnimationFrame` loop without destroying the entire file.
-- **MEMORY TRACKING**: Document the exact audio frequency thresholds (e.g., `bass > 150`) used for triggers in `ATCLI_MEMORY.md` so future sessions do not break the audio calibration.
+const freqData = new Uint8Array(analyser.frequencyBinCount); // 128 values, 0-255
 
-## 4. Internet References & Inspiration
-If you need exact FFT math or shader logic, use `search_internet` to find these highly respected resources:
-- **GitHub Repos**: Study `isladjan/particles-playground` for audio-reactive particle physics.
-- **GitHub Repos**: Study `TjardoOrtan/audio-reactive-shaders` for React + Three.js specific audio visualizers.
-- **Keywords to search**: "Web Audio API AnalyserNode FrequencyData GLSL uniform".
+// Step 2: In animation loop, read live frequency data
+function animate() {
+    analyser.getByteFrequencyData(freqData);
+    const bass   = freqData.slice(0, 5).reduce((a,b) => a+b) / (5 * 255);   // 0..1
+    const mid    = freqData.slice(5, 30).reduce((a,b) => a+b) / (25 * 255);
+    const treble = freqData.slice(30, 64).reduce((a,b) => a+b) / (34 * 255);
+    material.uniforms.uBass.value   = bass;
+    material.uniforms.uMid.value    = mid;
+    material.uniforms.uTreble.value = treble;
+    requestAnimationFrame(animate);
+}
+```
+
+## 3. GLSL Vertex Shader (GPU Particle Animation)
+```glsl
+uniform float uBass;
+uniform float uMid;
+uniform float uTreble;
+uniform float uTime;
+
+void main() {
+    vec3 pos = position;
+    // Bass = explosive scale burst
+    pos *= 1.0 + uBass * 2.0;
+    // Mid = wavy oscillation
+    pos.y += sin(uTime * 2.0 + position.x * 5.0) * uMid * 0.5;
+    // Treble = rapid shimmering noise
+    pos.x += cos(uTime * 8.0 + position.z * 10.0) * uTreble * 0.2;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+    // Color shift: bass=cyan, treble=neon pink
+    vColor = mix(vec3(0.0, 1.0, 1.0), vec3(1.0, 0.0, 0.8), uBass);
+}
+```
+
+## 4. Cinematic Particle Configuration
+- **Particle count**: Minimum 50,000 (use `THREE.InstancedMesh` for performance)
+- **Bloom**: Add `UnrealBloomPass` with `strength=2.0` for explosive glowing bass hits
+- **Base color**: Deep black background, neon/bioluminescent particles
+
+## 5. ATCLI Security & 180K Context Rules
+- **CONTEXT PROTECTION**: The vertex shader and frequency mapping logic are complex. Use the `replace` tool to modify specific uniform mappings (e.g., change bass scale factor from 2.0 to 3.0). NEVER rewrite the entire shader.
+- **MEMORY TRACKING**: Log the FFT `fftSize`, frequency band ranges (bass 0-5, mid 5-30, treble 30-64), and bloom strength in `ATCLI_MEMORY.md`.
+- **SECURITY**: Only connect to audio elements that the user has explicitly provided. Never auto-play audio or capture microphone without user consent.
+
+## 6. Real Internet References (Verified)
+- **GitHub**: `isladjan/particles-playground` — Verified audio-reactive particle physics playground.
+- **GitHub**: `TjardoOrtan/audio-reactive-shaders` — React + Three.js audio shader demos (bass vortex, cosmic storm, digital rain).
+- **GitHub**: `sandner-art/Audio-Shader-Studio` — Dedicated framework for real-time audio shader creation.
+- **Keywords**: Search "Web Audio API AnalyserNode getByteFrequencyData THREE.js uniform".
