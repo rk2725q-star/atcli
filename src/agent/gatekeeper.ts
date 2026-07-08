@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GATEKEEPER — ATCLI Security Wall
@@ -66,14 +67,37 @@ const SECRET_PATTERNS = [
     /BEGIN (RSA|EC|OPENSSH) PRIVATE KEY/,  // Private key material
 ];
 
-const PROTECTED_SYSTEM_PATHS = [
-    // Windows system
-    'C:\\Windows', 'C:\\Program Files', 'C:\\System32',
-    // Unix system
-    '/etc', '/usr/bin', '/bin', '/sbin',
-    // User sensitive dirs (cross-platform)
-    '.ssh', 'AppData\\Roaming\\Microsoft', 'AppData\\Local\\Microsoft',
-];
+// ── Dynamic system path protection (no hardcoded drive letters) ──────────────
+// Windows: uses process.env.SystemDrive (C:, D:, E: — whatever the OS drive is)
+// macOS/Linux: uses standard Unix paths
+function buildProtectedSystemPaths(): string[] {
+    const paths: string[] = [];
+    if (process.platform === 'win32') {
+        // SystemDrive env var is set by Windows itself — auto-detects D:, E:, etc.
+        const sysDrive = (process.env.SystemDrive || 'C:').replace(/\\$/, '');
+        const sysRoot  = process.env.SystemRoot || `${sysDrive}\\Windows`;
+        paths.push(
+            sysRoot,                               // C:\Windows or D:\Windows etc.
+            `${sysDrive}\\Program Files`,
+            `${sysDrive}\\Program Files (x86)`,
+            `${sysDrive}\\System32`,
+            `${sysDrive}\\Windows\\System32`,
+        );
+        // User-sensitive Windows dirs (relative — work regardless of C: or D:)
+        paths.push(
+            'AppData\\Roaming\\Microsoft',
+            'AppData\\Local\\Microsoft',
+        );
+    } else {
+        // macOS / Linux
+        paths.push('/etc', '/usr/bin', '/bin', '/sbin', '/usr/sbin', '/usr/lib', '/lib');
+    }
+    // Cross-platform sensitive dirs
+    paths.push('.ssh');
+    return paths;
+}
+
+const PROTECTED_SYSTEM_PATHS = buildProtectedSystemPaths();
 
 // Files that MUST NOT be modified by the AI (sensitive configs)
 const PROTECTED_FILE_PATTERNS = [
@@ -129,11 +153,17 @@ export class Gatekeeper {
         // 2. Protected system path write check
         if (['write_file', 'create_file', 'replace'].includes(action)) {
             const fp = toolCall.path || toolCall.file || '';
-            const norm = fp.replace(/\//g, '\\').toLowerCase();
-            if (PROTECTED_SYSTEM_PATHS.some(p => norm.startsWith(p.toLowerCase()) || norm.includes(p.toLowerCase()))) {
+            // Normalize both sides: collapse C:\\\\Windows → C:\Windows, forward-slash → backslash, lowercase
+            const norm = path.normalize(fp.replace(/\//g, '\\')).toLowerCase();
+            const isSystemPath = PROTECTED_SYSTEM_PATHS.some(p => {
+                const normProtected = path.normalize(p).toLowerCase();
+                return norm.startsWith(normProtected) || norm.includes(normProtected);
+            });
+            if (isSystemPath) {
                 this.log(`🚨 BLOCKED [${agentName}] system path write: ${fp}`);
                 return { allowed: false, reason: `BLOCKED: Write to protected system path: ${fp}` };
             }
+
             // 2b. Sensitive file protection (.env, SSH keys, etc.)
             if (PROTECTED_FILE_PATTERNS.some(p => p.test(fp))) {
                 this.log(`🚨 BLOCKED [${agentName}] sensitive file write: ${fp}`);

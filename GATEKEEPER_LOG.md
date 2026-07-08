@@ -21,3 +21,13 @@
 - 2026-07-08T13:52:48.249Z | 🚨 BLOCKED [Audit] sensitive file write: .env
 - 2026-07-08T13:52:48.251Z | 🚨 BLOCKED [Audit] self-modification: D:/project/atcli-core/src/agent/prompts.ts
 - 2026-07-08T13:52:48.252Z | 🚨 BLOCKED [Audit] self-modification: D:/project/atcli-core/dist/agent/loop.js
+- 2026-07-08T14:19:29.796Z | 🚨 BLOCKED [Test] sensitive file write: .env
+- 2026-07-08T14:19:29.800Z | 🚨 BLOCKED [Test] destructive command: rm -rf /
+- 2026-07-08T14:24:11.927Z | 🚨 BLOCKED [DynPathTest] system path write: C:\Windows\System32\hack.dll
+- 2026-07-08T14:24:11.950Z | 🚨 BLOCKED [DynPathTest] system path write: C:\Program Files\evil.exe
+- 2026-07-08T14:24:11.951Z | 🚨 BLOCKED [DynPathTest] system path write: C:\Windows\hack.bat
+- 2026-07-08T14:24:11.952Z | 🚨 BLOCKED [DynPathTest] system path write: C:\Windows\System32\evil.exe
+- 2026-07-08T14:24:11.954Z | 🚨 BLOCKED [DynPathTest] sensitive file write: /etc/passwd
+- 2026-07-08T14:24:11.955Z | 🚨 BLOCKED [DynPathTest] sensitive file write: .env
+- 2026-07-08T14:24:11.956Z | 🚨 BLOCKED [DynPathTest] system path write: .ssh/id_rsa
+- 2026-07-08T14:24:11.957Z | 🚨 BLOCKED [DynPathTest] destructive command: rm -rf /
