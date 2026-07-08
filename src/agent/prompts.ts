@@ -1,4 +1,4 @@
-﻿import * as fs from 'fs/promises';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import { SkillManager } from './skillManager';
 
@@ -398,7 +398,7 @@ Same as 16-mark but add Case Study + Comparison Table + Future Scope.
                     }
                     
                     // Eagerly load core guardrail, architecture, compression, game, and cinematic skills
-                    const eagerKeywords = ['guardrail', 'architecture', 'compression', 'game-engine', 'dynamic-scene', 'fable5'];
+                    const eagerKeywords = ['guardrail', 'architecture', 'compression', 'game-engine', 'dynamic-scene', 'fable5', 'art-direction'];
                     if (eagerKeywords.some(kw => lowerName.includes(kw))) {
                         try {
                             const skillContent = await fs.readFile(path.join(dir, entry.name, 'SKILL.md'), 'utf-8');
