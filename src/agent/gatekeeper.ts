@@ -151,15 +151,27 @@ export class Gatekeeper {
         }
 
         // 4. ATCLI self-modification block
-        if (['write_file', 'replace', 'delete_file'].includes(action)) {
+        // Only applies to ABSOLUTE paths that explicitly target ATCLI's src/ or dist/.
+        // Relative paths (e.g., "src/index.ts") are ALWAYS user project files — never block them.
+        if (['write_file', 'create_file', 'replace', 'delete_file'].includes(action)) {
             const fp = toolCall.path || toolCall.file || '';
-            const absPath = path.resolve(this.projectRoot, fp);
-            const atcliSrc = path.resolve(__dirname, '..');
-            if (absPath.startsWith(atcliSrc) && (fp.endsWith('.ts') || fp.endsWith('.js'))) {
-                this.log(`🚨 BLOCKED [${agentName}] self-modification: ${fp}`);
-                return { allowed: false, reason: `BLOCKED: Agents cannot modify ATCLI source files: ${fp}` };
+            // Only check absolute paths — relative paths are user project files, not ATCLI source
+            if (path.isAbsolute(fp)) {
+                const atcliRoot = path.resolve(__dirname, '..', '..');
+                const atcliSrcDir = path.join(atcliRoot, 'src');
+                const atcliDistDir = path.join(atcliRoot, 'dist');
+                const normFp = fp.replace(/\\/g, '/');
+                const normSrc = atcliSrcDir.replace(/\\/g, '/');
+                const normDist = atcliDistDir.replace(/\\/g, '/');
+                const isAtcliSrc = normFp.startsWith(normSrc) && (fp.endsWith('.ts') || fp.endsWith('.js'));
+                const isAtcliDist = normFp.startsWith(normDist) && fp.endsWith('.js');
+                if (isAtcliSrc || isAtcliDist) {
+                    this.log(`🚨 BLOCKED [${agentName}] self-modification: ${fp}`);
+                    return { allowed: false, reason: `BLOCKED: Agents cannot modify ATCLI source files: ${fp}` };
+                }
             }
         }
+
 
         return { allowed: true };
     }
