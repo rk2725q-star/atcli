@@ -1,11 +1,17 @@
 ---
 name: cinematic-game-engine-vibecode
-description: "GOD-TIER GAME SKILL: Complete browser-based game engine architecture using Three.js + Rapier physics + Yuka AI + three-pathfinding. Covers FPS/TPS/open-world games with characters, weapons, shooting, enemy AI, maps, inventory, health, explosions, and all game mechanics. Internet-verified against mohsenheydari/three-fps, WesUnwin/three-game-engine, and Yuka.js docs."
+description: "GOD-TIER GAME SKILL: Complete browser-based game engine architecture using Three.js + Rapier physics + Yuka AI + three-pathfinding. Covers FPS/TPS/open-world games with characters, weapons, shooting, enemy AI, maps, inventory, health, explosions, and all game mechanics. Internet-verified against mohsenheydari/three-fps, WesUnwin/three-game-engine, and Yuka.js docs. ⚠️ SCOPE: ONLY trigger this skill when the user explicitly asks to build a PLAYABLE GAME (FPS, TPS, RPG, racing, etc.). Do NOT use this for cinematic showcase websites, portfolio sites, or animated landing pages — those use cinematic-scene-director + cinematic-3d-threejs instead. The Rapier WASM + Yuka + NavMesh bundle adds ~2-4MB and is overkill for non-game sites."
 ---
 
 # 🎮 Cinematic Game Engine — VibeCoding Architecture (2026)
 
-When the user asks to build a GAME (FPS, TPS, RPG, racing, puzzle, survival), you MUST use this architecture. This teaches the AI to build a fully playable, cinematic-quality game directly in the browser using Three.js.
+> ⚠️ **TRIGGER RULE — READ FIRST**: Only activate this skill when the user explicitly says they want a **playable game** (FPS, TPS, RPG, platformer, racing, survival, etc.). Do NOT use this for:
+> - Cinematic website showcases (use `cinematic-scene-director` instead)
+> - Portfolio/landing page 3D effects (use `cinematic-3d-threejs`)
+> - Animated background for a SaaS/business site
+> The reason: Rapier WASM + Yuka + NavMesh = ~2-4MB bundle + heavy CPU. Using it for a showcase site guarantees lag on mid-range phones (Galaxy S20 FE, iPhone 12 tier).
+
+When the user explicitly asks to build a GAME (FPS, TPS, RPG, racing, puzzle, survival), you MUST use this architecture. This teaches the AI to build a fully playable, cinematic-quality game directly in the browser using Three.js.
 
 > **Internet-verified** — Architecture based on `mohsenheydari/three-fps` (Three.js + Ammo.js FPS), `WesUnwin/three-game-engine` (Three.js + Rapier + UI), `iErcann/enari-engine` (FPS playground), and Yuka.js documentation.
 
@@ -127,9 +133,17 @@ class ShootingSystem {
         this.bullets = []; // active bullet trails
         this.enemies = []; // reference to enemy array
         this.shootCooldown = 0;
+        this.player = null; // ✅ FIX: must be set via setPlayer() before shoot() is called
+    }
+    
+    // ✅ FIX: Call this after constructing, before shooting
+    setPlayer(playerController) {
+        this.player = playerController;
     }
     
     shoot() {
+        // ✅ FIX: Guard against player not set or no ammo
+        if (!this.player) { console.warn('ShootingSystem: player not set. Call setPlayer() first.'); return; }
         if (this.shootCooldown > 0 || this.player.ammo <= 0) return;
         this.shootCooldown = 0.1; // fire rate limiter
         this.player.ammo--;
@@ -173,6 +187,12 @@ class ShootingSystem {
 }
 // Fire on mouse click:
 document.addEventListener('click', () => shootingSystem.shoot());
+
+// ✅ USAGE — always call setPlayer after construction:
+// const shootingSystem = new ShootingSystem(scene, camera);
+// const player = new FPSController(camera, canvas);
+// shootingSystem.setPlayer(player); // ← required before shoot() works
+// shootingSystem.enemies = enemyArray;
 ```
 
 ---
@@ -187,6 +207,8 @@ class EnemyAI {
     constructor(scene, entityManager, player) {
         this.health = 100;
         this.state = 'PATROL'; // PATROL | CHASE | ATTACK | DEAD
+        this.player = player;  // store reference for attack
+        this._attackInterval = null; // ✅ FIX: track interval for cleanup
         
         // Yuka Vehicle (entity with steering)
         this.vehicle = new YUKA.Vehicle();
@@ -203,8 +225,8 @@ class EnemyAI {
         this.mesh = createHuman(0x8B0000); // dark red enemy
         scene.add(this.mesh);
         
-        // Sync Yuka position → Three.js mesh
-        const syncCallback = new YUKA.Regulator(2);
+        // ✅ FIX: syncCallback = new YUKA.Regulator(2) was unused — removed.
+        // Correct sync method is updateCallback directly on the vehicle:
         this.vehicle.updateCallback = () => this.mesh.position.copy(this.vehicle.position);
         
         // Animation Mixer
@@ -229,8 +251,13 @@ class EnemyAI {
             this.attackPlayer();
         }
         
-        if (distToPlayer > 25) {
+        if (distToPlayer > 25 && this.state !== 'DEAD') {
             // Lost player — return to PATROL
+            // ✅ FIX: clear attack interval when leaving ATTACK state
+            if (this._attackInterval) {
+                clearInterval(this._attackInterval);
+                this._attackInterval = null;
+            }
             this.state = 'PATROL';
             this.vehicle.steering.clear();
             this.vehicle.steering.add(this.wanderBehavior);
@@ -255,6 +282,11 @@ class EnemyAI {
     
     die() {
         this.state = 'DEAD';
+        // ✅ FIX: clear attack interval on death — prevents permanent background timer leak
+        if (this._attackInterval) {
+            clearInterval(this._attackInterval);
+            this._attackInterval = null;
+        }
         // Fall animation
         gsap.to(this.mesh.rotation, { x: Math.PI/2, duration: 0.5 });
         setTimeout(() => { scene.remove(this.mesh); }, 2000);
@@ -263,9 +295,17 @@ class EnemyAI {
     }
     
     attackPlayer() {
-        // Periodic damage to player
-        setInterval(() => {
-            if (this.state === 'ATTACK') player.takeDamage(10);
+        // ✅ FIX: Store interval reference so it can be cleared in die() and when losing player
+        // Old code created a permanent interval every time attackPlayer() was called — memory leak!
+        if (this._attackInterval) return; // already attacking, don't create duplicate
+        this._attackInterval = setInterval(() => {
+            if (this.state === 'ATTACK' && this.player) {
+                this.player.takeDamage(10);
+            } else {
+                // State changed externally — self-clean
+                clearInterval(this._attackInterval);
+                this._attackInterval = null;
+            }
         }, 1000);
     }
 }

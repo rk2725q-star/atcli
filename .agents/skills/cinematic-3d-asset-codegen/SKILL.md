@@ -9,6 +9,11 @@ When the user needs ANY 3D object in a cinematic scene and no GLB file is availa
 
 > **Internet-verified** — All techniques sourced from threejs.org official examples, Bruno Simon's Three.js Journey, tympanus.net/codrops, and Sebastian Lague's procedural generation series.
 
+> ⚠️ **CHARACTER PRIORITY ORDER (READ BEFORE GENERATING)**:
+> - **HERO / FOREGROUND characters** (visible up-close, center of scene): ALWAYS load from Mixamo/Sketchfab GLB. Box-man in hero position = kills cinematic feel immediately.
+> - **BACKGROUND / CROWD** (50+ characters, far from camera, behind hero): Use `createHuman()` + `InstancedMesh`. 100 GLB chars = GPU crash; InstancedMesh = 1 draw call.
+> - **No GLB available** (model not found, offline, or time constraint): Fall back to procedural from this skill — acceptable for ANY non-hero character or prop.
+
 ---
 
 ## 🔑 GOLDEN RULE: Everything Can Be Built From Primitives

@@ -47,8 +47,9 @@ class SceneDirector {
     constructor(renderer, camera) {
         this.renderer = renderer;
         this.camera = camera;
-        this.scenes = {};         // registered 3D scenes
+        this.scenes = {};           // registered 3D scenes
         this.currentScene = null;
+        this.currentSceneObject = null; // ✅ FIX: holds the active THREE.Scene
         this.isTransitioning = false;
     }
 
@@ -69,8 +70,10 @@ class SceneDirector {
         if (current?.onExit) current.onExit();
         
         // 3. Swap scene
+        // ✅ FIX: WebGLRenderer has NO .scene property — renderer.render(scene, camera) is the only API.
+        // Store the active scene in a variable; render loop reads it.
         this.currentScene = name;
-        this.renderer.scene = next.scene; // Switch Three.js scene
+        this.currentSceneObject = next.scene; // <── render loop uses this
         
         // 4. Run enter logic (start character walks, lights, etc.)
         if (next?.onEnter) next.onEnter();
@@ -80,6 +83,18 @@ class SceneDirector {
         gsap.to(this.camera.rotation, next.cameraTarget);
         
         this.isTransitioning = false;
+    }
+}
+
+// ✅ REQUIRED: Render loop MUST use director.currentSceneObject — NOT renderer.scene
+// (renderer.scene does not exist in Three.js)
+function animate() {
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+    mixer?.update(delta);
+    // Pass the active scene from the director:
+    if (director.currentSceneObject) {
+        renderer.render(director.currentSceneObject, camera);
     }
 }
 ```
@@ -108,12 +123,15 @@ loader.load('/models/character.glb', (gltf) => {
 });
 
 // In requestAnimationFrame loop:
+// ✅ Keep a top-level `currentScene` var, OR use director.currentSceneObject.
+// Never pass undefined to renderer.render() — guard it:
 const clock = new THREE.Clock();
+let currentScene = scene; // default to initial scene
 function animate() {
+    requestAnimationFrame(animate);
     const delta = clock.getDelta();
     mixer?.update(delta);   // MANDATORY — drives character bones
-    renderer.render(currentScene, camera);
-    requestAnimationFrame(animate);
+    renderer.render(currentScene, camera); // ✅ correct API
 }
 ```
 

@@ -209,17 +209,115 @@ CODE OUTPUT:
 For each topic, automatically combine these skills:
 
 ```
-ALL cinematic websites:
-  + cinematic-scene-director     (ALWAYS — for FSM + transitions)
-  + cinematic-3d-threejs         (ALWAYS — for core rendering + HDRI)
+ALL cinematic websites (ALWAYS):
+  + cinematic-scene-director       (FSM transitions + scene switching)
+  + cinematic-3d-threejs           (core rendering + HDRI + postFX)
+  + cinematic-3d-asset-codegen     (procedural objects when no GLB available — ALMOST ALWAYS NEEDED)
+
+React / Next.js projects:
+  + cinematic-react-three-fiber    (use instead of vanilla Three.js)
 
 Topic-specific additions:
-  Music/Gaming:      + cinematic-audio-reactive-particles
-  Nature/Water:      + cinematic-webgl-fluid-simulation  
-  Space/Abstract:    + cinematic-raymarching-volumetrics
-  Fashion/Cloth:     + cinematic-real-physics-3d (Verlet cloth)
-  Product/SaaS:      + cinematic-gsap-scroll-animations
-  React/Next.js app: + cinematic-react-three-fiber
+  Music/Gaming visuals:  + cinematic-audio-reactive-particles
+  Nature/Water:          + cinematic-webgl-fluid-simulation
+  Space/Abstract/SDF:    + cinematic-raymarching-volumetrics
+  Fashion/Cloth/Rope:    + cinematic-real-physics-3d (Verlet cloth)
+  Product/SaaS/scroll:   + cinematic-gsap-scroll-animations
+  Any topic needing 3D objects without GLB files:
+                         + cinematic-3d-asset-codegen (procedural generation)
+
+⚠️ GAME-ONLY (explicit playable game requested):
+  ONLY when user says "build me a game" / "FPS" / "RPG" / "shooter":
+                         + cinematic-game-engine-vibecode
+  DO NOT add this skill for cinematic showcase sites, portfolios, or landing pages.
+  Reason: Rapier WASM + Yuka adds ~2-4MB bundle and lags on mid-range phones.
+
+DECISION TREE for ambiguous requests:
+  "Make it dynamic and interactive" → cinematic-scene-director (scene transitions)
+  "Add physics" → cinematic-real-physics-3d (cloth/fluid/verlet)
+  "Build a game" → cinematic-game-engine-vibecode (full game engine)
+  "No GLB models available" → cinematic-3d-asset-codegen (codegen everything)
+```
+
+---
+
+## STEP 7 — CHARACTER PRIORITY RULE
+
+When placing characters in the scene, follow this strict priority order:
+
+```
+PRIORITY 1 — HERO / FOREGROUND CHARACTERS (visible, interactive, close-up):
+  → ALWAYS use real Mixamo GLB + AnimationMixer
+  → Sources: mixamo.com, sketchfab.com, ReadyPlayerMe (rpm.readme.io)
+  → Reason: Box-man in the hero spot = immediately kills cinematic feel
+  → Example: "Doctor walking toward camera" = real GLB doctor model, MANDATORY
+
+PRIORITY 2 — BACKGROUND / CROWD (50-1000 characters, far from camera):
+  → ALWAYS use InstancedMesh box-man (from cinematic-3d-asset-codegen)
+  → Reason: 100 individual GLB characters = GPU crash. InstancedMesh = 1 draw call.
+  → Example: "City street crowd" = InstancedMesh of 200 box-humans, OK
+
+RULE: Never use box-man for hero characters. Never use GLB for 100+ crowd members.
+```
+
+---
+
+## STEP 8 — MOBILE & PERFORMANCE FALLBACK RULES
+
+Every cinematic scene MUST include these guards. Missing these = lag on Galaxy S20 FE, iPhone 12:
+
+```js
+// 1. Detect device performance tier at runtime
+const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
+const isLowEnd = isMobile || navigator.hardwareConcurrency <= 4;
+
+// 2. Adaptive quality settings
+const QUALITY = {
+    shadowMapSize:    isLowEnd ? 512  : 2048,
+    maxRigidBodies:   isLowEnd ? 20   : 200,   // Rapier physics limit
+    particleCount:    isLowEnd ? 500  : 5000,
+    bloomEnabled:     !isLowEnd,
+    filmGrainEnabled: !isLowEnd,
+    antiAlias:        !isMobile,
+};
+
+// 3. Rapier physics step skip on mobile (prevent frame rate drop)
+let physicsSkip = 0;
+function gameLoop(delta) {
+    if (isLowEnd) {
+        physicsSkip = (physicsSkip + 1) % 2; // run physics every other frame
+        if (physicsSkip === 0) physicsWorld?.step();
+    } else {
+        physicsWorld?.step();
+    }
+}
+
+// 4. Respect prefers-reduced-motion (accessibility)
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (reduceMotion) {
+    // Disable camera animations, particle systems, transitions
+    gsap.globalTimeline.timeScale(0); // freeze all GSAP
+    // Keep 3D scene static, just render without animation
+}
+
+// 5. WebGL context loss fallback
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    // Show beautiful fallback: static gradient background
+    document.getElementById('webgl-fallback').style.display = 'block';
+    cancelAnimationFrame(animationId);
+});
+
+// 6. Adaptive pixel ratio (CRITICAL for battery life on mobile)
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowEnd ? 1 : 2));
+```
+
+**Fallback HTML (always include in index.html):**
+```html
+<div id="webgl-fallback" style="display:none; background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460); 
+     width:100%; height:100vh; position:fixed; top:0; left:0;">
+  <!-- Beautiful static version of the page -->
+</div>
 ```
 
 ---
