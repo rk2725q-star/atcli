@@ -9,7 +9,49 @@ When the user asks for a "cinematic", "movie-like", or "stunning 3D visual" webs
 
 > **Internet-verified stack** — cross-referenced with tympanus.net (Codrops), Awwwards.com, and Three.js official documentation.
 
-## 1. Core Stack (All Verified)
+## 0. MINIMUM VIABLE CINEMATIC SCENE (Non-Negotiable Bar)
+
+Before writing a single line of code, understand: a scene is NOT cinematic unless it passes ALL of these:
+
+```
+MANDATORY CHECKLIST — every cinematic build MUST have:
+  [ ] At least ONE dominant 3D geometry/object in the foreground (not just particles)
+  [ ] PBR lighting: keyLight + fillLight + AmbientLight (never flat-lit)
+  [ ] HDRI environment map loaded via RGBELoader (sets mood for free)
+  [ ] Post-processing via EffectComposer (UnrealBloomPass minimum)
+  [ ] Camera animation: orbit, dolly, or scroll-driven (NEVER completely static)
+  [ ] Hero text readable on top of the 3D scene (z-index managed correctly)
+  [ ] requestAnimationFrame loop running (scene must MOVE, not freeze)
+```
+
+### ANTI-SHORTCUT RULES (These Are the Most Common Failures)
+```
+❌ DO NOT: "I'll just add a starfield background" — starfield is NOT cinematic 3D
+❌ DO NOT: Build the UI first and add 3D "later" — 3D IS the design, build it FIRST
+❌ DO NOT: Leave EffectComposer out "to keep it simple" — postFX is what makes it cinematic
+❌ DO NOT: Use flat-shaded BoxGeometry without materials — it looks like a debug cube
+❌ DO NOT: Skip HDRI and use scene.background = 0x000000 — black void is not cinematic
+❌ DO NOT: Call it "cinematic" if the camera never moves — GSAP timeline is REQUIRED
+```
+
+### What "Movie-Like" Actually Means in WebGL
+```
+Think of a movie trailer opening sequence:
+  - The camera MOVES — slow dolly forward, arc shot, reveal
+  - There is ATMOSPHERE — depth of field, god rays, film grain
+  - There is a HERO MOMENT — one dominant beautiful object in frame
+  - The lighting is DRAMATIC — single strong key light + subtle fill
+  - The pacing is SLOW — cinematic is never rushed
+
+Map this to Three.js:
+  Camera moves   → GSAP timeline animating camera.position + camera.lookAt
+  Atmosphere     → EffectComposer: UnrealBloomPass + optional BokehPass + FilmPass
+  Hero moment    → Prominent 3D geometry with PBR material (metalness + roughness)
+  Dramatic light → DirectionalLight(warm, intensity 2+) + PointLight(cool, dim fill)
+  Slow pacing    → GSAP ease: "power2.inOut", duration: 2-4 seconds
+```
+
+
 - **`three`** — Core 3D engine. Always import from `three/addons` for extras.
 - **`three/addons/postprocessing/EffectComposer`** — Post-processing pipeline.
 - **`three/addons/postprocessing/UnrealBloomPass`** — Cinematic bloom (the #1 effect on Awwwards sites).
