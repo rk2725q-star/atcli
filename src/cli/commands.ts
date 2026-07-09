@@ -1,9 +1,205 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { execSync, spawnSync } from 'child_process';
 
 export interface AppState {
     currentProvider: string;
     currentModel: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// /setup atcli — Intelligent OS-aware auto-setup
+// ─────────────────────────────────────────────────────────────────────────────
+function runSetup(): void {
+    const isWin = os.platform() === 'win32';
+    const isMac = os.platform() === 'darwin';
+
+    const C = {
+        reset:   '\x1b[0m',
+        bold:    '\x1b[1m',
+        green:   '\x1b[32m',
+        cyan:    '\x1b[36m',
+        yellow:  '\x1b[33m',
+        red:     '\x1b[31m',
+        blue:    '\x1b[34m',
+        magenta: '\x1b[35m',
+        dim:     '\x1b[2m',
+    };
+
+    const ok    = (msg: string) => console.log(`  ${C.green}✅ ${msg}${C.reset}`);
+    const info  = (msg: string) => console.log(`  ${C.cyan}ℹ  ${msg}${C.reset}`);
+    const warn  = (msg: string) => console.log(`  ${C.yellow}⚠  ${msg}${C.reset}`);
+    const fail  = (msg: string) => console.log(`  ${C.red}❌ ${msg}${C.reset}`);
+    const step  = (n: number, msg: string) => console.log(`\n${C.bold}${C.blue}  [${ n }] ${msg}${C.reset}`);
+    const title = (msg: string) => console.log(`  ${C.bold}${C.cyan}${msg}${C.reset}`);
+
+    const run = (cmd: string, opts: any = {}): boolean => {
+        try {
+            execSync(cmd, { stdio: 'inherit', ...opts });
+            return true;
+        } catch { return false; }
+    };
+
+    const runSilent = (cmd: string): string => {
+        try { return execSync(cmd, { encoding: 'utf8', stdio: ['pipe','pipe','pipe'] }).trim(); }
+        catch { return ''; }
+    };
+
+    // ── Banner ─────────────────────────────────────────────────────────────
+    console.log(`
+${C.bold}${C.magenta}  ╔══════════════════════════════════════════════════════╗
+  ║            ATCLI — Intelligent Setup                 ║
+  ║   Auto-detecting OS and installing everything...     ║
+  ╚══════════════════════════════════════════════════════╝${C.reset}`);
+
+    const platformLabel = isWin ? 'Windows' : isMac ? 'macOS' : 'Linux';
+    info(`Detected OS: ${C.bold}${platformLabel}${C.reset}`);
+
+    // ── Step 1: Node.js check / install ────────────────────────────────────
+    step(1, 'Checking Node.js...');
+    const nodeVer = runSilent('node --version');
+    const nodeMajor = nodeVer ? parseInt(nodeVer.replace('v','').split('.')[0]) : 0;
+
+    if (nodeMajor >= 18) {
+        ok(`Node.js ${nodeVer} found — good`);
+    } else {
+        if (nodeVer) {
+            warn(`Node.js ${nodeVer} is too old — need 18+. Installing...`);
+        } else {
+            warn('Node.js not found — installing automatically...');
+        }
+
+        if (isWin) {
+            // Windows: try winget first, then chocolatey, then manual
+            info('Trying winget install...');
+            const winget = run('winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements -e --silent');
+            if (winget) {
+                ok('Node.js installed via winget');
+                warn('⚠  Restart your terminal and run /setup atcli again to continue.');
+                return;
+            }
+            // Try chocolatey
+            info('winget failed — trying chocolatey...');
+            const choco = run('choco install nodejs-lts -y');
+            if (choco) {
+                ok('Node.js installed via chocolatey');
+                warn('Restart your terminal and run /setup atcli again.');
+                return;
+            }
+            fail('Auto-install failed. Please install Node.js manually:');
+            console.log(`  ${C.cyan}→ https://nodejs.org/en/download${C.reset}`);
+            return;
+        } else if (isMac) {
+            // macOS: try homebrew first, then nvm
+            info('Trying Homebrew...');
+            const brew = run('brew install node@20 2>/dev/null || brew install node 2>/dev/null');
+            if (brew) { ok('Node.js installed via Homebrew'); }
+            else {
+                info('Homebrew failed — installing via nvm...');
+                run(`curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash`);
+                run(`export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm install 20`);
+                ok('Node.js installed via nvm — restart terminal if next steps fail');
+            }
+        } else {
+            // Linux: try apt, dnf, then nvm
+            const apt = runSilent('which apt-get');
+            if (apt) {
+                info('Installing via apt...');
+                run('sudo apt-get update -qq && sudo apt-get install -y nodejs npm');
+            } else {
+                const dnf = runSilent('which dnf');
+                if (dnf) {
+                    info('Installing via dnf...');
+                    run('sudo dnf install -y nodejs npm');
+                } else {
+                    info('Installing via nvm...');
+                    run(`curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash`);
+                }
+            }
+        }
+    }
+
+    // Verify node is now available
+    const nodeVerAfter = runSilent('node --version');
+    if (!nodeVerAfter) {
+        fail('Node.js still not found after install attempt.');
+        console.log(`  ${C.yellow}Please install manually: https://nodejs.org then run /setup atcli again.${C.reset}`);
+        return;
+    }
+
+    // ── Step 2: Locate atcli repo root ─────────────────────────────────────
+    step(2, 'Locating atcli repo...');
+    // __dirname resolves to dist/cli/ — so go up 2 levels to find repo root
+    const atcliRoot = path.resolve(__dirname, '..', '..');
+    if (!fs.existsSync(path.join(atcliRoot, 'package.json'))) {
+        fail(`Cannot find atcli package.json. Expected at: ${atcliRoot}`);
+        return;
+    }
+    ok(`Repo root: ${atcliRoot}`);
+
+    // ── Step 3: npm install ─────────────────────────────────────────────────
+    step(3, 'Installing dependencies (npm install)...');
+    const installed = run('npm install', { cwd: atcliRoot });
+    if (installed) { ok('Dependencies installed'); }
+    else { fail('npm install failed — check your internet connection'); return; }
+
+    // ── Step 4: Build TypeScript ────────────────────────────────────────────
+    step(4, 'Building TypeScript → dist/...');
+    const distIndex = path.join(atcliRoot, 'dist', 'index.js');
+    if (fs.existsSync(distIndex)) {
+        ok('Already built (dist/ exists) — skipping');
+    } else {
+        const built = run('npm run build', { cwd: atcliRoot });
+        if (built) { ok('TypeScript build complete'); }
+        else { fail('Build failed — run: npm run build to see errors'); return; }
+    }
+
+    // ── Step 5: npm link ────────────────────────────────────────────────────
+    step(5, `Linking global commands (atcli / aecl / atcli-mcp)...`);
+    let linked = run('npm link', { cwd: atcliRoot });
+    if (!linked && !isWin) {
+        warn('npm link failed — trying with sudo...');
+        linked = run('sudo npm link', { cwd: atcliRoot });
+    }
+    if (linked) { ok('atcli, aecl, atcli-mcp linked globally'); }
+    else {
+        warn('npm link failed — you can still use: npx atcli from the repo folder');
+        if (isWin) warn('Try running PowerShell as Administrator and run: npm link');
+    }
+
+    // ── Step 6: Playwright Chromium ─────────────────────────────────────────
+    step(6, 'Installing Playwright Chromium (for AI provider sessions)...');
+    const pwInstalled = run('npx playwright install chromium', { cwd: atcliRoot });
+    if (pwInstalled) { ok('Playwright Chromium installed'); }
+    else { warn('Playwright install had issues — run: npx playwright install chromium manually if providers fail'); }
+
+    // ── Done ─────────────────────────────────────────────────────────────────
+    console.log(`
+${C.bold}${C.green}  ╔══════════════════════════════════════════════════════╗
+  ║              ✅  Setup Complete!                     ║
+  ╚══════════════════════════════════════════════════════╝${C.reset}
+
+${C.bold}  What to do next:${C.reset}
+
+  ${C.cyan}1. Open a NEW terminal and type:${C.reset}
+     ${C.bold}atcli${C.reset}
+
+     First launch — browser windows open for each AI provider.
+     Log in once with your own account. Sessions saved locally.
+
+  ${C.cyan}2. Open a SECOND terminal for live error checking:${C.reset}
+     ${C.bold}aecl${C.reset}
+
+  ${C.cyan}3. Inside atcli, verify with:${C.reset}
+     ${C.bold}/help${C.reset}               — all commands
+     ${C.bold}/provider deepseek${C.reset}   — switch provider
+
+  ${C.yellow}  Troubleshooting:${C.reset}
+  ${C.dim}  - "atcli not found" → run: npm config get prefix, add bin/ to PATH${C.reset}
+  ${C.dim}  - Browser issues → delete browser_profile/ and restart atcli${C.reset}
+  ${C.dim}  - Build errors → node -v (needs 18+), then npm run build${C.reset}
+`);
 }
 
 export function handleSlashCommand(input: string, state: AppState): { handled: boolean, action?: 'manage' | 'upload' | 'agentica' | 'session', args?: string } {
@@ -12,6 +208,15 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
     const args = parts.slice(1);
 
     switch (command) {
+        // ── /setup atcli ─────────────────────────────────────────────────────
+        case '/setup':
+            if (args[0]?.toLowerCase() === 'atcli' || args.length === 0) {
+                runSetup();
+            } else {
+                console.log(`\n  Usage: /setup atcli\n  Automatically installs Node.js (if needed), builds, links, and sets up Playwright.`);
+            }
+            return { handled: true };
+
         case '/agentica':
             return { handled: true, action: 'agentica', args: args.length > 0 ? args.join(' ') : 'Activate OpenClaw continuous autonomous mode and execute tasks.' };
 
@@ -74,7 +279,7 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
                     return { handled: true };
                 }
                 
-                const regex = new RegExp(oldStr.replace(/[.*+?^$\{}()|[\]\\]/g, '\\$&'), 'g');
+                const regex = new RegExp(oldStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
                 content = content.replace(regex, newStr);
                 fs.writeFileSync(filePath, content, 'utf-8');
                 console.log(`\n✅ Success: Renamed all occurrences of '${oldStr}' to '${newStr}' in ${targetFile}`);
@@ -91,17 +296,18 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
             
         case '/help':
             console.log('\nAvailable commands:');
-            console.log('  /provider <name>  - Switch the current AI provider (e.g., deepseek, chatgpt, gemini, ollama, local)');
-            console.log('  /model <name>     - Switch the current model');
+            console.log('  /setup atcli     - Auto-install Node.js, build, link — full setup in one command');
+            console.log('  /provider <name> - Switch the current AI provider (e.g., deepseek, chatgpt, gemini, ollama, local)');
+            console.log('  /model <name>    - Switch the current model');
             console.log('  /rename <file> <old> <new> - Locally rename variables to protect IP from the AI');
-            console.log('  /manage <task>    - Spawn the Tech Lead Agent to manage/review code');
-            console.log('  /review <task>    - Alias for /manage');
-            console.log('  /agentica <task>  - Enter OpenClaw autonomous continuous execution mode (Whole PC + Browser Control)');
-            console.log('  /upload <prompt>  - Pause terminal so you can manually upload an image in the browser');
-            console.log('  /session          - Pause terminal so you can manually select a past chat history to resume');
-            console.log('  /audit            - Perform a full codebase scaling and bug audit');
-            console.log('  /exit             - Exit ATCLI');
-            console.log('  /help             - Show this help message');
+            console.log('  /manage <task>   - Spawn the Tech Lead Agent to manage/review code');
+            console.log('  /review <task>   - Alias for /manage');
+            console.log('  /agentica <task> - Enter OpenClaw autonomous continuous execution mode (Whole PC + Browser Control)');
+            console.log('  /upload <prompt> - Pause terminal so you can manually upload an image in the browser');
+            console.log('  /session         - Pause terminal so you can manually select a past chat history to resume');
+            console.log('  /audit           - Perform a full codebase scaling and bug audit');
+            console.log('  /exit            - Exit ATCLI');
+            console.log('  /help            - Show this help message');
             console.log('');
             console.log('\x1b[36m\x1b[1m🔍 AECL — Auto Error Checker Live:\x1b[0m');
             console.log('\x1b[90m  AECL is a separate command that shows live TypeScript/JS errors');
