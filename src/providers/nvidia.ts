@@ -250,8 +250,19 @@ export class NvidiaApiProvider implements AgentProvider {
     }
 
     // ── AgentProvider Interface ────────────────────────────────────────────
+
+    /** Ensure the provider is initialized — AgentLoop calls sendMessage() directly
+     *  without calling init() first, so we lazy-init on first message. */
+    private async initIfNeeded(): Promise<void> {
+        if (!this.apiKey) {
+            await this.init();
+        }
+    }
+
     public async sendMessage(message: string): Promise<ProviderResponse> {
         try {
+            // Lazy init — AgentLoop skips explicit init() and calls sendMessage directly
+            await this.initIfNeeded();
             console.log(`\n[NVIDIA] 🚀 Sending to ${this.model} (queued, 1-at-a-time)...`);
             // ALL requests go through the sequential queue — enforces 1-at-a-time
             const text = await globalQueue.enqueue(() => this.callAPI(message));
@@ -263,6 +274,8 @@ export class NvidiaApiProvider implements AgentProvider {
     }
 
     public async sendImageAndMessage(imagePath: string, message: string): Promise<ProviderResponse> {
+        // Lazy init
+        await this.initIfNeeded();
         // For vision-capable NVIDIA models (e.g. meta/llama-3.2-11b-vision-instruct)
         try {
             let base64: string;

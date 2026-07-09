@@ -204,7 +204,59 @@ ${C.bold}  What to do next:${C.reset}
 `);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Model list cache — allows /model <number> shortcut after /models listing
+// ─────────────────────────────────────────────────────────────────────────────
+let _lastModelList: string[] = [];
+
+function printModelList(models: string[], currentModel: string): void {
+    _lastModelList = models;
+
+    // Group models by family prefix
+    const families: Record<string, string[]> = {};
+    const familyOrder = ['meta', 'nvidia', 'mistralai', 'deepseek', 'qwen', 'microsoft', 'google', 'cohere', 'ibm', 'writer', 'other'];
+
+    for (const m of models) {
+        const prefix = m.split('/')[0]?.toLowerCase() || 'other';
+        const family = familyOrder.includes(prefix) ? prefix : 'other';
+        if (!families[family]) families[family] = [];
+        families[family].push(m);
+    }
+
+    const RECOMMENDED = ['meta/llama-3.3-70b-instruct', 'nvidia/llama-3.1-nemotron-70b-instruct', 'deepseek-ai/deepseek-r1'];
+    const familyLabels: Record<string, string> = {
+        meta: '🦙 Meta Llama', nvidia: '🟢 NVIDIA', mistralai: '🌬  Mistral',
+        deepseek: '🔵 DeepSeek', qwen: '🟡 Qwen', microsoft: '🔷 Microsoft',
+        google: '🔴 Google', cohere: '⚡ Cohere', ibm: '🔶 IBM', writer: '✍  Writer', other: '📦 Other'
+    };
+
+    console.log(`\n  ╔══════════════════════════════════════════════════════════╗`);
+    console.log(`  ║        NVIDIA NIM — Available Models (${String(models.length).padEnd(3)})              ║`);
+    console.log(`  ╚══════════════════════════════════════════════════════════╝`);
+    console.log(`  \x1b[2m  ★ = active  |  ⭐ = recommended for free tier  |  # = pick number\x1b[0m\n`);
+
+    let idx = 1;
+    for (const family of familyOrder) {
+        const fModels = families[family];
+        if (!fModels || fModels.length === 0) continue;
+        console.log(`  \x1b[1m${familyLabels[family] || family}\x1b[0m`);
+        for (const m of fModels) {
+            const isActive      = m === currentModel ? ' \x1b[33m★ active\x1b[0m' : '';
+            const isRecommended = RECOMMENDED.includes(m) ? ' \x1b[32m⭐\x1b[0m' : '';
+            console.log(`  \x1b[2m${String(idx).padStart(4)}.\x1b[0m \x1b[36m${m}\x1b[0m${isActive}${isRecommended}`);
+            idx++;
+        }
+        console.log('');
+    }
+
+    console.log(`  \x1b[1mQuick-switch:\x1b[0m`);
+    console.log(`    /model <number>                   e.g. /model 3`);
+    console.log(`    /model <full-id>                  e.g. /model meta/llama-3.1-8b-instruct`);
+    console.log(`\n  \x1b[2mCurrent: \x1b[36m${currentModel}\x1b[0m\n`);
+}
+
 export function handleSlashCommand(input: string, state: AppState, router?: any): { handled: boolean, action?: 'manage' | 'upload' | 'agentica' | 'session', args?: string } {
+
     const parts = input.trim().split(' ');
     const command = parts[0];
     const args = parts.slice(1);
@@ -229,23 +281,16 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
 
             if (provider === 'nvidia') {
                 if (subAction === 'models') {
-                    // ── List all available NVIDIA models ──────────────────────
+                    // ── List all available NVIDIA models with grouped numbered picker ──
                     const key = ApiKeyStore.get('nvidia');
                     if (!key) {
                         console.log(`\n  ❌ No NVIDIA API key stored. Run: /api nvidia <your-api-key>`);
                         return { handled: true };
                     }
-                    console.log(`\n  🔄 Fetching available NVIDIA NIM models...`);
+                    console.log(`\n  🔄 Fetching NVIDIA NIM models from API...`);
                     NvidiaApiProvider.fetchAvailableModels(key).then(models => {
-                        console.log(`\n  ╔══════════════════════════════════════════════════╗`);
-                        console.log(`  ║        NVIDIA NIM — Available Models (${models.length})        ║`);
-                        console.log(`  ╚══════════════════════════════════════════════════╝\n`);
-                        models.forEach((m, i) => {
-                            const isDefault = m.includes('llama-3.3-70b') ? ' ← default' : '';
-                            console.log(`  ${String(i + 1).padStart(3)}. \x1b[36m${m}\x1b[0m${isDefault}`);
-                        });
-                        console.log(`\n  💡 Switch model: /model <model-name>  (e.g. /model meta/llama-3.1-8b-instruct)`);
-                        console.log(`  💡 Current model: \x1b[1m${router?.getNvidiaProvider?.()?.getModel?.() || 'meta/llama-3.3-70b-instruct'}\x1b[0m\n`);
+                        const currentModel = router?.getNvidiaProvider?.()?.getModel?.() || 'meta/llama-3.3-70b-instruct';
+                        printModelList(models, currentModel);
                     }).catch((e: Error) => console.log(`\n  ❌ ${e.message}`));
                     return { handled: true };
                 }
@@ -296,13 +341,12 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 }
                 console.log(`\n  🔄 Fetching NVIDIA NIM models...`);
                 NvidiaApiProvider.fetchAvailableModels(key).then(models => {
-                    console.log(`\n  Available models (${models.length}):`);
-                    models.forEach((m, i) => console.log(`  ${String(i+1).padStart(3)}. \x1b[36m${m}\x1b[0m`));
-                    console.log(`\n  Switch model: /model <model-id>`);
+                    const currentModel = router?.getNvidiaProvider?.()?.getModel?.() || 'meta/llama-3.3-70b-instruct';
+                    printModelList(models, currentModel);
                 }).catch((e: Error) => console.log(`  ❌ ${e.message}`));
             } else {
-                console.log(`\n  ℹ  /models is supported for API providers (e.g. nvidia).`);
-                console.log(`  Current provider '${state.currentProvider}' uses browser sessions — models are selected on the provider's website.`);
+                console.log(`\n  ℹ  /models is supported for API providers (nvidia).`);
+                console.log(`  Current provider '${state.currentProvider}' uses browser sessions — no model list needed.`);
             }
             return { handled: true };
         }
@@ -348,24 +392,40 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
         
         case '/model':
             if (args.length > 0) {
-                state.currentModel = args[0];
-                // If on nvidia provider, also update the provider's model
+                let modelArg = args[0];
+
+                // Support /model <number> — pick from last /models listing
+                const numPick = parseInt(modelArg);
+                if (!isNaN(numPick) && numPick > 0 && _lastModelList.length > 0) {
+                    if (numPick <= _lastModelList.length) {
+                        modelArg = _lastModelList[numPick - 1];
+                        console.log(`\n  Picked #${numPick}: \x1b[36m${modelArg}\x1b[0m`);
+                    } else {
+                        console.log(`\n  ❌ Number ${numPick} out of range (1–${_lastModelList.length}). Run /models first.`);
+                        return { handled: true };
+                    }
+                }
+
+                state.currentModel = modelArg;
+                // If on nvidia provider, also update the provider's model live
                 if (state.currentProvider === 'nvidia' && router) {
-                    router.setNvidiaModel(args[0]);
-                    console.log(`\n✅ NVIDIA model switched to: \x1b[36m${args[0]}\x1b[0m`);
-                    console.log(`  💡 Sequential queue active — requests send 1-at-a-time (40 RPM safe)`);
+                    router.setNvidiaModel(modelArg);
+                    console.log(`\n  ✅ NVIDIA model → \x1b[36m${modelArg}\x1b[0m`);
+                    console.log(`  \x1b[2m  Sequential queue active — 1 request at a time (40 RPM safe)\x1b[0m`);
                 } else {
                     console.log(`\n✅ Model switched to: ${state.currentModel}`);
                 }
             } else {
                 if (state.currentProvider === 'nvidia' && router) {
                     const m = router.getNvidiaProvider().getModel();
-                    console.log(`\nℹ️  NVIDIA current model: \x1b[36m${m}\x1b[0m | /api nvidia models to see all`);
+                    console.log(`\n  \x1b[36m★ Active NVIDIA model:\x1b[0m \x1b[1m${m}\x1b[0m`);
+                    console.log(`  \x1b[2m  /models to browse all  |  /model <number or id> to switch\x1b[0m`);
                 } else {
                     console.log(`\nℹ️ Current model is: ${state.currentModel}`);
                 }
             }
             return { handled: true };
+
             
         case '/rename':
             if (args.length < 3) {
