@@ -22,7 +22,7 @@ const NVIDIA_BASE_URL    = 'https://integrate.api.nvidia.com/v1';
 const CHAT_ENDPOINT      = `${NVIDIA_BASE_URL}/chat/completions`;
 const MODELS_ENDPOINT    = `${NVIDIA_BASE_URL}/models`;
 const DEFAULT_MODEL      = 'minimaxai/minimax-m3';
-const MAX_CONTEXT_TOKENS = 5_000;   // Aggressive pruning for max speed: highly optimizes TTFT on free tier
+const MAX_CONTEXT_TOKENS = 8_000;   // Balanced for fast TTFT but enough room for 3-4 deep iterations
 const RPM_DELAY_MS       = 3_000;     // 3s between requests → max 20 RPM (50% of the 40 RPM limit for ultimate safety)
 
 // Conversation memory file: one per project dir, per provider
@@ -177,10 +177,11 @@ export class NvidiaApiProvider implements AgentProvider {
                 role: 'user',
                 content: `[MEMORY CHECKPOINT] CRITICAL SYSTEM ALERT: Your chat history is about to be wiped to optimize speed. 
 Before you execute any further steps for the user's request, you MUST preserve your context.
-Write an XML <tool_call> to update the 'ATCLI_MEMORY.md' file with:
-1. A brief summary of the progress made so far.
-2. The exact next steps you were planning to take.
-Do not skip this. Write to ATCLI_MEMORY.md NOW so you do not lose your train of thought in the next turn.`
+Write an XML <tool_call> to update the 'ATCLI_MEMORY.md' file with a HIGHLY DETAILED log containing:
+1. A comprehensive summary of exactly what you have built and accomplished so far.
+2. Any bugs you fixed or architectural decisions you made.
+3. The exact next steps you were planning to take.
+Do not skip this. Write detailed notes to ATCLI_MEMORY.md NOW so you do not lose your train of thought in the next turn.`
             });
         }
     }
