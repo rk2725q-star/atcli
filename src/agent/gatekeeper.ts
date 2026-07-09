@@ -16,12 +16,15 @@ export interface GatekeeperResult {
 
 const DESTRUCTIVE_PATTERNS = [
     // File system destruction
-    /rm\s+-rf\s+[/\\]/i,
-    /del\s+\/[fqs]+\s+[/\\]/i,
+    /rm\s+-rf\s+[\/\\]/i,
+    /del\s+\/[fqs]+\s+[\/\\]/i,
     /format\s+[a-z]:/i,
     /mkfs\./i,
     /dd\s+if=/i,
     /shutdown\s+-[rsh]/i,
+    // Fix #3 — taskkill gap: block taskkill targeting node/atcli by NAME via shell cmd
+    // Previously only action==='process_kill' was checked; shell taskkill bypassed it.
+    /taskkill.*\/im\s+node(\.exe)?/i,
     /taskkill.*\/f.*atcli/i,
     /reg\s+delete\s+HKLM/i,
     /bcdedit/i,
@@ -67,31 +70,29 @@ const SECRET_PATTERNS = [
     /BEGIN (RSA|EC|OPENSSH) PRIVATE KEY/,  // Private key material
 ];
 
-// ── Dynamic system path protection (no hardcoded drive letters) ──────────────
+// ── Dynamic system path protection (no hardcoded drive letters) ────────────────
 // Windows: uses process.env.SystemDrive (C:, D:, E: — whatever the OS drive is)
-// macOS/Linux: uses standard Unix paths
+// Unix paths included cross-platform (covers WSL paths on Windows too)
 function buildProtectedSystemPaths(): string[] {
     const paths: string[] = [];
     if (process.platform === 'win32') {
-        // SystemDrive env var is set by Windows itself — auto-detects D:, E:, etc.
         const sysDrive = (process.env.SystemDrive || 'C:').replace(/\\$/, '');
         const sysRoot  = process.env.SystemRoot || `${sysDrive}\\Windows`;
         paths.push(
-            sysRoot,                               // C:\Windows or D:\Windows etc.
+            sysRoot,
             `${sysDrive}\\Program Files`,
             `${sysDrive}\\Program Files (x86)`,
             `${sysDrive}\\System32`,
             `${sysDrive}\\Windows\\System32`,
         );
-        // User-sensitive Windows dirs (relative — work regardless of C: or D:)
         paths.push(
             'AppData\\Roaming\\Microsoft',
             'AppData\\Local\\Microsoft',
         );
-    } else {
-        // macOS / Linux
-        paths.push('/etc', '/usr/bin', '/bin', '/sbin', '/usr/sbin', '/usr/lib', '/lib');
     }
+    // Cross-platform: Unix system paths always in list (covers WSL, macOS, Linux,
+    // and any Unix-style path an agent might pass even when running on Windows)
+    paths.push('/etc', '/usr/bin', '/usr/sbin', '/bin', '/sbin', '/usr/lib', '/lib');
     // Cross-platform sensitive dirs
     paths.push('.ssh');
     return paths;
@@ -153,11 +154,15 @@ export class Gatekeeper {
         // 2. Protected system path write check
         if (['write_file', 'create_file', 'replace'].includes(action)) {
             const fp = toolCall.path || toolCall.file || '';
-            // Normalize both sides: collapse C:\\\\Windows → C:\Windows, forward-slash → backslash, lowercase
-            const norm = path.normalize(fp.replace(/\//g, '\\')).toLowerCase();
+            // Fix #1 — Unix path slash-normalization bug:
+            // path.normalize() on Windows converts forward-slashes to backslashes.
+            // That means '/etc/passwd' becomes '\etc\passwd' after normalize,
+            // which never matches the protected list entry '/etc'. 
+            // Fix: normalise to FORWARD-SLASHES on all platforms for comparison.
+            const norm = fp.replace(/\\/g, '/').toLowerCase();
             const isSystemPath = PROTECTED_SYSTEM_PATHS.some(p => {
-                const normProtected = path.normalize(p).toLowerCase();
-                return norm.startsWith(normProtected) || norm.includes(normProtected);
+                const normProtected = p.replace(/\\/g, '/').toLowerCase();
+                return norm.startsWith(normProtected + '/') || norm === normProtected || norm.includes('/' + normProtected + '/');
             });
             if (isSystemPath) {
                 this.log(`🚨 BLOCKED [${agentName}] system path write: ${fp}`);
@@ -181,19 +186,22 @@ export class Gatekeeper {
         }
 
         // 4. ATCLI self-modification block
-        // Only applies to ABSOLUTE paths that explicitly target ATCLI's src/ or dist/.
-        // Relative paths (e.g., "src/index.ts") are ALWAYS user project files — never block them.
+        // Fix #2 — Relative path self-mod bypass:
+        // Previously only absolute paths were checked. A relative path like
+        // 'src/agent/gatekeeper.ts' would bypass the block entirely because
+        // path.isAbsolute() returned false. Fix: always resolve against cwd first.
         if (['write_file', 'create_file', 'replace', 'delete_file'].includes(action)) {
             const fp = toolCall.path || toolCall.file || '';
-            // Only check absolute paths — relative paths are user project files, not ATCLI source
-            if (path.isAbsolute(fp)) {
+            if (fp) {
+                // Resolve relative paths too — 'src/agent/gatekeeper.ts' → absolute
+                const resolvedFp = path.isAbsolute(fp) ? fp : path.resolve(process.cwd(), fp);
                 const atcliRoot = path.resolve(__dirname, '..', '..');
                 const atcliSrcDir = path.join(atcliRoot, 'src');
                 const atcliDistDir = path.join(atcliRoot, 'dist');
-                const normFp = fp.replace(/\\/g, '/');
-                const normSrc = atcliSrcDir.replace(/\\/g, '/');
+                const normFp   = resolvedFp.replace(/\\/g, '/');
+                const normSrc  = atcliSrcDir.replace(/\\/g, '/');
                 const normDist = atcliDistDir.replace(/\\/g, '/');
-                const isAtcliSrc = normFp.startsWith(normSrc) && (fp.endsWith('.ts') || fp.endsWith('.js'));
+                const isAtcliSrc  = normFp.startsWith(normSrc)  && (fp.endsWith('.ts') || fp.endsWith('.js'));
                 const isAtcliDist = normFp.startsWith(normDist) && fp.endsWith('.js');
                 if (isAtcliSrc || isAtcliDist) {
                     this.log(`🚨 BLOCKED [${agentName}] self-modification: ${fp}`);
