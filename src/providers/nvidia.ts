@@ -211,91 +211,112 @@ export class NvidiaApiProvider implements AgentProvider {
         // Trim to stay within context window
         this.trimContext();
 
-        const controller = new AbortController();
-        this.abortController = controller;
-        const timeoutId = setTimeout(() => {
-            controller.abort(new Error('NVIDIA API timeout: Server took longer than 120 seconds to respond. The free tier is currently heavily overloaded.'));
-        }, 120000);
+        let attempt = 0;
+        const MAX_RETRIES = 3;
 
-        const requestBody = {
-            model: this.model,
-            messages: this.messages,
-            temperature: 0.6,
-            max_tokens: 4096,
-            stream: true
-        };
+        while (attempt < MAX_RETRIES) {
+            attempt++;
+            const controller = new AbortController();
+            this.abortController = controller;
+            const timeoutId = setTimeout(() => {
+                controller.abort(new Error('NVIDIA API timeout: Server took longer than 120 seconds to respond. The free tier is currently heavily overloaded.'));
+            }, 120000);
 
-        try {
-            const response = await fetch(CHAT_ENDPOINT, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'text/event-stream',
-                    'Authorization': `Bearer ${this.apiKey}`
-                },
-                body: JSON.stringify(requestBody),
-                signal: this.abortController.signal
-            });
-            clearTimeout(timeoutId);
+            const requestBody = {
+                model: this.model,
+                messages: this.messages,
+                temperature: 0.6,
+                max_tokens: 4096,
+                stream: true
+            };
 
-            if (!response.ok) {
-                const errBody = await response.text();
-                // Remove user message on error to avoid corrupting history
-                this.messages.pop();
-                throw new Error(`NVIDIA API Error ${response.status}: ${errBody}`);
-            }
+            try {
+                const response = await fetch(CHAT_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream',
+                        'Authorization': `Bearer ${this.apiKey}`
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: this.abortController.signal
+                });
+                clearTimeout(timeoutId);
 
-            console.log(); // Newline before streaming
-            let assistantMessage = '';
-            
-            if (response.body) {
-                const reader = (response.body as any).getReader();
-                const decoder = new TextDecoder("utf-8");
-                let buffer = '';
+                if (!response.ok) {
+                    const errBody = await response.text();
+                    throw new Error(`NVIDIA API Error ${response.status}: ${errBody}`);
+                }
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                if (attempt === 1) console.log(); // Newline before streaming only on first attempt
+                let assistantMessage = '';
+                
+                if (response.body) {
+                    const reader = (response.body as any).getReader();
+                    const decoder = new TextDecoder("utf-8");
+                    let buffer = '';
 
-                    buffer += decoder.decode(value, { stream: true });
-                    
-                    let newlineIndex;
-                    while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-                        const line = buffer.slice(0, newlineIndex).trim();
-                        buffer = buffer.slice(newlineIndex + 1);
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
 
-                        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-                            try {
-                                const parsed = JSON.parse(line.slice(6));
-                                const textChunk = parsed.choices?.[0]?.delta?.content;
-                                if (textChunk) {
-                                    process.stdout.write(textChunk);
-                                    assistantMessage += textChunk;
+                        buffer += decoder.decode(value, { stream: true });
+                        
+                        let newlineIndex;
+                        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+                            const line = buffer.slice(0, newlineIndex).trim();
+                            buffer = buffer.slice(newlineIndex + 1);
+
+                            if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+                                try {
+                                    const parsed = JSON.parse(line.slice(6));
+                                    const textChunk = parsed.choices?.[0]?.delta?.content;
+                                    if (textChunk) {
+                                        process.stdout.write(textChunk);
+                                        assistantMessage += textChunk;
+                                    }
+                                } catch (e) {
+                                    // Ignore parse errors from partial JSON
                                 }
-                            } catch (e) {
-                                // Ignore parse errors from partial JSON
                             }
                         }
                     }
                 }
+
+                // Add assistant response to persistent history
+                this.messages.push({ role: 'assistant', content: assistantMessage });
+
+                // Save to disk after every exchange
+                this.saveConversation();
+
+                return assistantMessage;
+
+            } catch (e: any) {
+                clearTimeout(timeoutId);
+                
+                // Retry if 503 (Busy), 502/504 (Gateway timeout), 429 (Rate limit), or AbortError (timeout)
+                const isRetryable = e.name === 'AbortError' || 
+                                    e.message.includes('503') || 
+                                    e.message.includes('502') || 
+                                    e.message.includes('504') || 
+                                    e.message.includes('429');
+
+                if (isRetryable && attempt < MAX_RETRIES) {
+                    console.log(`\n[NVIDIA] API busy or timed out. Retrying attempt ${attempt + 1}/${MAX_RETRIES} in 3 seconds...`);
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    continue;
+                }
+
+                this.messages.pop(); // Remove user message if request permanently failed
+                if (e.name === 'AbortError') {
+                    throw new Error(`NVIDIA API request timed out (120s) after ${MAX_RETRIES} attempts. The NVIDIA server might be overloaded.`);
+                }
+                throw e;
             }
-
-            // Add assistant response to persistent history
-            this.messages.push({ role: 'assistant', content: assistantMessage });
-
-            // Save to disk after every exchange
-            this.saveConversation();
-
-            return assistantMessage;
-
-        } catch (e: any) {
-            clearTimeout(timeoutId);
-            this.messages.pop(); // Remove user message if request failed
-            if (e.name === 'AbortError') {
-                throw new Error('NVIDIA API request timed out (120s). The NVIDIA server might be overloaded.');
-            }
-            throw e;
         }
+        
+        // Should never reach here due to throw in catch
+        return '';
     }
 
     // ── AgentProvider Interface ────────────────────────────────────────────
