@@ -210,9 +210,10 @@ export class NvidiaApiProvider implements AgentProvider {
         // Trim to stay within context window
         this.trimContext();
 
-        this.abortController = new AbortController();
+        const controller = new AbortController();
+        this.abortController = controller;
         const timeoutId = setTimeout(() => {
-            this.abortController.abort(new Error('NVIDIA API timeout: Server took longer than 45 seconds to respond.'));
+            controller.abort(new Error('NVIDIA API timeout: Server took longer than 45 seconds to respond.'));
         }, 45000);
 
         const requestBody = {
