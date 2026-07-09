@@ -22,7 +22,7 @@ const NVIDIA_BASE_URL    = 'https://integrate.api.nvidia.com/v1';
 const CHAT_ENDPOINT      = `${NVIDIA_BASE_URL}/chat/completions`;
 const MODELS_ENDPOINT    = `${NVIDIA_BASE_URL}/models`;
 const DEFAULT_MODEL      = 'meta/llama-3.3-70b-instruct';
-const MAX_CONTEXT_TOKENS = 120_000;   // Stay well under 180k — leave room for response
+const MAX_CONTEXT_TOKENS = 24_000;   // Safely under 32k for smaller models (leaves 8k for completion)
 const RPM_DELAY_MS       = 1_600;     // 1.6s between requests → ~37 RPM (safe under 40)
 
 // Conversation memory file: one per project dir, per provider
@@ -122,7 +122,8 @@ export class NvidiaApiProvider implements AgentProvider {
             if (fs.existsSync(this.memoryPath)) {
                 const saved = JSON.parse(fs.readFileSync(this.memoryPath, 'utf8'));
                 this.messages = saved.messages || [];
-                this.model    = saved.model || this.model;
+                // Do NOT overwrite this.model with saved.model. The user might have just switched models!
+                // this.model    = saved.model || this.model;
             }
         } catch { this.messages = []; }
     }
