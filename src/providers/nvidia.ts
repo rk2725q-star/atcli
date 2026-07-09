@@ -221,7 +221,7 @@ export class NvidiaApiProvider implements AgentProvider {
             messages: this.messages,
             temperature: 0.6,
             max_tokens: 4096,
-            stream: false
+            stream: true
         };
 
         try {
@@ -229,6 +229,7 @@ export class NvidiaApiProvider implements AgentProvider {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream',
                     'Authorization': `Bearer ${this.apiKey}`
                 },
                 body: JSON.stringify(requestBody),
@@ -243,8 +244,40 @@ export class NvidiaApiProvider implements AgentProvider {
                 throw new Error(`NVIDIA API Error ${response.status}: ${errBody}`);
             }
 
-            const data = await response.json() as any;
-            const assistantMessage = data.choices?.[0]?.message?.content || '';
+            console.log(); // Newline before streaming
+            let assistantMessage = '';
+            
+            if (response.body) {
+                const reader = (response.body as any).getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    
+                    let newlineIndex;
+                    while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+                        const line = buffer.slice(0, newlineIndex).trim();
+                        buffer = buffer.slice(newlineIndex + 1);
+
+                        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+                            try {
+                                const parsed = JSON.parse(line.slice(6));
+                                const textChunk = parsed.choices?.[0]?.delta?.content;
+                                if (textChunk) {
+                                    process.stdout.write(textChunk);
+                                    assistantMessage += textChunk;
+                                }
+                            } catch (e) {
+                                // Ignore parse errors from partial JSON
+                            }
+                        }
+                    }
+                }
+            }
 
             // Add assistant response to persistent history
             this.messages.push({ role: 'assistant', content: assistantMessage });
