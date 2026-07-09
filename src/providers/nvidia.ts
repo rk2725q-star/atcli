@@ -22,7 +22,7 @@ const NVIDIA_BASE_URL    = 'https://integrate.api.nvidia.com/v1';
 const CHAT_ENDPOINT      = `${NVIDIA_BASE_URL}/chat/completions`;
 const MODELS_ENDPOINT    = `${NVIDIA_BASE_URL}/models`;
 const DEFAULT_MODEL      = 'minimaxai/minimax-m3';
-const MAX_CONTEXT_TOKENS = 24_000;   // Safely under 32k for smaller models (leaves 8k for completion)
+const MAX_CONTEXT_TOKENS = 5_000;   // Aggressive pruning for max speed: highly optimizes TTFT on free tier
 const RPM_DELAY_MS       = 3_000;     // 3s between requests → max 20 RPM (50% of the 40 RPM limit for ultimate safety)
 
 // Conversation memory file: one per project dir, per provider
