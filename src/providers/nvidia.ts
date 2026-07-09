@@ -211,6 +211,9 @@ export class NvidiaApiProvider implements AgentProvider {
         this.trimContext();
 
         this.abortController = new AbortController();
+        const timeoutId = setTimeout(() => {
+            this.abortController.abort(new Error('NVIDIA API timeout: Server took longer than 45 seconds to respond.'));
+        }, 45000);
 
         const requestBody = {
             model: this.model,
@@ -220,33 +223,44 @@ export class NvidiaApiProvider implements AgentProvider {
             stream: false
         };
 
-        const response = await fetch(CHAT_ENDPOINT, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`
-            },
-            body: JSON.stringify(requestBody),
-            signal: this.abortController.signal
-        });
+        try {
+            const response = await fetch(CHAT_ENDPOINT, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`
+                },
+                body: JSON.stringify(requestBody),
+                signal: this.abortController.signal
+            });
+            clearTimeout(timeoutId);
 
-        if (!response.ok) {
-            const errBody = await response.text();
-            // Remove user message on error to avoid corrupting history
-            this.messages.pop();
-            throw new Error(`NVIDIA API Error ${response.status}: ${errBody}`);
+            if (!response.ok) {
+                const errBody = await response.text();
+                // Remove user message on error to avoid corrupting history
+                this.messages.pop();
+                throw new Error(`NVIDIA API Error ${response.status}: ${errBody}`);
+            }
+
+            const data = await response.json() as any;
+            const assistantMessage = data.choices?.[0]?.message?.content || '';
+
+            // Add assistant response to persistent history
+            this.messages.push({ role: 'assistant', content: assistantMessage });
+
+            // Save to disk after every exchange
+            this.saveConversation();
+
+            return assistantMessage;
+
+        } catch (e: any) {
+            clearTimeout(timeoutId);
+            this.messages.pop(); // Remove user message if request failed
+            if (e.name === 'AbortError') {
+                throw new Error('NVIDIA API request timed out (45s). The NVIDIA server might be overloaded.');
+            }
+            throw e;
         }
-
-        const data = await response.json() as any;
-        const assistantMessage = data.choices?.[0]?.message?.content || '';
-
-        // Add assistant response to persistent history
-        this.messages.push({ role: 'assistant', content: assistantMessage });
-
-        // Save to disk after every exchange
-        this.saveConversation();
-
-        return assistantMessage;
     }
 
     // ── AgentProvider Interface ────────────────────────────────────────────
