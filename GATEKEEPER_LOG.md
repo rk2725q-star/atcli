@@ -31,3 +31,25 @@
 - 2026-07-08T14:24:11.955Z | 🚨 BLOCKED [DynPathTest] sensitive file write: .env
 - 2026-07-08T14:24:11.956Z | 🚨 BLOCKED [DynPathTest] system path write: .ssh/id_rsa
 - 2026-07-08T14:24:11.957Z | 🚨 BLOCKED [DynPathTest] destructive command: rm -rf /
+- 2026-07-09T13:43:29.617Z | 🚨 BLOCKED [test] destructive command: taskkill /f /im node.exe
+- 2026-07-09T13:43:29.621Z | 🚨 BLOCKED [test] sensitive file write: /etc/passwd
+- 2026-07-09T13:43:29.622Z | 🚨 BLOCKED [test] sensitive file write: /etc/shadow
+- 2026-07-09T13:43:29.623Z | 🚨 BLOCKED [test] self-modification: src\agent\gatekeeper.ts
+- 2026-07-09T13:43:29.624Z | 🚨 BLOCKED [test] destructive command: rm -rf /
+- 2026-07-09T13:43:46.711Z | 🚨 BLOCKED [test] system path write: C:\Windows\System32\evil.dll
+- 2026-07-09T13:43:46.715Z | 🚨 BLOCKED [test] system path write: C:\Windows/evil.dll
+- 2026-07-09T13:43:46.715Z | 🚨 BLOCKED [test] sensitive file write: .env
+- 2026-07-09T13:43:46.716Z | 🚨 BLOCKED [test] sensitive file write: .env.local
+- 2026-07-09T13:43:46.717Z | 🚨 BLOCKED [test] system path write: .ssh/id_rsa
+- 2026-07-09T13:46:35.501Z | 🚨 BLOCKED [test] destructive command: taskkill /f /im node.exe
+- 2026-07-09T13:46:35.504Z | 🚨 BLOCKED [test] destructive command: taskkill /f /im atcli
+- 2026-07-09T13:46:35.505Z | 🚨 BLOCKED [test] destructive command: rm -rf /
+- 2026-07-09T13:46:35.506Z | 🚨 BLOCKED [test] system path write: /etc/passwd
+- 2026-07-09T13:46:35.507Z | 🚨 BLOCKED [test] system path write: /etc/shadow
+- 2026-07-09T13:46:35.507Z | 🚨 BLOCKED [test] system path write: /usr/bin/evil
+- 2026-07-09T13:46:35.508Z | 🚨 BLOCKED [test] system path write: /bin/bash
+- 2026-07-09T13:46:35.508Z | 🚨 BLOCKED [test] sensitive file write: .env
+- 2026-07-09T13:46:35.509Z | 🚨 BLOCKED [test] sensitive file write: .env.local
+- 2026-07-09T13:46:35.509Z | 🚨 BLOCKED [test] system path write: .ssh/id_rsa
+- 2026-07-09T13:46:35.510Z | 🚨 BLOCKED [test] self-modification: src\agent\gatekeeper.ts
+- 2026-07-09T13:46:35.510Z | 🚨 BLOCKED [test] system path write: C:\Windows\\System32\\evil.dll
