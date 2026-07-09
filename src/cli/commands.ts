@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { ApiKeyStore } from '../providers/api-key-store';
+import { NvidiaApiProvider } from '../providers/nvidia';
 import { execSync, spawnSync } from 'child_process';
 
 export interface AppState {
@@ -202,12 +204,109 @@ ${C.bold}  What to do next:${C.reset}
 `);
 }
 
-export function handleSlashCommand(input: string, state: AppState): { handled: boolean, action?: 'manage' | 'upload' | 'agentica' | 'session', args?: string } {
+export function handleSlashCommand(input: string, state: AppState, router?: any): { handled: boolean, action?: 'manage' | 'upload' | 'agentica' | 'session', args?: string } {
     const parts = input.trim().split(' ');
     const command = parts[0];
     const args = parts.slice(1);
 
     switch (command) {
+        // ── /api <provider> <key|action> ──────────────────────────────────────────
+        case '/api': {
+            const provider  = (args[0] || '').toLowerCase();
+            const subAction = (args[1] || '').toLowerCase();
+            const keyValue  = args[1] || '';
+
+            if (!provider) {
+                const stored = ApiKeyStore.list();
+                console.log(`\n  🔑 API Providers configured: ${stored.length > 0 ? stored.join(', ') : 'none'}`);
+                console.log(`  Usage:`);
+                console.log(`    /api nvidia <your-api-key>   — set NVIDIA key and switch to nvidia provider`);
+                console.log(`    /api nvidia models           — list all available NVIDIA models`);
+                console.log(`    /api nvidia clear            — remove stored key`);
+                console.log(`    /api nvidia status           — show current model and key status`);
+                return { handled: true };
+            }
+
+            if (provider === 'nvidia') {
+                if (subAction === 'models') {
+                    // ── List all available NVIDIA models ──────────────────────
+                    const key = ApiKeyStore.get('nvidia');
+                    if (!key) {
+                        console.log(`\n  ❌ No NVIDIA API key stored. Run: /api nvidia <your-api-key>`);
+                        return { handled: true };
+                    }
+                    console.log(`\n  🔄 Fetching available NVIDIA NIM models...`);
+                    NvidiaApiProvider.fetchAvailableModels(key).then(models => {
+                        console.log(`\n  ╔══════════════════════════════════════════════════╗`);
+                        console.log(`  ║        NVIDIA NIM — Available Models (${models.length})        ║`);
+                        console.log(`  ╚══════════════════════════════════════════════════╝\n`);
+                        models.forEach((m, i) => {
+                            const isDefault = m.includes('llama-3.3-70b') ? ' ← default' : '';
+                            console.log(`  ${String(i + 1).padStart(3)}. \x1b[36m${m}\x1b[0m${isDefault}`);
+                        });
+                        console.log(`\n  💡 Switch model: /model <model-name>  (e.g. /model meta/llama-3.1-8b-instruct)`);
+                        console.log(`  💡 Current model: \x1b[1m${router?.getNvidiaProvider?.()?.getModel?.() || 'meta/llama-3.3-70b-instruct'}\x1b[0m\n`);
+                    }).catch((e: Error) => console.log(`\n  ❌ ${e.message}`));
+                    return { handled: true };
+                }
+
+                if (subAction === 'clear') {
+                    ApiKeyStore.remove('nvidia');
+                    console.log(`\n  ✅ NVIDIA API key removed.`);
+                    return { handled: true };
+                }
+
+                if (subAction === 'status') {
+                    const key = ApiKeyStore.get('nvidia');
+                    const model = router?.getNvidiaProvider?.()?.getModel?.() || 'meta/llama-3.3-70b-instruct';
+                    console.log(`\n  🔑 NVIDIA Status:`);
+                    console.log(`     Key:   ${key ? '✅ Stored (****' + key.slice(-6) + ')' : '❌ Not set'}`);
+                    console.log(`     Model: \x1b[36m${model}\x1b[0m`);
+                    console.log(`     Rate:  40 RPM free tier (sequential queue active)`);
+                    console.log(`     Memory: persistent conversation (saved to .atcli-tmp/)`);
+                    return { handled: true };
+                }
+
+                // ── Store API key ──────────────────────────────────────────
+                if (keyValue && keyValue.length > 10) {
+                    ApiKeyStore.set('nvidia', keyValue);
+                    state.currentProvider = 'nvidia';
+                    console.log(`\n  ✅ NVIDIA API key saved securely (encrypted at ~/.atcli/api_keys.json)`);
+                    console.log(`  ✅ Provider switched to: \x1b[36mnvidia\x1b[0m`);
+                    console.log(`  💡 Default model: \x1b[1mmeta/llama-3.3-70b-instruct\x1b[0m`);
+                    console.log(`  💡 See all models: /api nvidia models`);
+                    console.log(`  💡 Switch model:   /model <model-id>`);
+                } else {
+                    console.log(`\n  ❌ Invalid API key. Usage: /api nvidia nvapi-xxxxxxxxxxxx`);
+                    console.log(`  Get a free key at: \x1b[36mhttps://build.nvidia.com\x1b[0m`);
+                }
+                return { handled: true };
+            }
+
+            console.log(`\n  ❌ Unknown API provider: '${provider}'. Supported: nvidia`);
+            return { handled: true };
+        }
+        // ── /models — list models for current API provider ──────────────────────
+        case '/models': {
+            if (state.currentProvider === 'nvidia') {
+                const key = ApiKeyStore.get('nvidia');
+                if (!key) {
+                    console.log(`\n  ❌ No NVIDIA API key. Run: /api nvidia <your-api-key>`);
+                    return { handled: true };
+                }
+                console.log(`\n  🔄 Fetching NVIDIA NIM models...`);
+                NvidiaApiProvider.fetchAvailableModels(key).then(models => {
+                    console.log(`\n  Available models (${models.length}):`);
+                    models.forEach((m, i) => console.log(`  ${String(i+1).padStart(3)}. \x1b[36m${m}\x1b[0m`));
+                    console.log(`\n  Switch model: /model <model-id>`);
+                }).catch((e: Error) => console.log(`  ❌ ${e.message}`));
+            } else {
+                console.log(`\n  ℹ  /models is supported for API providers (e.g. nvidia).`);
+                console.log(`  Current provider '${state.currentProvider}' uses browser sessions — models are selected on the provider's website.`);
+            }
+            return { handled: true };
+        }
+
         // ── /setup atcli ─────────────────────────────────────────────────────
         case '/setup':
             if (args[0]?.toLowerCase() === 'atcli' || args.length === 0) {
@@ -250,9 +349,21 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
         case '/model':
             if (args.length > 0) {
                 state.currentModel = args[0];
-                console.log(`\n✅ Model switched to: ${state.currentModel}`);
+                // If on nvidia provider, also update the provider's model
+                if (state.currentProvider === 'nvidia' && router) {
+                    router.setNvidiaModel(args[0]);
+                    console.log(`\n✅ NVIDIA model switched to: \x1b[36m${args[0]}\x1b[0m`);
+                    console.log(`  💡 Sequential queue active — requests send 1-at-a-time (40 RPM safe)`);
+                } else {
+                    console.log(`\n✅ Model switched to: ${state.currentModel}`);
+                }
             } else {
-                console.log(`\nℹ️ Current model is: ${state.currentModel}`);
+                if (state.currentProvider === 'nvidia' && router) {
+                    const m = router.getNvidiaProvider().getModel();
+                    console.log(`\nℹ️  NVIDIA current model: \x1b[36m${m}\x1b[0m | /api nvidia models to see all`);
+                } else {
+                    console.log(`\nℹ️ Current model is: ${state.currentModel}`);
+                }
             }
             return { handled: true };
             
@@ -296,9 +407,14 @@ export function handleSlashCommand(input: string, state: AppState): { handled: b
             
         case '/help':
             console.log('\nAvailable commands:');
-            console.log('  /setup atcli     - Auto-install Node.js, build, link — full setup in one command');
-            console.log('  /provider <name> - Switch the current AI provider (e.g., deepseek, chatgpt, gemini, ollama, local)');
-            console.log('  /model <name>    - Switch the current model');
+            console.log('  /setup atcli          - Auto-install Node.js, build, link — full setup in one command');
+            console.log('  /api nvidia <key>     - Set NVIDIA NIM API key and switch to nvidia provider (free at build.nvidia.com)');
+            console.log('  /api nvidia models    - List all available NVIDIA NIM models dynamically');
+            console.log('  /api nvidia status    - Show key status, current model, rate limit info');
+            console.log('  /api nvidia clear     - Remove stored NVIDIA API key');
+            console.log('  /models               - List models for current API provider');
+            console.log('  /provider <name>      - Switch AI provider: deepseek, chatgpt, gemini, qwen, kimi, zai, ollama, nvidia');
+            console.log('  /model <name>         - Switch model (nvidia: applies live; others: sent to browser session)');
             console.log('  /rename <file> <old> <new> - Locally rename variables to protect IP from the AI');
             console.log('  /manage <task>   - Spawn the Tech Lead Agent to manage/review code');
             console.log('  /review <task>   - Alias for /manage');

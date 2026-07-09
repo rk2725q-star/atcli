@@ -217,7 +217,7 @@ export async function startRepl() {
             }
 
             if (trimmed.startsWith('/')) {
-                const result = handleSlashCommand(trimmed, state);
+                const result = handleSlashCommand(trimmed, state, router);
                 if (result.action === 'manage' && result.args) {
                     console.log(`\n[ATCLI] Spawning Tech Lead Manager on ${state.currentProvider}...`);
                     try {
