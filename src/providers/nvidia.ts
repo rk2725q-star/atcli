@@ -21,7 +21,7 @@ import * as os from 'os';
 const NVIDIA_BASE_URL    = 'https://integrate.api.nvidia.com/v1';
 const CHAT_ENDPOINT      = `${NVIDIA_BASE_URL}/chat/completions`;
 const MODELS_ENDPOINT    = `${NVIDIA_BASE_URL}/models`;
-const DEFAULT_MODEL      = 'meta/llama-3.3-70b-instruct';
+const DEFAULT_MODEL      = 'minimaxai/minimax-m3';
 const MAX_CONTEXT_TOKENS = 24_000;   // Safely under 32k for smaller models (leaves 8k for completion)
 const RPM_DELAY_MS       = 3_000;     // 3s between requests → max 20 RPM (50% of the 40 RPM limit for ultimate safety)
 

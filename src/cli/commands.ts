@@ -221,7 +221,7 @@ function printModelList(models: string[], currentModel: string): void {
         families[family].push(m);
     }
 
-    const RECOMMENDED = ['meta/llama-3.3-70b-instruct', 'nvidia/llama-3.1-nemotron-70b-instruct', 'deepseek-ai/deepseek-r1'];
+    const RECOMMENDED = ['minimaxai/minimax-m3', 'nvidia/llama-3.1-nemotron-70b-instruct', 'deepseek-ai/deepseek-r1'];
     const familyLabels: Record<string, string> = {
         meta: '🦙 Meta Llama', nvidia: '🟢 NVIDIA', mistralai: '🌬  Mistral',
         deepseek: '🔵 DeepSeek', qwen: '🟡 Qwen', microsoft: '🔷 Microsoft',
@@ -253,7 +253,7 @@ function printModelList(models: string[], currentModel: string): void {
 
     console.log(`  \x1b[1mQuick-switch:\x1b[0m`);
     console.log(`    /model <number>                   e.g. /model 3`);
-    console.log(`    /model <full-id>                  e.g. /model meta/llama-3.1-8b-instruct`);
+    console.log(`    /model <full-id>                  e.g. /model minimaxai/minimax-m3`);
     console.log(`\n  \x1b[2mCurrent: \x1b[36m${currentModel}\x1b[0m\n`);
 }
 
@@ -291,7 +291,7 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                     }
                     console.log(`\n  🔄 Fetching NVIDIA NIM models from API...`);
                     NvidiaApiProvider.fetchAvailableModels(key).then(models => {
-                        const currentModel = router?.getNvidiaProvider?.()?.getModel?.() || 'meta/llama-3.3-70b-instruct';
+                        const currentModel = router?.getNvidiaProvider?.()?.getModel?.() || 'minimaxai/minimax-m3';
                         printModelList(models, currentModel);
                     }).catch((e: Error) => console.log(`\n  ❌ ${e.message}`));
                     return { handled: true };
@@ -305,7 +305,7 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
 
                 if (subAction === 'status') {
                     const key = ApiKeyStore.get('nvidia');
-                    const model = router?.getNvidiaProvider?.()?.getModel?.() || 'meta/llama-3.3-70b-instruct';
+                    const model = router?.getNvidiaProvider?.()?.getModel?.() || 'minimaxai/minimax-m3';
                     console.log(`\n  🔑 NVIDIA Status:`);
                     console.log(`     Key:   ${key ? '✅ Stored (****' + key.slice(-6) + ')' : '❌ Not set'}`);
                     console.log(`     Model: \x1b[36m${model}\x1b[0m`);
@@ -320,7 +320,7 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                     state.currentProvider = 'nvidia';
                     console.log(`\n  ✅ NVIDIA API key saved securely (encrypted at ~/.atcli/api_keys.json)`);
                     console.log(`  ✅ Provider switched to: \x1b[36mnvidia\x1b[0m`);
-                    console.log(`  💡 Default model: \x1b[1mmeta/llama-3.3-70b-instruct\x1b[0m`);
+                    console.log(`  💡 Default model: \x1b[1mminimaxai/minimax-m3\x1b[0m`);
                     console.log(`  💡 See all models: /api nvidia models`);
                     console.log(`  💡 Switch model:   /model <model-id>`);
                 } else {
@@ -343,7 +343,7 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 }
                 console.log(`\n  🔄 Fetching NVIDIA NIM models...`);
                 NvidiaApiProvider.fetchAvailableModels(key).then(models => {
-                    const currentModel = router?.getNvidiaProvider?.()?.getModel?.() || 'meta/llama-3.3-70b-instruct';
+                    const currentModel = router?.getNvidiaProvider?.()?.getModel?.() || 'minimaxai/minimax-m3';
                     printModelList(models, currentModel);
                 }).catch((e: Error) => console.log(`  ❌ ${e.message}`));
             } else {
