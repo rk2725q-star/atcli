@@ -213,8 +213,8 @@ export class NvidiaApiProvider implements AgentProvider {
         const controller = new AbortController();
         this.abortController = controller;
         const timeoutId = setTimeout(() => {
-            controller.abort(new Error('NVIDIA API timeout: Server took longer than 45 seconds to respond.'));
-        }, 45000);
+            controller.abort(new Error('NVIDIA API timeout: Server took longer than 120 seconds to respond. The free tier is currently heavily overloaded.'));
+        }, 120000);
 
         const requestBody = {
             model: this.model,
@@ -258,7 +258,7 @@ export class NvidiaApiProvider implements AgentProvider {
             clearTimeout(timeoutId);
             this.messages.pop(); // Remove user message if request failed
             if (e.name === 'AbortError') {
-                throw new Error('NVIDIA API request timed out (45s). The NVIDIA server might be overloaded.');
+                throw new Error('NVIDIA API request timed out (120s). The NVIDIA server might be overloaded.');
             }
             throw e;
         }
