@@ -210,8 +210,6 @@ ${C.bold}  What to do next:${C.reset}
 let _lastModelList: string[] = [];
 
 function printModelList(models: string[], currentModel: string): void {
-    _lastModelList = models;
-
     // Group models by family prefix
     const families: Record<string, string[]> = {};
     const familyOrder = ['meta', 'nvidia', 'mistralai', 'deepseek', 'qwen', 'microsoft', 'google', 'cohere', 'ibm', 'writer', 'other'];
@@ -235,12 +233,16 @@ function printModelList(models: string[], currentModel: string): void {
     console.log(`  ╚══════════════════════════════════════════════════════════╝`);
     console.log(`  \x1b[2m  ★ = active  |  ⭐ = recommended for free tier  |  # = pick number\x1b[0m\n`);
 
+    // Reset the cache and rebuild it in the EXACT order we print it
+    _lastModelList = [];
     let idx = 1;
+    
     for (const family of familyOrder) {
         const fModels = families[family];
         if (!fModels || fModels.length === 0) continue;
         console.log(`  \x1b[1m${familyLabels[family] || family}\x1b[0m`);
         for (const m of fModels) {
+            _lastModelList.push(m);
             const isActive      = m === currentModel ? ' \x1b[33m★ active\x1b[0m' : '';
             const isRecommended = RECOMMENDED.includes(m) ? ' \x1b[32m⭐\x1b[0m' : '';
             console.log(`  \x1b[2m${String(idx).padStart(4)}.\x1b[0m \x1b[36m${m}\x1b[0m${isActive}${isRecommended}`);
