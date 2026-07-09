@@ -159,15 +159,28 @@ export class NvidiaApiProvider implements AgentProvider {
         }
     }
 
-    // ── 180k Auto-Resend ───────────────────────────────────────────────────
-    // When context is near-full, inject a summary reminder instead of losing context
+    // ── Context Auto-Summarization ──────────────────────────────────────────
+    // When context is near-full (due to our aggressive 5000 token TTFT optimization), 
+    // force the AI to physically save its thoughts into long-term memory before it gets trimmed.
     private injectContextRefresh(): void {
         const tokenEstimate = this.messages.reduce((s, m) => s + Math.ceil(m.content.length / 4), 0);
-        if (tokenEstimate > MAX_CONTEXT_TOKENS * 0.85) {
-            console.log('\n[NVIDIA] ♻️  Context near limit — injecting refresh reminder...');
+        
+        // If we are over 80% of our ultra-small 5k limit, force a memory save
+        if (tokenEstimate > MAX_CONTEXT_TOKENS * 0.80) {
+            
+            // Only inject if we haven't already just injected it recently to avoid spam loops
+            const lastMsg = this.messages[this.messages.length - 1];
+            if (lastMsg && lastMsg.content.includes('[MEMORY CHECKPOINT]')) return;
+
+            console.log('\n[NVIDIA] 🧠 Context limit approaching — forcing AI to update physical memory...');
             this.messages.push({
                 role: 'user',
-                content: '[CONTEXT REFRESH] You are approaching the context limit. Before continuing: (1) Summarize all code files written so far, (2) List pending tasks, (3) Continue from where you left off. Do not lose any context.'
+                content: `[MEMORY CHECKPOINT] CRITICAL SYSTEM ALERT: Your chat history is about to be wiped to optimize speed. 
+Before you execute any further steps for the user's request, you MUST preserve your context.
+Write an XML <tool_call> to update the 'ATCLI_MEMORY.md' file with:
+1. A brief summary of the progress made so far.
+2. The exact next steps you were planning to take.
+Do not skip this. Write to ATCLI_MEMORY.md NOW so you do not lose your train of thought in the next turn.`
             });
         }
     }
