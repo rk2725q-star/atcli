@@ -173,6 +173,9 @@ export class ManagerLoop {
     }
 
     private parseToolCall(text: string): any | null {
+        // Scrub internal model tokens that leak into the stream (e.g. Minimax)
+        text = text.replace(/\]<\]minimax\[>\[?/g, '');
+
         // Look for <tool_call> ... </tool_call>
         const match = text.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
         if (!match) return null; // No tool call means conversational response
@@ -184,6 +187,10 @@ export class ManagerLoop {
         if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
         
         jsonStr = jsonStr.trim();
+
+        if (jsonStr.startsWith('<invoke')) {
+            throw new Error(`CRITICAL FORMAT ERROR: You output XML <invoke> tags inside <tool_call>. I DO NOT accept XML tools. You MUST output a pure JSON object inside <tool_call>. Example: <tool_call>{"action": "run_command", "command": "pwd"}</tool_call>`);
+        }
 
         // ── Universal Smart Quote Sanitizer ──────────────────────────────────
         // AIs write "word" (curly quotes) inside JSON — causes parse errors.
@@ -244,6 +251,9 @@ export class ManagerLoop {
         // Auto-fix unescaped backslashes (common when AI outputs Windows paths like C:\\Users)
         // This regex replaces \\ with \\\\ ONLY if it's not part of a valid JSON escape sequence like \\n or \\t
         jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
+        
+        // Auto-fix invalid \u escapes (like C:\users which crashes JSON.parse because 'sers' is not hex)
+        jsonStr = jsonStr.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u');
         
         // Let JSON.parse throw if invalid, so the loop can catch it and feed it back to the AI
         const parsed = JSON.parse(jsonStr);

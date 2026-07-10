@@ -184,16 +184,26 @@ export abstract class BaseSubAgent {
     }
 
     protected parseToolCall(text: string): any | null {
+        // Scrub internal model tokens that leak into the stream (e.g. Minimax)
+        text = text.replace(/\]<\]minimax\[>\[?/g, '');
+
         const match = text.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
         if (!match) return null;
         let jsonStr = match[1].trim();
         if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7);
         else if (jsonStr.startsWith('```')) jsonStr = jsonStr.substring(3);
         if (jsonStr.endsWith('```')) jsonStr = jsonStr.slice(0, -3);
-        jsonStr = jsonStr.trim()
+        jsonStr = jsonStr.trim();
+        
+        if (jsonStr.startsWith('<invoke')) {
+            throw new Error(`CRITICAL FORMAT ERROR: You output XML <invoke> tags inside <tool_call>. I DO NOT accept XML tools. You MUST output a pure JSON object inside <tool_call>. Example: <tool_call>{"action": "run_command", "command": "pwd"}</tool_call>`);
+        }
+
+        jsonStr = jsonStr
             .replace(/\u201c/g, '\\"').replace(/\u201d/g, '\\"')
             .replace(/\u2018/g, "'").replace(/\u2019/g, "'");
         jsonStr = jsonStr.replace(/\\([^"\/bfnrtu])/g, '\\\\$1');
+        jsonStr = jsonStr.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u');
         return JSON.parse(jsonStr);
     }
 }
