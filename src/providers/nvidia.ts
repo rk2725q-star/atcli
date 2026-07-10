@@ -330,7 +330,9 @@ export class NvidiaApiProvider implements AgentProvider {
                                     e.message.includes('503') || 
                                     e.message.includes('502') || 
                                     e.message.includes('504') || 
-                                    e.message.includes('429');
+                                    e.message.includes('429') ||
+                                    e.message.includes('terminated') ||
+                                    e.message.includes('fetch failed');
 
                 if (isRetryable && attempt < MAX_RETRIES) {
                     console.log(`\n[NVIDIA] API busy or timed out. Retrying attempt ${attempt + 1}/${MAX_RETRIES} in 3 seconds...`);
