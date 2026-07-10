@@ -1178,6 +1178,9 @@ RULES:
     }
 
     private parseToolCall(text: string): any | null {
+        // Scrub internal model tokens that leak into the stream (e.g. Minimax)
+        text = text.replace(/\]<\]minimax\[>\[?/g, '');
+
         // Look for <tool_call> ... </tool_call>
         const match = text.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
         if (!match) return null; // No tool call means conversational response
@@ -1189,6 +1192,10 @@ RULES:
         if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
         
         jsonStr = jsonStr.trim();
+
+        if (jsonStr.startsWith('<invoke')) {
+            throw new Error(`CRITICAL FORMAT ERROR: You output XML <invoke> tags inside <tool_call>. I DO NOT accept XML tools. You MUST output a pure JSON object inside <tool_call>. Example: <tool_call>{"action": "run_command", "command": "pwd"}</tool_call>`);
+        }
 
         // ── STEP 1: Universal Smart Quote Sanitizer ───────────────────────────
         // AIs often write “word” (curly/smart quotes) inside JSON content fields.
