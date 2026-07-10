@@ -88,6 +88,10 @@ export class NvidiaApiProvider implements AgentProvider {
     private projectDir: string;
     private memoryPath: string;
 
+    // Proactive Load Balancing State
+    private static activeKeyId: 'nvidia' | 'nvidia2' = 'nvidia';
+    private static requestCount: number = 0;
+
     constructor(id = 'nvidia', model = DEFAULT_MODEL) {
         this.id       = id;
         this.model    = model;
@@ -188,7 +192,11 @@ Do not skip this. Write detailed notes to ATCLI_MEMORY.md NOW so you do not lose
 
     // ── Init ───────────────────────────────────────────────────────────────
     public async init(): Promise<void> {
-        this.apiKey = ApiKeyStore.get('nvidia');
+        this.apiKey = ApiKeyStore.get(NvidiaApiProvider.activeKeyId);
+        if (!this.apiKey && NvidiaApiProvider.activeKeyId === 'nvidia2') {
+            NvidiaApiProvider.activeKeyId = 'nvidia';
+            this.apiKey = ApiKeyStore.get('nvidia');
+        }
         if (!this.apiKey) {
             throw new Error('NVIDIA API key not set. Run: /api nvidia <your-api-key>');
         }
@@ -215,6 +223,21 @@ Do not skip this. Write detailed notes to ATCLI_MEMORY.md NOW so you do not lose
     // ── Core Request ───────────────────────────────────────────────────────
     private async callAPI(userMessage: string): Promise<string> {
         if (!this.apiKey) throw new Error('API key not initialized');
+
+        // Proactive Rate Limit Balancing (Swap every 30 requests)
+        NvidiaApiProvider.requestCount++;
+        if (NvidiaApiProvider.requestCount >= 30) {
+            const nextKeyId = NvidiaApiProvider.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
+            const nextKey = ApiKeyStore.get(nextKeyId);
+            if (nextKey) {
+                console.log(`\n[NVIDIA] ⚖️ Proactive load balancing: Swapping to ${nextKeyId} key to prevent rate limits...`);
+                NvidiaApiProvider.activeKeyId = nextKeyId;
+                this.apiKey = nextKey;
+                NvidiaApiProvider.requestCount = 0;
+            } else {
+                NvidiaApiProvider.requestCount = 0; // Reset anyway if secondary not available
+            }
+        }
 
         // Add user message to history
         this.messages.push({ role: 'user', content: userMessage });
