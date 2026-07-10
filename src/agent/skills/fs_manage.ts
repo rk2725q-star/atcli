@@ -42,7 +42,8 @@ export const MoveFileSkill: AgentSkill = {
         if (!args.source || !args.destination) return "Error: source and destination are required";
         const sourcePath = path.resolve(process.cwd(), args.source);
         const destPath = path.resolve(process.cwd(), args.destination);
-        if (!sourcePath.startsWith(process.cwd()) || !destPath.startsWith(process.cwd())) {
+        const cwd = process.cwd();
+        if ((!sourcePath.startsWith(cwd + path.sep) && sourcePath !== cwd) || (!destPath.startsWith(cwd + path.sep) && destPath !== cwd)) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
         try {
@@ -91,7 +92,8 @@ export const CopyFileSkill: AgentSkill = {
         if (!args.source || !args.destination) return "Error: source and destination are required";
         const sourcePath = path.resolve(process.cwd(), args.source);
         const destPath = path.resolve(process.cwd(), args.destination);
-        if (!sourcePath.startsWith(process.cwd()) || !destPath.startsWith(process.cwd())) {
+        const cwd = process.cwd();
+        if ((!sourcePath.startsWith(cwd + path.sep) && sourcePath !== cwd) || (!destPath.startsWith(cwd + path.sep) && destPath !== cwd)) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
         try {

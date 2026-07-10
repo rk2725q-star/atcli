@@ -15,22 +15,25 @@ Arguments:
     example: `<tool_call>\n{"action": "keyboard_shortcut", "keys": "ctrl+c"}\n</tool_call>`,
     execute: async (args: any): Promise<string> => {
         const platform = process.platform;
+        const { execFile } = await import('child_process');
         if (args.type_text) {
-            const text = args.type_text.replace(/'/g, "\\'");
+            const text = args.type_text;
             if (platform === 'win32') {
-                const script = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${text}')`;
-                return new Promise(resolve => exec(`powershell -Command "${script}"`, (e) => resolve(e ? `Error: ${e.message}` : `✅ Typed: ${text.substring(0, 50)}`)));
+                const script = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${Buffer.from(text).toString('base64')}')))`;
+                const encoded = Buffer.from(script, 'utf16le').toString('base64');
+                return new Promise(resolve => execFile('powershell', ['-NoProfile', '-EncodedCommand', encoded], (e) => resolve(e ? `Error: ${e.message}` : `✅ Typed: ${text.substring(0, 50)}`)));
             }
-            return new Promise(resolve => exec(`xdotool type '${text}'`, (e) => resolve(e ? `Error: ${e.message}` : `✅ Typed text`)));
+            return new Promise(resolve => execFile('xdotool', ['type', text], (e) => resolve(e ? `Error: ${e.message}` : `✅ Typed text`)));
         }
         if (!args.keys) return 'Error: keys or type_text required';
         const keys: string = args.keys;
         if (platform === 'win32') {
             const psKey = keys.replace('ctrl', '^').replace('shift', '+').replace('alt', '%').replace('win', '{LWIN}').replace('+', '');
             const script = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${psKey}')`;
-            return new Promise(resolve => exec(`powershell -Command "${script}"`, (e) => resolve(e ? `Error: ${e.message}` : `✅ Sent: ${keys}`)));
+            const encoded = Buffer.from(script, 'utf16le').toString('base64');
+            return new Promise(resolve => execFile('powershell', ['-NoProfile', '-EncodedCommand', encoded], (e) => resolve(e ? `Error: ${e.message}` : `✅ Sent: ${keys}`)));
         }
-        return new Promise(resolve => exec(`xdotool key ${keys.replace(/\+/g, '+')}`, (e) => resolve(e ? `Error: ${e.message}` : `✅ Sent: ${keys}`)));
+        return new Promise(resolve => execFile('xdotool', ['key', keys.replace(/\+/g, '+')], (e) => resolve(e ? `Error: ${e.message}` : `✅ Sent: ${keys}`)));
     },
 };
 
@@ -63,19 +66,24 @@ Arguments: text (string) — content to copy to clipboard`,
     example: `<tool_call>\n{"action": "clipboard_write", "text": "Hello World"}\n</tool_call>`,
     execute: async (args: any): Promise<string> => {
         if (!args.text) return 'Error: text is required';
-        const text = args.text.replace(/"/g, '\\"');
         const platform = process.platform;
+        const { spawn } = await import('child_process');
         return new Promise(resolve => {
             if (platform === 'win32') {
-                exec(`powershell -Command "Set-Clipboard '${text.replace(/'/g, "''")}'"`,(e) => resolve(e ? `Error: ${e.message}` : `✅ Copied ${args.text.length} chars to clipboard`));
+                const ps = spawn('clip');
+                ps.stdin?.write(args.text);
+                ps.stdin?.end();
+                ps.on('close', (code) => resolve(code === 0 ? `✅ Copied ${args.text.length} chars to clipboard` : `Error: clip.exe exited with ${code}`));
             } else if (platform === 'darwin') {
-                const ps = exec('pbcopy', (e) => resolve(e ? `Error: ${e.message}` : `✅ Copied to clipboard`));
+                const ps = spawn('pbcopy');
                 ps.stdin?.write(args.text);
                 ps.stdin?.end();
+                ps.on('close', (code) => resolve(code === 0 ? `✅ Copied to clipboard` : `Error: pbcopy exited with ${code}`));
             } else {
-                const ps = exec('xclip -selection clipboard', (e) => resolve(e ? `Error: ${e.message}` : `✅ Copied to clipboard`));
+                const ps = spawn('xclip', ['-selection', 'clipboard']);
                 ps.stdin?.write(args.text);
                 ps.stdin?.end();
+                ps.on('close', (code) => resolve(code === 0 ? `✅ Copied to clipboard` : `Error: xclip exited with ${code}`));
             }
         });
     },

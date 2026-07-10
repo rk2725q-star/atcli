@@ -118,11 +118,15 @@ Arguments:
     example: `<tool_call>\n{"action": "sqlite_query", "db_path": "data.db", "query": "SELECT * FROM users LIMIT 10"}\n</tool_call>`,
     execute: async (args: any): Promise<string> => {
         if (!args.db_path || !args.query) return 'Error: db_path and query required';
-        const { exec } = await import('child_process');
+        const { execFile } = await import('child_process');
         const path = await import('path');
         const fs = await import('fs');
         const projectRoot = (global as any).atcli_project_root || process.cwd();
         const dbPath = path.resolve(projectRoot, args.db_path);
+        
+        if (!dbPath.startsWith(projectRoot + path.sep) && dbPath !== projectRoot) {
+            return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
+        }
 
         if (!fs.existsSync(dbPath) && !args.create_if_missing) {
             return `Error: Database not found at ${dbPath}. Set create_if_missing: true to create it.`;
@@ -135,7 +139,7 @@ Arguments:
         }
 
         return new Promise(resolve => {
-            exec(`sqlite3 "${dbPath}" "${args.query.replace(/"/g, '\\"')}"`, { timeout: 10000 }, (e, out, err) => {
+            execFile('sqlite3', [dbPath, args.query], { timeout: 10000, shell: false }, (e, out, err) => {
                 if (e) resolve(`SQLite Error: ${err || e.message}`);
                 else resolve(out.trim() || '(no rows returned)');
             });

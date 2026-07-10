@@ -16,11 +16,13 @@ export interface GatekeeperResult {
 
 const DESTRUCTIVE_PATTERNS = [
     // File system destruction
-    /rm\s+-rf\s+[\/\\]/i,
-    /del\s+\/[fqs]+\s+[\/\\]/i,
+    /rm\s+-rf\s+[\/\\~*]/i,
+    /del\s+\/[fqs]+\s+[\/\\~*]/i,
     /format\s+[a-z]:/i,
     /mkfs\./i,
     /dd\s+if=/i,
+    />\s*\/dev\/(sda|hda|nvme)/i,
+    /:\(\)\{\s*:\|:&\s*\};:/i, // Fork bomb
     /shutdown\s+-[rsh]/i,
     // Fix #3 — taskkill gap: block taskkill targeting node/atcli by NAME via shell cmd
     // Previously only action==='process_kill' was checked; shell taskkill bypassed it.
@@ -121,7 +123,7 @@ export class Gatekeeper {
         const action = toolCall.action || '';
 
         // 1. Destructive command check
-        if (['run_command', 'run_background_command', 'sandbox_command'].includes(action)) {
+        if (['run_command', 'run_background_command', 'sandbox_command', 'run_interactive', 'manage_task'].includes(action)) {
             const cmd = toolCall.command || toolCall.cmd || '';
             if (DESTRUCTIVE_PATTERNS.some(p => p.test(cmd))) {
                 this.log(`🚨 BLOCKED [${agentName}] destructive command: ${cmd.substring(0, 100)}`);

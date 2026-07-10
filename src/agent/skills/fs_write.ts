@@ -9,7 +9,7 @@ export const WriteFileSkill: AgentSkill = {
     execute: async (args: any) => {
         if (!args.path || args.content === undefined) return "Error: path and content are required";
         const targetPath = path.resolve(process.cwd(), args.path);
-        if (!targetPath.startsWith(process.cwd())) {
+        if (!targetPath.startsWith(process.cwd() + path.sep) && targetPath !== process.cwd()) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
         

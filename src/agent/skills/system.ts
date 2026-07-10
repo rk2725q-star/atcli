@@ -161,11 +161,12 @@ export const ListProcessesSkill: AgentSkill = {
 };
 
 export const KillProcessSkill: AgentSkill = {
-    name: 'kill_process',
+    name: 'process_kill',
     description: 'Kills a process by its PID.',
-    example: `<tool_call>\n{"action": "kill_process", "pid": "1234"}\n</tool_call>`,
+    example: `<tool_call>\n{"action": "process_kill", "pid": "1234"}\n</tool_call>`,
     execute: async (args: any) => {
         if (!args.pid) return "Error: pid is required";
+        if (!/^\d+$/.test(String(args.pid))) return "Error: Invalid PID. Must be numeric.";
         return new Promise((resolve) => {
             const cmd = process.platform === 'win32' 
                 ? `taskkill /F /PID ${args.pid}`

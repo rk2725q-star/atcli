@@ -86,13 +86,7 @@ export class AtcliMcpServer {
                 if (request.params.name === 'read_file') {
                     const args = request.params.arguments as { filePath: string };
 
-                    // Gate: check sensitive file patterns (no write_file action needed — read of .env/.ssh still dangerous)
-                    const gate = this.gatekeeper.validate(
-                        { action: 'write_file', path: args.filePath }, // write_file action triggers all path checks
-                        'mcp-broker'
-                    );
                     // For reads we only block sensitive/system files, not destructive cmds
-                    // Re-check specifically for sensitive file read
                     const readGate = this.gatekeeper.validate(
                         { action: 'read_file', path: args.filePath, command: `cat ${args.filePath}` },
                         'mcp-broker'

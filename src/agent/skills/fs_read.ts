@@ -9,7 +9,7 @@ export const ListDirSkill: AgentSkill = {
     execute: async (args: any) => {
         if (!args.path) return "Error: path is required";
         const targetPath = path.resolve(process.cwd(), args.path);
-        if (!targetPath.startsWith(process.cwd())) {
+        if (!targetPath.startsWith(process.cwd() + path.sep) && targetPath !== process.cwd()) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
         const files = await fs.readdir(targetPath, { withFileTypes: true });
@@ -25,7 +25,7 @@ export const ReadFileSkill: AgentSkill = {
     execute: async (args: any) => {
         if (!args.path) return "Error: path is required";
         const targetPath = path.resolve(process.cwd(), args.path);
-        if (!targetPath.startsWith(process.cwd())) {
+        if (!targetPath.startsWith(process.cwd() + path.sep) && targetPath !== process.cwd()) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
         const stat = await fs.stat(targetPath);
@@ -43,7 +43,7 @@ export const ReadLinesSkill: AgentSkill = {
     execute: async (args: any) => {
         if (!args.path || args.start === undefined || args.end === undefined) return "Error: path, start, and end are required";
         const targetPath = path.resolve(process.cwd(), args.path);
-        if (!targetPath.startsWith(process.cwd())) {
+        if (!targetPath.startsWith(process.cwd() + path.sep) && targetPath !== process.cwd()) {
             return "Error: Security violation. Path traversal outside the workspace is strictly prohibited.";
         }
         try {
