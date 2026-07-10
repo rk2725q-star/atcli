@@ -323,7 +323,8 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 }
 
                 if (keyValue && keyValue.length > 10) {
-                    ApiKeyStore.set(provider, keyValue);
+                    const cleanKey = keyValue.replace(/^<|>$/g, '').replace(/^"|"$/g, '').replace(/^'|'$/g, '').trim();
+                    ApiKeyStore.set(provider, cleanKey);
                     if (provider === 'nvidia') {
                         state.currentProvider = 'nvidia';
                     }
