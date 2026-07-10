@@ -179,13 +179,7 @@ export class NvidiaApiProvider implements AgentProvider {
             console.log('\n[NVIDIA] 🧠 Context limit approaching — forcing AI to update physical memory...');
             this.messages.push({
                 role: 'user',
-                content: `[MEMORY CHECKPOINT] CRITICAL SYSTEM ALERT: Your chat history is about to be wiped to optimize speed. 
-Before you execute any further steps for the user's request, you MUST preserve your context.
-Write an XML <tool_call> to update the 'ATCLI_MEMORY.md' file with a HIGHLY DETAILED log containing:
-1. A comprehensive summary of exactly what you have built and accomplished so far.
-2. Any bugs you fixed or architectural decisions you made.
-3. The exact next steps you were planning to take.
-Do not skip this. Write detailed notes to ATCLI_MEMORY.md NOW so you do not lose your train of thought in the next turn.`
+                content: `[MEMORY CHECKPOINT] System Note: We are approaching the context window limit. Before proceeding with the main task, please use your tools to save a detailed summary of your progress, architectural decisions, and exact next steps into 'ATCLI_MEMORY.md'. This ensures you don't lose track of your work when older messages are automatically cleared.`
             });
         }
     }
