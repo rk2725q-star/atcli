@@ -1260,6 +1260,9 @@ RULES:
         // This regex replaces \ with \\ ONLY if it's not part of a valid JSON escape sequence like \n or \t
         jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
         
+        // Auto-fix invalid \u escapes (like C:\users which crashes JSON.parse because 'sers' is not hex)
+        jsonStr = jsonStr.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u');
+        
         // ── [INTELLIGENT FALLBACK] Auto-XML to JSON Converter ──
         // Handles hallucinated XML formats from DeepSeek, Claude, Qwen, etc.
         // Patterns supported:
