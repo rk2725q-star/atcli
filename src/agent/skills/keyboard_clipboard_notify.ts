@@ -103,19 +103,22 @@ Arguments:
     example: `<tool_call>\n{"action": "system_notify", "title": "ATCLI Task Done", "message": "Your deployment is complete!"}\n</tool_call>`,
     execute: async (args: any): Promise<string> => {
         if (!args.title || !args.message) return 'Error: title and message required';
-        const title = args.title.replace(/'/g, "''");
-        const msg = args.message.replace(/'/g, "''").substring(0, 200);
+        const title = args.title;
+        const msg = args.message.substring(0, 200);
         const platform = process.platform;
+        const { execFile } = await import('child_process');
         return new Promise(resolve => {
-            let cmd: string;
             if (platform === 'win32') {
-                cmd = `powershell -Command "Add-Type -AssemblyName System.Windows.Forms; $n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; $n.ShowBalloonTip(5000, '${title}', '${msg}', [System.Windows.Forms.ToolTipIcon]::Info); Start-Sleep -s 5; $n.Dispose()"`;
+                const script = `Add-Type -AssemblyName System.Windows.Forms; $n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; $n.ShowBalloonTip(5000, [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${Buffer.from(title).toString('base64')}')), [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${Buffer.from(msg).toString('base64')}')), [System.Windows.Forms.ToolTipIcon]::Info); Start-Sleep -s 5; $n.Dispose()`;
+                const encoded = Buffer.from(script, 'utf16le').toString('base64');
+                execFile('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], (e) => resolve(e ? `Error: ${e.message}` : `✅ Notification sent`));
             } else if (platform === 'darwin') {
-                cmd = `osascript -e 'display notification "${msg}" with title "${title}"'`;
+                const safeMsg = msg.replace(/"/g, '\\"');
+                const safeTitle = title.replace(/"/g, '\\"');
+                execFile('osascript', ['-e', `display notification "${safeMsg}" with title "${safeTitle}"`], (e) => resolve(e ? `Error: ${e.message}` : `✅ Notification sent`));
             } else {
-                cmd = `notify-send "${title}" "${msg}" --urgency=${args.urgency || 'normal'}`;
+                execFile('notify-send', [title, msg, `--urgency=${args.urgency || 'normal'}`], (e) => resolve(e ? `Error: ${e.message}` : `✅ Notification sent`));
             }
-            exec(cmd, (e) => resolve(e ? `Error: ${e.message}` : `✅ Notification sent: "${args.title}"`));
         });
     },
 };
