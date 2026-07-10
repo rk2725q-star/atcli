@@ -274,19 +274,20 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 const stored = ApiKeyStore.list();
                 console.log(`\n  🔑 API Providers configured: ${stored.length > 0 ? stored.join(', ') : 'none'}`);
                 console.log(`  Usage:`);
-                console.log(`    /api nvidia <your-api-key>   — set NVIDIA key and switch to nvidia provider`);
+                console.log(`    /api nvidia <your-api-key>   — set primary NVIDIA key and switch`);
+                console.log(`    /api nvidia2 <your-api-key>  — set secondary fallback NVIDIA key`);
                 console.log(`    /api nvidia models           — list all available NVIDIA models`);
                 console.log(`    /api nvidia clear            — remove stored key`);
                 console.log(`    /api nvidia status           — show current model and key status`);
                 return { handled: true };
             }
 
-            if (provider === 'nvidia') {
+            if (provider === 'nvidia' || provider === 'nvidia2') {
                 if (subAction === 'models') {
                     // ── List all available NVIDIA models with grouped numbered picker ──
-                    const key = ApiKeyStore.get('nvidia');
+                    const key = ApiKeyStore.get(provider);
                     if (!key) {
-                        console.log(`\n  ❌ No NVIDIA API key stored. Run: /api nvidia <your-api-key>`);
+                        console.log(`\n  ❌ No ${provider.toUpperCase()} API key stored. Run: /api ${provider} <your-api-key>`);
                         return { handled: true };
                     }
                     console.log(`\n  🔄 Fetching NVIDIA NIM models from API...`);
@@ -298,15 +299,15 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 }
 
                 if (subAction === 'clear') {
-                    ApiKeyStore.remove('nvidia');
-                    console.log(`\n  ✅ NVIDIA API key removed.`);
+                    ApiKeyStore.remove(provider);
+                    console.log(`\n  ✅ ${provider.toUpperCase()} API key removed.`);
                     return { handled: true };
                 }
 
                 if (subAction === 'status') {
-                    const key = ApiKeyStore.get('nvidia');
+                    const key = ApiKeyStore.get(provider);
                     const model = router?.getNvidiaProvider?.()?.getModel?.() || 'minimaxai/minimax-m3';
-                    console.log(`\n  🔑 NVIDIA Status:`);
+                    console.log(`\n  🔑 ${provider.toUpperCase()} Status:`);
                     console.log(`     Key:   ${key ? '✅ Stored (****' + key.slice(-6) + ')' : '❌ Not set'}`);
                     console.log(`     Model: \x1b[36m${model}\x1b[0m`);
                     console.log(`     Rate:  40 RPM free tier (sequential queue active)`);
@@ -314,23 +315,35 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                     return { handled: true };
                 }
 
-                // ── Store API key ──────────────────────────────────────────
+                // ── Store API key or Auto-Switch ───────────────────────────────
+                if (!keyValue && ApiKeyStore.get(provider)) {
+                    state.currentProvider = 'nvidia'; // Always route to standard nvidia loop
+                    console.log(`\n  ✅ Switched to provider: \x1b[36mnvidia\x1b[0m (Using stored ${provider} key)`);
+                    return { handled: true };
+                }
+
                 if (keyValue && keyValue.length > 10) {
-                    ApiKeyStore.set('nvidia', keyValue);
-                    state.currentProvider = 'nvidia';
-                    console.log(`\n  ✅ NVIDIA API key saved securely (encrypted at ~/.atcli/api_keys.json)`);
-                    console.log(`  ✅ Provider switched to: \x1b[36mnvidia\x1b[0m`);
-                    console.log(`  💡 Default model: \x1b[1mminimaxai/minimax-m3\x1b[0m`);
-                    console.log(`  💡 See all models: /api nvidia models`);
-                    console.log(`  💡 Switch model:   /model <model-id>`);
+                    ApiKeyStore.set(provider, keyValue);
+                    if (provider === 'nvidia') {
+                        state.currentProvider = 'nvidia';
+                    }
+                    console.log(`\n  ✅ ${provider.toUpperCase()} API key saved securely (encrypted at ~/.atcli/api_keys.json)`);
+                    if (provider === 'nvidia') {
+                        console.log(`  ✅ Provider switched to: \x1b[36mnvidia\x1b[0m`);
+                        console.log(`  💡 Default model: \x1b[1mminimaxai/minimax-m3\x1b[0m`);
+                        console.log(`  💡 See all models: /api nvidia models`);
+                        console.log(`  💡 Switch model:   /model <model-id>`);
+                    } else {
+                        console.log(`  ✅ Secondary fallback key registered.`);
+                    }
                 } else {
-                    console.log(`\n  ❌ Invalid API key. Usage: /api nvidia nvapi-xxxxxxxxxxxx`);
+                    console.log(`\n  ❌ Invalid API key. Usage: /api ${provider} nvapi-xxxxxxxxxxxx`);
                     console.log(`  Get a free key at: \x1b[36mhttps://build.nvidia.com\x1b[0m`);
                 }
                 return { handled: true };
             }
 
-            console.log(`\n  ❌ Unknown API provider: '${provider}'. Supported: nvidia`);
+            console.log(`\n  ❌ Unknown API provider: '${provider}'. Supported: nvidia, nvidia2`);
             return { handled: true };
         }
         // ── /models — list models for current API provider ──────────────────────

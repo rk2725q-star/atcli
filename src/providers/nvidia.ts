@@ -321,6 +321,17 @@ Do not skip this. Write detailed notes to ATCLI_MEMORY.md NOW so you do not lose
                     continue;
                 }
 
+                // Seamless Fallback Logic
+                if (isRetryable && attempt >= MAX_RETRIES) {
+                    const fallbackKey = ApiKeyStore.get('nvidia2');
+                    if (fallbackKey && this.apiKey !== fallbackKey) {
+                        console.log(`\n[NVIDIA] ⚠️ Primary API key exhausted. Seamlessly falling back to secondary key (nvidia2)...`);
+                        this.apiKey = fallbackKey;
+                        attempt = 0; // Reset retries for the new key
+                        continue;
+                    }
+                }
+
                 this.messages.pop(); // Remove user message if request permanently failed
                 if (e.name === 'AbortError') {
                     throw new Error(`NVIDIA API request timed out (120s) after ${MAX_RETRIES} attempts. The NVIDIA server might be overloaded.`);
