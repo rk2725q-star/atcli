@@ -22,7 +22,7 @@ const NVIDIA_BASE_URL    = 'https://integrate.api.nvidia.com/v1';
 const CHAT_ENDPOINT      = `${NVIDIA_BASE_URL}/chat/completions`;
 const MODELS_ENDPOINT    = `${NVIDIA_BASE_URL}/models`;
 const DEFAULT_MODEL      = 'minimaxai/minimax-m3';
-const MAX_CONTEXT_TOKENS = 8_000;   // Balanced for fast TTFT but enough room for 3-4 deep iterations
+const MAX_CONTEXT_TOKENS = 32_000;   // Increased from 8k to give agents sufficient headroom for large tasks
 const RPM_DELAY_MS       = 3_000;     // 3s between requests → max 20 RPM (50% of the 40 RPM limit for ultimate safety)
 
 // Conversation memory file: one per project dir, per provider
@@ -169,8 +169,8 @@ export class NvidiaApiProvider implements AgentProvider {
     private injectContextRefresh(): void {
         const tokenEstimate = this.messages.reduce((s, m) => s + Math.ceil(m.content.length / 4), 0);
         
-        // If we are over 80% of our ultra-small 5k limit, force a memory save
-        if (tokenEstimate > MAX_CONTEXT_TOKENS * 0.80) {
+        // If we are over 80% of our limit AND we've done at least a few turns of real work
+        if (tokenEstimate > MAX_CONTEXT_TOKENS * 0.80 && this.messages.length > 4) {
             
             // Only inject if we haven't already just injected it recently to avoid spam loops
             const lastMsg = this.messages[this.messages.length - 1];
@@ -178,8 +178,8 @@ export class NvidiaApiProvider implements AgentProvider {
 
             console.log('\n[NVIDIA] 🧠 Context limit approaching — forcing AI to update physical memory...');
             this.messages.push({
-                role: 'user',
-                content: `[MEMORY CHECKPOINT] System Note: We are approaching the context window limit. Before proceeding with the main task, please use your tools to save a detailed summary of your progress, architectural decisions, and exact next steps into 'ATCLI_MEMORY.md'. This ensures you don't lose track of your work when older messages are automatically cleared.`
+                role: 'system',
+                content: `[MEMORY CHECKPOINT] Context nearing limit. Save current progress to ATCLI_MEMORY.md before continuing.`
             });
         }
     }
