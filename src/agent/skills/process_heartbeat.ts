@@ -30,41 +30,6 @@ Arguments:
     },
 };
 
-export const ProcessKillSkill: AgentSkill = {
-    name: 'process_kill',
-    description: `Kills a running process by name or PID. Gatekeeper blocks killing system/atcli processes.
-Arguments:
-  name (string, optional): process name to kill
-  pid (number, optional): process ID to kill`,
-    example: `<tool_call>\n{"action": "process_kill", "name": "node"}\n</tool_call>`,
-    execute: async (args: any): Promise<string> => {
-        if (!args.name && !args.pid) return 'Error: name or pid required';
-        // Safety: never kill critical system processes
-        const forbidden = ['system', 'svchost', 'lsass', 'csrss', 'smss', 'wininit', 'services', 'explorer'];
-        if (args.name && forbidden.some(f => args.name.toLowerCase().includes(f))) {
-            return `BLOCKED: Cannot kill critical system process "${args.name}"`;
-        }
-        
-        // Safety: prevent killing 'node' by name, which kills ATCLI itself
-        if (args.name && (args.name.toLowerCase() === 'node' || args.name.toLowerCase() === 'node.exe')) {
-            return `BLOCKED: Cannot kill 'node' by name as it will terminate the ATCLI agent itself. Use 'process_list' to find the exact PID of your target server, and kill it using {"action": "process_kill", "pid": 1234}`;
-        }
-
-
-        const platform = process.platform;
-        return new Promise(resolve => {
-            let cmd: string;
-            if (platform === 'win32') {
-                cmd = args.pid
-                    ? `taskkill /PID ${args.pid} /F`
-                    : `taskkill /IM "${args.name}.exe" /F`;
-            } else {
-                cmd = args.pid ? `kill -9 ${args.pid}` : `pkill -f "${args.name}"`;
-            }
-            exec(cmd, (e, out) => resolve(e ? `Error: ${e.message}` : `✅ Killed: ${args.name || args.pid}\n${out}`));
-        });
-    },
-};
 
 export const SystemInfoSkill: AgentSkill = {
     name: 'system_info',

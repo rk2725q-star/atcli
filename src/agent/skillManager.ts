@@ -47,6 +47,9 @@ export class SkillManager {
     }
 
     public registerSkill(skill: AgentSkill) {
+        if (this.skills.has(skill.name)) {
+            console.warn(`\n⚠️ [SKILL REGISTRY] Collision Detected: Tool action '${skill.name}' is already registered. Overwriting with new definition.`);
+        }
         this.skills.set(skill.name, skill);
     }
 
