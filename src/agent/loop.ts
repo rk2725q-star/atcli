@@ -1257,32 +1257,6 @@ RULES:
             }
         }
         
-        // Auto-fix for run_command which often contains unescaped double quotes inside the command string
-        // e.g., {"action": "run_command", "command": "explorer "C:\Folder""}
-        if (jsonStr.includes('"run_command"')) {
-            const cmdRegex = /"command"\s*:\s*"([\s\S]*)"\s*}/;
-            const cmdMatch = jsonStr.match(cmdRegex);
-            if (cmdMatch) {
-                let rawCmd = cmdMatch[1];
-                rawCmd = rawCmd
-                    .replace(/\\"/g, '"')
-                    .replace(/\\\\/g, '\\');
-                    
-                let safeCmd = rawCmd
-                    .replace(/\\/g, '\\\\')
-                    .replace(/"/g, '\\"');
-                    
-                jsonStr = jsonStr.replace(cmdRegex, `"command": "${safeCmd}"}`);
-            }
-        }
-        
-        // Auto-fix unescaped backslashes (common when AI outputs Windows paths like C:\Users)
-        // This regex replaces \ with \\ ONLY if it's not part of a valid JSON escape sequence like \n or \t
-        jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
-        
-        // Auto-fix invalid \u escapes (like C:\users which crashes JSON.parse because 'sers' is not hex)
-        jsonStr = jsonStr.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u');
-        
         // ── [INTELLIGENT FALLBACK] Auto-XML to JSON Converter ──
         // Handles hallucinated XML formats from DeepSeek, Claude, Qwen, etc.
         // Patterns supported:
@@ -1417,8 +1391,11 @@ RULES:
         }
         
         function repairJsonEscapes(str: string): string {
-            // Replace any backslash NOT already forming a valid JSON escape with an escaped backslash
-            return str.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+            // 1. Auto-fix invalid \u escapes (like C:\users which crashes JSON.parse because 'sers' is not hex)
+            let repaired = str.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u');
+            // 2. Replace any remaining backslash NOT already forming a valid JSON escape with an escaped backslash
+            repaired = repaired.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+            return repaired;
         }
 
         // Let JSON.parse throw if invalid, so the loop can catch it and feed it back to the AI.
