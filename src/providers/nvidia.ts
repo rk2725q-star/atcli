@@ -22,7 +22,7 @@ const NVIDIA_BASE_URL    = 'https://integrate.api.nvidia.com/v1';
 const CHAT_ENDPOINT      = `${NVIDIA_BASE_URL}/chat/completions`;
 const MODELS_ENDPOINT    = `${NVIDIA_BASE_URL}/models`;
 const DEFAULT_MODEL      = 'minimaxai/minimax-m3';
-const MAX_CONTEXT_TOKENS = 32_000;   // Increased from 8k to give agents sufficient headroom for large tasks
+const MAX_CONTEXT_TOKENS = 180_000;   // Increased to 180k to match architecture design
 const RPM_DELAY_MS       = 3_000;     // 3s between requests → max 20 RPM (50% of the 40 RPM limit for ultimate safety)
 
 // Conversation memory file: one per project dir, per provider
@@ -261,6 +261,21 @@ export class NvidiaApiProvider implements AgentProvider {
                 stream: true
             };
 
+            let bodyString = JSON.stringify(requestBody);
+            
+            // 🛡️ [SECRET MASKING] - Scan the entire outbound HTTP body before it hits the network
+            const SECRET_PATTERNS = [
+                /sk-[a-zA-Z0-9]{32,}/g,
+                /nvapi-[a-zA-Z0-9\-]{32,}/g,
+                /xox[baprs]-[0-9a-zA-Z]{10,}/g,
+                /gh[pousr]_[a-zA-Z0-9]{36,}/g,
+                /AKIA[0-9A-Z]{16}/g,
+                /(?:api\s*key|token|secret|password)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{10,}['"]?/gi
+            ];
+            for (const regex of SECRET_PATTERNS) {
+                bodyString = bodyString.replace(regex, '[REDACTED_LOCAL_SECRET]');
+            }
+
             try {
                 const response = await fetch(CHAT_ENDPOINT, {
                     method: 'POST',
@@ -269,7 +284,7 @@ export class NvidiaApiProvider implements AgentProvider {
                         'Accept': 'text/event-stream',
                         'Authorization': `Bearer ${this.apiKey}`
                     },
-                    body: JSON.stringify(requestBody),
+                    body: bodyString,
                     signal: this.abortController.signal
                 });
                 clearTimeout(timeoutId);
@@ -336,8 +351,9 @@ export class NvidiaApiProvider implements AgentProvider {
                                     e.message.includes('fetch failed');
 
                 if (isRetryable && attempt < MAX_RETRIES) {
-                    console.log(`\n[NVIDIA] API busy or timed out. Retrying attempt ${attempt + 1}/${MAX_RETRIES} in 3 seconds...`);
-                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    const backoffMs = attempt * 5000 + Math.floor(Math.random() * 2000); // Exponential backoff + jitter
+                    console.log(`\n[NVIDIA] API busy or timed out. Retrying attempt ${attempt + 1}/${MAX_RETRIES} in ${Math.round(backoffMs / 1000)} seconds...`);
+                    await new Promise(resolve => setTimeout(resolve, backoffMs));
                     continue;
                 }
 

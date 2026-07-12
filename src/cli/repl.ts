@@ -409,6 +409,12 @@ export async function startRepl() {
                             return;
                         }
                         const isFirstForProvider = !initializedProviders.has(state.currentProvider);
+                        if (isFirstForProvider && typeof (adapter as any).clearConversation === 'function') {
+                            const isResume = process.argv.includes('--resume') || process.argv.includes('-r');
+                            if (!isResume) {
+                                (adapter as any).clearConversation();
+                            }
+                        }
                         const agent = new AgentLoop(adapter, isFirstForProvider);
                         
                         isExecutingTask = true;
