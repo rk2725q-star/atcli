@@ -107,9 +107,9 @@ function parseCheckerOutput(output: string): { errors: AeclError[], errorCount: 
         }
 
         // Python format: File "app.py", line 10
-        const pyMatch = line.match(/^  File "([^"]+)", line (\d+)/);
-        if (pyMatch) {
-             errors.push({ file: pyMatch[1].trim(), line: parseInt(pyMatch[2]), col: 1, message: 'Python Syntax Error', severity: 'error', status: 'fix_now' });
+        const pySyntaxMatch = line.match(/^  File "([^"]+)", line (\d+)/);
+        if (pySyntaxMatch) {
+             errors.push({ file: pySyntaxMatch[1].trim(), line: parseInt(pySyntaxMatch[2]), col: 1, message: 'Python Syntax Error', severity: 'error', status: 'fix_now' });
              errorCount++;
              continue;
         }
