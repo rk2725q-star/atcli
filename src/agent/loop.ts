@@ -581,7 +581,7 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 toolCall = this.parseToolCall(aiText);
             } catch (err: any) {
                 console.log(`\n⚠️ Tool Parsing Error: ${err.message}`);
-                currentMessage = `<tool_result>\nFailed to parse JSON inside <tool_call>: ${err.message}. Please fix your JSON syntax (e.g. escape inner double quotes with \\\") and try again.\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. 24/7 SECURITY FIREWALL ACTIVE: You are strictly forbidden from running destructive commands.]`;
+                currentMessage = `<tool_result>\nFailed to parse JSON inside <tool_call>: ${err.message}. Please fix your JSON syntax (e.g., unescaped backslash in a file path — use \\\\ instead of \\ for Windows paths in JSON, or escape inner double quotes with \\\") and try again.\n</tool_result>\n[SYSTEM REMINDER: What is your next step? DO NOT ASK FOR PERMISSION. IMMEDIATELY OUTPUT THE NEXT <tool_call> XML BLOCK. 24/7 SECURITY FIREWALL ACTIVE: You are strictly forbidden from running destructive commands.]`;
                 continue;
             }
 

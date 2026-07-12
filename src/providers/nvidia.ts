@@ -330,6 +330,7 @@ export class NvidiaApiProvider implements AgentProvider {
                                     e.message.includes('503') || 
                                     e.message.includes('502') || 
                                     e.message.includes('504') || 
+                                    e.message.includes('500') ||
                                     e.message.includes('429') ||
                                     e.message.includes('terminated') ||
                                     e.message.includes('fetch failed');
