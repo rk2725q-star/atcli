@@ -3,6 +3,7 @@ import { ApiKeyStore } from './api-key-store';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { maskSecretsString } from '../utils/secrets';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NVIDIA NIM Provider
@@ -264,17 +265,8 @@ export class NvidiaApiProvider implements AgentProvider {
             let bodyString = JSON.stringify(requestBody);
             
             // 🛡️ [SECRET MASKING] - Scan the entire outbound HTTP body before it hits the network
-            const SECRET_PATTERNS = [
-                /sk-[a-zA-Z0-9]{32,}/g,
-                /nvapi-[a-zA-Z0-9\-]{32,}/g,
-                /xox[baprs]-[0-9a-zA-Z]{10,}/g,
-                /gh[pousr]_[a-zA-Z0-9]{36,}/g,
-                /AKIA[0-9A-Z]{16}/g,
-                /(?:api\s*key|secret)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{32,}['"]?/gi
-            ];
-            for (const regex of SECRET_PATTERNS) {
-                bodyString = bodyString.replace(regex, '[REDACTED_LOCAL_SECRET]');
-            }
+            const { masked } = maskSecretsString(bodyString);
+            bodyString = masked;
 
             try {
                 const response = await fetch(CHAT_ENDPOINT, {

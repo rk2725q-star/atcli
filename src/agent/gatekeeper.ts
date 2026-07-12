@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { maskSecretsObject, hasSecret } from '../utils/secrets';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GATEKEEPER — ATCLI Security Wall
@@ -60,17 +61,6 @@ const COMMAND_INJECTION_PATTERNS = [
     /[;&|`]\s*(rm\s+-rf|del\s+\/|format\s+|curl.*\|\s*bash|wget.*\|\s*sh)/i,
 ];
 
-const SECRET_PATTERNS = [
-    /sk-[a-zA-Z0-9_\-]{20,}/,           // OpenAI API key
-    /AKIA[0-9A-Z]{16}/,                   // AWS Access Key
-    /ghp_[a-zA-Z0-9]{36}/,               // GitHub Personal Access Token
-    /xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+/,  // Slack Bot Token
-    /AIza[0-9A-Za-z\-_]{35}/,            // Google API Key
-    /ya29\.[0-9A-Za-z\-_]+/,             // Google OAuth Token
-    /['"]?password['"]?\s*[:=]\s*['"][^'"]{8,}['"]/i,  // Inline password
-    /['"]?secret['"]?\s*[:=]\s*['"][^'"]{8,}['"]/i,    // Inline secret
-    /BEGIN (RSA|EC|OPENSSH) PRIVATE KEY/,  // Private key material
-];
 
 // ── Dynamic system path protection (no hardcoded drive letters) ────────────────
 // Windows: uses process.env.SystemDrive (C:, D:, E: — whatever the OS drive is)
@@ -180,8 +170,7 @@ export class Gatekeeper {
 
         // 3. Secret detection — mask but allow
         const allText = JSON.stringify(toolCall);
-        const hasSecret = SECRET_PATTERNS.some(p => p.test(allText));
-        if (hasSecret) {
+        if (hasSecret(allText)) {
             const masked = this.maskSecrets(toolCall);
             this.log(`⚠️ MASKED [${agentName}] secret detected in ${action}`);
             return { allowed: true, reason: 'Secret masked before cloud AI', masked };
@@ -230,9 +219,7 @@ export class Gatekeeper {
     }
 
     private maskSecrets(toolCall: any): any {
-        let str = JSON.stringify(toolCall);
-        for (const p of SECRET_PATTERNS) str = str.replace(new RegExp(p.source, 'g'), '[REDACTED]');
-        try { return JSON.parse(str); } catch { return toolCall; }
+        return maskSecretsObject(toolCall);
     }
 
     private log(msg: string): void {

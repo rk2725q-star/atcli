@@ -4,6 +4,7 @@ import { PromptRouter } from '../broker/router';
 import { AgentLoop } from '../agent/loop';
 import { HermesAgent } from '../agent/hermes';
 import { BrowserManager } from '../browser/manager';
+import { maskSecretsString } from '../utils/secrets';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -82,28 +83,7 @@ const initializedProviders = new Map<string, 'vibecoding' | 'agentica'>();
 const agenticaSessions = new Map<string, boolean>(); // provider → hasOpenSession
 let agenticaRunning = false; // true ONLY while a task is actively executing
 
-// ── Shared Secret Masking Utility (single source of truth) ─────────────────
-const SECRET_PATTERNS = [
-    /sk-[a-zA-Z0-9_-]{20,}/g,
-    /sk_(live|test)_[a-zA-Z0-9_-]+/g,
-    /ghp_[a-zA-Z0-9]{36}/g,
-    /AKIA[0-9A-Z]{16}/g,
-    /(?:api\s*key|secret)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{32,}['"]?/gi
-];
 
-function maskSecrets(input: string): { masked: string; changed: boolean } {
-    let masked = input;
-    let changed = false;
-    for (const regex of SECRET_PATTERNS) {
-        regex.lastIndex = 0; // Reset stateful regex
-        if (regex.test(masked)) {
-            regex.lastIndex = 0;
-            masked = masked.replace(regex, '[REDACTED_LOCAL_SECRET]');
-            changed = true;
-        }
-    }
-    return { masked, changed };
-}
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -341,7 +321,7 @@ export async function startRepl() {
                             }
 
                             // 🛡️ SECRET SCANNER
-                            const { masked: safeArgs, changed: secretMasked } = maskSecrets(result.args || '');
+                            const { masked: safeArgs, changed: secretMasked } = maskSecretsString(result.args || '');
                             if (secretMasked) {
                                 console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your Agentica request! Masked before sending.`);
                             }
@@ -387,7 +367,7 @@ export async function startRepl() {
             } else {
                 
                 // 🛡️ LOCAL INPUT INTERCEPTOR (SECRET SCANNER)
-                const { masked: safeInput, changed: secretMasked } = maskSecrets(trimmed);
+                const { masked: safeInput, changed: secretMasked } = maskSecretsString(trimmed);
                 
                 if (secretMasked) {
                     console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your input!`);
