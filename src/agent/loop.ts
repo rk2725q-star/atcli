@@ -1426,7 +1426,20 @@ RULES:
         try {
             return JSON.parse(jsonStr);
         } catch (e) {
-            return JSON.parse(repairJsonEscapes(jsonStr));
+            try {
+                return JSON.parse(repairJsonEscapes(jsonStr));
+            } catch (e2) {
+                try {
+                    // Ultimate LLM-JSON Fallback: fixes missing commas, trailing commas, unescaped inner quotes, etc.
+                    const { jsonrepair } = require('jsonrepair');
+                    const repaired = jsonrepair(repairJsonEscapes(jsonStr));
+                    const parsed = JSON.parse(repaired);
+                    console.log(`\n⚡ [jsonrepair Salvaged]: ${JSON.stringify(parsed).substring(0, 150)}`);
+                    return parsed;
+                } catch (e3) {
+                    throw e2; // throw original error if jsonrepair fails too
+                }
+            }
         }
     }
 
