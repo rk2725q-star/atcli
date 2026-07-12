@@ -164,10 +164,10 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
         if (hasPy) {
             const pyFiles = allFilesChecked.filter(f => /\.py$/.test(f));
             if (pyFiles.length > 0) {
-                // Try python, fallback to py (Windows), fallback to python3
+                // Try pyflakes for rich diagnostics (undefined names, etc.), fallback to py_compile if missing
                 const pyCmd = process.platform === 'win32' 
-                    ? `python -m py_compile ${pyFiles.join(' ')} 2>nul || py -m py_compile ${pyFiles.join(' ')} 2>nul || python3 -m py_compile ${pyFiles.join(' ')}`
-                    : `python3 -m py_compile ${pyFiles.join(' ')} 2>/dev/null || python -m py_compile ${pyFiles.join(' ')}`;
+                    ? `python -m pyflakes ${pyFiles.join(' ')} 2>nul || py -m pyflakes ${pyFiles.join(' ')} 2>nul || python -m py_compile ${pyFiles.join(' ')} 2>nul || py -m py_compile ${pyFiles.join(' ')} 2>nul || python3 -m py_compile ${pyFiles.join(' ')}`
+                    : `python3 -m pyflakes ${pyFiles.join(' ')} 2>/dev/null || python -m pyflakes ${pyFiles.join(' ')} 2>/dev/null || python3 -m py_compile ${pyFiles.join(' ')} 2>/dev/null || python -m py_compile ${pyFiles.join(' ')}`;
                 combinedOutput += await runCmd(pyCmd);
             }
         }
