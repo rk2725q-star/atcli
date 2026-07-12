@@ -63,30 +63,46 @@ function readAeclMemory(cwd: string): AeclMemory {
 }
 
 /**
- * Parse tsc output into structured errors.
+ * Parse checker output (tsc, eslint, python) into structured errors.
  */
-function parseTscOutput(output: string): { errors: AeclError[], errorCount: number, warningCount: number } {
+function parseCheckerOutput(output: string): { errors: AeclError[], errorCount: number, warningCount: number } {
     const errors: AeclError[] = [];
     let errorCount = 0;
     let warningCount = 0;
 
     const lines = output.split('\n');
     for (const line of lines) {
-        // Format: src/file.ts(10,5): error TS2345: ...
-        const match = line.match(/^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+TS\d+:\s+(.+)$/);
-        if (match) {
-            const severity = match[4] as 'error' | 'warning';
-            errors.push({
-                file: match[1].trim(),
-                line: parseInt(match[2]),
-                col: parseInt(match[3]),
-                message: match[5].trim(),
-                severity,
-                status: 'fix_now'
-            });
-            if (severity === 'error') errorCount++;
-            else warningCount++;
+        // TS Format: src/file.ts(10,5): error TS2345: ...
+        const tsMatch = line.match(/^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+TS\d+:\s+(.+)$/);
+        if (tsMatch) {
+            const severity = tsMatch[4] as 'error' | 'warning';
+            errors.push({ file: tsMatch[1].trim(), line: parseInt(tsMatch[2]), col: parseInt(tsMatch[3]), message: tsMatch[5].trim(), severity, status: 'fix_now' });
+            if (severity === 'error') errorCount++; else warningCount++;
+            continue;
         }
+
+        // ESLint Unix Format: file.js:1:1: error: Message [rule]
+        const unixMatch = line.match(/^(.+?):(\d+):(\d+):\s+(error|warning)?(.*)$/i);
+        if (unixMatch) {
+            const severity = (unixMatch[4]?.toLowerCase() === 'warning') ? 'warning' : 'error';
+            errors.push({ file: unixMatch[1].trim(), line: parseInt(unixMatch[2]), col: parseInt(unixMatch[3]), message: unixMatch[5].trim(), severity, status: 'fix_now' });
+            if (severity === 'error') errorCount++; else warningCount++;
+            continue;
+        }
+
+        // Python format: File "app.py", line 10
+        const pyMatch = line.match(/^  File "([^"]+)", line (\d+)/);
+        if (pyMatch) {
+             errors.push({ file: pyMatch[1].trim(), line: parseInt(pyMatch[2]), col: 1, message: 'Python Syntax Error', severity: 'error', status: 'fix_now' });
+             errorCount++;
+             continue;
+        }
+    }
+
+    // Fallback if there was output but no regex matched (e.g., checker missing or crashed)
+    if (errors.length === 0 && output.trim().length > 0 && output.toLowerCase().includes('error')) {
+         errors.push({ file: 'project', line: 1, col: 1, message: output.substring(0, 500).trim(), severity: 'error', status: 'fix_now' });
+         errorCount++;
     }
 
     return { errors, errorCount, warningCount };
@@ -121,20 +137,52 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
         // Track cumulative files checked
         const allFilesChecked = Array.from(new Set([...existingMemory.files_checked, ...filesWritten]));
         
-        // Run tsc --noEmit --incremental (fast due to .tsbuildinfo cache)
-        let tscOutput = '';
-        try {
-            const { stdout, stderr } = await execPromise(
-                'npx tsc --noEmit --incremental 2>&1 || true',
-                { cwd, maxBuffer: 1024 * 1024 * 5 }
-            );
-            tscOutput = stdout + stderr;
-        } catch (err: any) {
-            tscOutput = err.stdout || err.stderr || err.message || '';
+        const hasTs = allFilesChecked.some(f => /\.tsx?$/.test(f)) || fs.existsSync(path.join(cwd, 'tsconfig.json'));
+        const hasPy = allFilesChecked.some(f => /\.py$/.test(f));
+        const hasJs = allFilesChecked.some(f => /\.jsx?$/.test(f));
+        
+        let combinedOutput = '';
+        let checkerFailed = false;
+        let finalAiNotes = aiNotes || existingMemory.ai_notes;
+
+        console.log(`\n🔍 [AECL] Running dynamic language checks (TS: ${hasTs}, PY: ${hasPy}, JS: ${hasJs})...`);
+
+        const runCmd = async (cmd: string) => {
+            try {
+                const { stdout, stderr } = await execPromise(`${cmd} 2>&1 || true`, { cwd, maxBuffer: 1024 * 1024 * 5 });
+                return stdout + stderr;
+            } catch (err: any) {
+                checkerFailed = true;
+                return err.stdout || err.stderr || err.message || 'Checker execution failed';
+            }
+        };
+
+        if (hasTs) {
+            combinedOutput += await runCmd('npx tsc --noEmit --incremental');
         }
         
+        if (hasPy) {
+            const pyFiles = allFilesChecked.filter(f => /\.py$/.test(f));
+            if (pyFiles.length > 0) {
+                // python -m py_compile produces syntax error traces
+                combinedOutput += await runCmd(`python -m py_compile ${pyFiles.join(' ')}`);
+            }
+        }
+
+        if (hasJs && !hasTs) {
+            const jsFiles = allFilesChecked.filter(f => /\.jsx?$/.test(f));
+            if (jsFiles.length > 0) {
+                // unix format is easily parseable by our generic unix match
+                combinedOutput += await runCmd(`npx eslint --format unix --no-eslintrc --env browser,es2021 ${jsFiles.join(' ')}`);
+            }
+        }
+        
+        if (checkerFailed || (combinedOutput.includes('command not found') || combinedOutput.includes('is not recognized'))) {
+            finalAiNotes = `[STATE: checker_unavailable] A required linter or compiler failed to execute. Raw output: ${combinedOutput.substring(0, 200)} ` + finalAiNotes;
+        }
+
         // Parse errors, filter out ignored paths
-        const { errors, errorCount, warningCount } = parseTscOutput(tscOutput);
+        const { errors, errorCount, warningCount } = parseCheckerOutput(combinedOutput);
         const ignoredPaths = existingMemory.ignored_paths;
         const filteredErrors = errors.filter(e => 
             !ignoredPaths.some(ig => e.file.includes(ig))
@@ -147,7 +195,7 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
             last_checked: now,
             files_checked: allFilesChecked,
             errors: filteredErrors,
-            ai_notes: aiNotes || existingMemory.ai_notes,
+            ai_notes: finalAiNotes,
             ignored_paths: ignoredPaths
         };
         
