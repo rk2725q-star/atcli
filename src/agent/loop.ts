@@ -1410,8 +1410,18 @@ RULES:
             }
         }
         
-        // Let JSON.parse throw if invalid, so the loop can catch it and feed it back to the AI
-        return JSON.parse(jsonStr);
+        function repairJsonEscapes(str: string): string {
+            // Replace any backslash NOT already forming a valid JSON escape with an escaped backslash
+            return str.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+        }
+
+        // Let JSON.parse throw if invalid, so the loop can catch it and feed it back to the AI.
+        // However, first attempt to auto-heal common Windows path backslash errors.
+        try {
+            return JSON.parse(jsonStr);
+        } catch (e) {
+            return JSON.parse(repairJsonEscapes(jsonStr));
+        }
     }
 
     private extractImplicitMarkdownFiles(text: string): {path: string, content: string}[] {
