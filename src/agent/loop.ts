@@ -618,6 +618,20 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 }
 
                 // No tool call found, meaning the AI has finished its task
+                
+                // ─── AECL ZERO-ERROR GATE ───────────────────────────────────────
+                const aeclPath = path.join(process.cwd(), '.aecl_memory.json');
+                if (fs.existsSync(aeclPath)) {
+                    try {
+                        const mem = JSON.parse(fs.readFileSync(aeclPath, 'utf8'));
+                        if (mem.error_count > 0) {
+                            console.log(`\n🚫 [AECL GATE] Blocked finalization: ${mem.error_count} unresolved errors still present.`);
+                            currentMessage = `<tool_result>\n[AECL GATE] ${mem.error_count} unresolved errors still in .aecl_memory.json. You CANNOT finish. Fix them or mark false-positives as future_fix in ai_notes, then re-run aecl_check.\n</tool_result>`;
+                            continue;   // force loop to keep going, don't break
+                        }
+                    } catch { /* ignore parse error */ }
+                }
+
                 if (aiText.includes('@TRIGGER_FINAL_AUDIT')) {
                     console.log(`\n🎉 Project completion detected! Spawning Tech Lead Auditor...`);
                     const { ManagerLoop } = require('./manager');

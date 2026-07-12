@@ -164,12 +164,15 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
         if (hasPy) {
             const pyFiles = allFilesChecked.filter(f => /\.py$/.test(f));
             if (pyFiles.length > 0) {
-                // python -m py_compile produces syntax error traces
-                combinedOutput += await runCmd(`python -m py_compile ${pyFiles.join(' ')}`);
+                // Try python, fallback to py (Windows), fallback to python3
+                const pyCmd = process.platform === 'win32' 
+                    ? `python -m py_compile ${pyFiles.join(' ')} 2>nul || py -m py_compile ${pyFiles.join(' ')} 2>nul || python3 -m py_compile ${pyFiles.join(' ')}`
+                    : `python3 -m py_compile ${pyFiles.join(' ')} 2>/dev/null || python -m py_compile ${pyFiles.join(' ')}`;
+                combinedOutput += await runCmd(pyCmd);
             }
         }
 
-        if (hasJs && !hasTs) {
+        if (hasJs) {
             const jsFiles = allFilesChecked.filter(f => /\.jsx?$/.test(f));
             if (jsFiles.length > 0) {
                 // unix format is easily parseable by our generic unix match
