@@ -81,6 +81,22 @@ function parseCheckerOutput(output: string): { errors: AeclError[], errorCount: 
             continue;
         }
 
+
+        // Python pyflakes format: file.py:10: message
+        const pyMatch = line.match(/^(.+?):(\d+):(?:(\d+):\s)?(.+)$/);
+        if (pyMatch && /\.py$/.test(pyMatch[1])) {
+            const msg = pyMatch[4];
+            const isWarning = /imported but unused|unable to detect undefined names|redefinition of unused/i.test(msg);
+            errors.push({
+                file: pyMatch[1].trim(), line: parseInt(pyMatch[2]), col: pyMatch[3] ? parseInt(pyMatch[3]) : 1,
+                message: msg.trim(),
+                severity: isWarning ? 'warning' : 'error',
+                status: 'fix_now'
+            });
+            if (isWarning) warningCount++; else errorCount++;
+            continue;
+        }
+
         // ESLint Unix Format: file.js:1:1: error: Message [rule]
         const unixMatch = line.match(/^(.+?):(\d+):(\d+):\s+(error|warning)?(.*)$/i);
         if (unixMatch) {
