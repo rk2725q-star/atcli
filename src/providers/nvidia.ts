@@ -244,6 +244,7 @@ export class NvidiaApiProvider implements AgentProvider {
         this.trimContext();
 
         let attempt = 0;
+        let swapsThisRequest = 0;
         const MAX_RETRIES = 3;
 
         while (attempt < MAX_RETRIES) {
@@ -354,8 +355,14 @@ export class NvidiaApiProvider implements AgentProvider {
                 if (isRetryable && attempt >= MAX_RETRIES) {
                     const nextKeyId = NvidiaApiProvider.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
                     const nextKey = ApiKeyStore.get(nextKeyId);
-                    if (nextKey) {
-                        console.log(`\n[NVIDIA] ⚠️ Active API key exhausted. Seamlessly falling back to ${nextKeyId}...`);
+                    if (nextKey && swapsThisRequest < 2) {
+                        swapsThisRequest++;
+                        if (swapsThisRequest === 2) {
+                            console.log(`\n[NVIDIA] 🚨 Both API keys are currently exhausted. Entering 120-second hard cooldown to reset rate limits...`);
+                            await new Promise(resolve => setTimeout(resolve, 120000));
+                        } else {
+                            console.log(`\n[NVIDIA] ⚠️ Active API key exhausted. Seamlessly falling back to ${nextKeyId}...`);
+                        }
                         NvidiaApiProvider.activeKeyId = nextKeyId;
                         this.apiKey = nextKey;
                         NvidiaApiProvider.requestCount = 0;
