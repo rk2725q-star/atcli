@@ -143,15 +143,39 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
     execute: async (args: any) => {
         const cwd = process.cwd();
         const filesWritten: string[] = args.files_written || [];
+        const isFullScan: boolean = args.full_scan === true;
         const aiNotes: string = args.ai_notes || '';
-        
-        console.log('\n🔍 [AECL] Running incremental TypeScript check...');
         
         // Read existing memory to keep cumulative history
         const existingMemory = readAeclMemory(cwd);
-        
-        // Track cumulative files checked
-        const allFilesChecked = Array.from(new Set([...existingMemory.files_checked, ...filesWritten]));
+        const ignoredPaths = existingMemory.ignored_paths;
+
+        let allFilesChecked: string[];
+        if (isFullScan) {
+            console.log('\n🔍 [AECL] Running FULL PROJECT language check...');
+            
+            async function globProjectFiles(dir: string, ignoredPaths: string[]): Promise<string[]> {
+                const results: string[] = [];
+                const exts = /\.(ts|tsx|js|jsx|py)$/;
+                async function walk(currentDir: string) {
+                    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+                    for (const e of entries) {
+                        const full = path.join(currentDir, e.name);
+                        const rel = path.relative(cwd, full);
+                        if (ignoredPaths.some(ig => rel.includes(ig) || rel === ig)) continue;
+                        if (e.isDirectory()) await walk(full);
+                        else if (exts.test(e.name)) results.push(rel);
+                    }
+                }
+                await walk(dir);
+                return results;
+            }
+            allFilesChecked = await globProjectFiles(cwd, ignoredPaths);
+            
+        } else {
+            console.log('\n🔍 [AECL] Running incremental language check...');
+            allFilesChecked = Array.from(new Set([...existingMemory.files_checked, ...filesWritten]));
+        }
         
         const hasTs = allFilesChecked.some(f => /\.tsx?$/.test(f)) || fs.existsSync(path.join(cwd, 'tsconfig.json'));
         const hasPy = allFilesChecked.some(f => /\.py$/.test(f));
@@ -202,7 +226,6 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
 
         // Parse errors, filter out ignored paths
         const { errors, errorCount, warningCount } = parseCheckerOutput(combinedOutput);
-        const ignoredPaths = existingMemory.ignored_paths;
         const filteredErrors = errors.filter(e => 
             !ignoredPaths.some(ig => e.file.includes(ig))
         );

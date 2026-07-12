@@ -619,6 +619,12 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
 
                 // No tool call found, meaning the AI has finished its task
                 
+                // ─── AECL FULL SCAN ─────────────────────────────────────────────
+                // Before we can gate on 0 errors, we must force a full-project scan
+                // so we don't just check the partial incremental memory.
+                console.log(`\n🔍 [AECL] Forcing full-project scan before finalization...`);
+                await this.skillManager.executeSkill('aecl_check', { action: 'aecl_check', full_scan: true, ai_notes: "Automated full-project scan before finalization." });
+                
                 // ─── AECL ZERO-ERROR GATE ───────────────────────────────────────
                 const aeclPath = path.join(process.cwd(), '.aecl_memory.json');
                 if (fs.existsSync(aeclPath)) {
