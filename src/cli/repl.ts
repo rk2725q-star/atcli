@@ -88,7 +88,7 @@ const SECRET_PATTERNS = [
     /sk_(live|test)_[a-zA-Z0-9_-]+/g,
     /ghp_[a-zA-Z0-9]{36}/g,
     /AKIA[0-9A-Z]{16}/g,
-    /(?:api\s*key|token|secret|password)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{10,}['"]?/gi
+    /(?:api\s*key|secret)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{32,}['"]?/gi
 ];
 
 function maskSecrets(input: string): { masked: string; changed: boolean } {

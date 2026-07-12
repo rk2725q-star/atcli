@@ -270,7 +270,7 @@ export class NvidiaApiProvider implements AgentProvider {
                 /xox[baprs]-[0-9a-zA-Z]{10,}/g,
                 /gh[pousr]_[a-zA-Z0-9]{36,}/g,
                 /AKIA[0-9A-Z]{16}/g,
-                /(?:api\s*key|token|secret|password)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{10,}['"]?/gi
+                /(?:api\s*key|secret)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{32,}['"]?/gi
             ];
             for (const regex of SECRET_PATTERNS) {
                 bodyString = bodyString.replace(regex, '[REDACTED_LOCAL_SECRET]');
@@ -351,7 +351,7 @@ export class NvidiaApiProvider implements AgentProvider {
                                     e.message.includes('fetch failed');
 
                 if (isRetryable && attempt < MAX_RETRIES) {
-                    const backoffMs = attempt * 5000 + Math.floor(Math.random() * 2000); // Exponential backoff + jitter
+                    const backoffMs = Math.pow(2, attempt) * 2000 + Math.floor(Math.random() * 2000); // True exponential backoff + jitter
                     console.log(`\n[NVIDIA] API busy or timed out. Retrying attempt ${attempt + 1}/${MAX_RETRIES} in ${Math.round(backoffMs / 1000)} seconds...`);
                     await new Promise(resolve => setTimeout(resolve, backoffMs));
                     continue;
