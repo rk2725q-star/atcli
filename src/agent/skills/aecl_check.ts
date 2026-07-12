@@ -187,9 +187,9 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
 
         console.log(`\n🔍 [AECL] Running dynamic language checks (TS: ${hasTs}, PY: ${hasPy}, JS: ${hasJs})...`);
 
-        const runCmd = async (cmd: string) => {
+        const runCmd = async (cmd: string, execCwd: string = cwd): Promise<string> => {
             try {
-                const { stdout, stderr } = await execPromise(`${cmd} 2>&1 || true`, { cwd, maxBuffer: 1024 * 1024 * 5 });
+                const { stdout, stderr } = await execPromise(`${cmd} 2>&1 || true`, { cwd: execCwd, maxBuffer: 1024 * 1024 * 5 });
                 return stdout + stderr;
             } catch (err: any) {
                 checkerFailed = true;
@@ -198,7 +198,42 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
         };
 
         if (hasTs) {
-            combinedOutput += await runCmd('npx tsc --noEmit --incremental');
+            // Dynamically discover all unique sub-projects with a tsconfig.json that we touched
+            const tsDirs = Array.from(new Set(allFilesChecked.filter(f => /\.tsx?$/.test(f)).map(f => path.dirname(path.join(cwd, f)))));
+            const tsconfigPaths = new Set<string>();
+            for (let d of tsDirs) {
+                let curr = d;
+                while (curr.length >= cwd.length && curr.startsWith(cwd)) {
+                    if (fs.existsSync(path.join(curr, 'tsconfig.json'))) {
+                        tsconfigPaths.add(curr);
+                        break;
+                    }
+                    curr = path.dirname(curr);
+                }
+            }
+
+            if (tsconfigPaths.size > 0) {
+                for (const tsconfigDir of tsconfigPaths) {
+                    const output = await runCmd('npx tsc --noEmit', tsconfigDir);
+                    const subpath = path.relative(cwd, tsconfigDir);
+                    if (subpath && subpath !== '') {
+                        // Re-map error paths from subproject-relative to workspace-relative so AECL can match them
+                        const lines = output.split('\n');
+                        const fixedOutput = lines.map((line: string) => {
+                            const tsMatch = line.match(/^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+TS\d+:/);
+                            if (tsMatch) {
+                                return line.replace(tsMatch[1], path.join(subpath, tsMatch[1]).replace(/\\/g, '/'));
+                            }
+                            return line;
+                        }).join('\n');
+                        combinedOutput += fixedOutput + '\n';
+                    } else {
+                        combinedOutput += output + '\n';
+                    }
+                }
+            } else {
+                combinedOutput += await runCmd('npx tsc --noEmit');
+            }
         }
         
         if (hasPy) {
