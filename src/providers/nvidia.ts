@@ -219,9 +219,9 @@ export class NvidiaApiProvider implements AgentProvider {
     private async callAPI(userMessage: string): Promise<string> {
         if (!this.apiKey) throw new Error('API key not initialized');
 
-        // Proactive Rate Limit Balancing (Swap every 20 requests)
+        // Proactive Rate Limit Balancing (Swap every 30 requests)
         NvidiaApiProvider.requestCount++;
-        if (NvidiaApiProvider.requestCount >= 20) {
+        if (NvidiaApiProvider.requestCount >= 30) {
             const nextKeyId = NvidiaApiProvider.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
             const nextKey = ApiKeyStore.get(nextKeyId);
             if (nextKey) {
