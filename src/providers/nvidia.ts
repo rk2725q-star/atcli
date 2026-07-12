@@ -219,9 +219,9 @@ export class NvidiaApiProvider implements AgentProvider {
     private async callAPI(userMessage: string): Promise<string> {
         if (!this.apiKey) throw new Error('API key not initialized');
 
-        // Proactive Rate Limit Balancing (Swap every 30 requests)
+        // Proactive Rate Limit Balancing (Swap every 20 requests)
         NvidiaApiProvider.requestCount++;
-        if (NvidiaApiProvider.requestCount >= 30) {
+        if (NvidiaApiProvider.requestCount >= 20) {
             const nextKeyId = NvidiaApiProvider.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
             const nextKey = ApiKeyStore.get(nextKeyId);
             if (nextKey) {
@@ -332,13 +332,14 @@ export class NvidiaApiProvider implements AgentProvider {
             } catch (e: any) {
                 clearTimeout(timeoutId);
                 
-                // Retry if 503 (Busy), 502/504 (Gateway timeout), 429 (Rate limit), or AbortError (timeout)
+                // Retry if 503 (Busy), 502/504 (Gateway timeout), 429 (Rate limit), 400 (DEGRADED model), or AbortError (timeout)
                 const isRetryable = e.name === 'AbortError' || 
                                     e.message.includes('503') || 
                                     e.message.includes('502') || 
                                     e.message.includes('504') || 
                                     e.message.includes('500') ||
                                     e.message.includes('429') ||
+                                    (e.message.includes('400') && e.message.includes('DEGRADED')) ||
                                     e.message.includes('terminated') ||
                                     e.message.includes('fetch failed');
 
