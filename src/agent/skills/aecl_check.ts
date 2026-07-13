@@ -203,7 +203,8 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
             try {
                 const pkg = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
                 const scripts = pkg.scripts || {};
-                const scriptsToRun = ['typecheck', 'lint', 'build'].filter(s => scripts[s]);
+                // Only run read-only / check scripts. DO NOT run 'build' as it can mutate the project or take too long.
+                const scriptsToRun = ['typecheck', 'lint'].filter(s => scripts[s]);
                 for (const script of scriptsToRun) {
                     console.log(`\n🔍 [AECL] Running Universal Check: npm run ${script}...`);
                     const res = await runCmd(`npm run ${script}`, cwd);
@@ -310,10 +311,6 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
             }
         }
         
-        if (checkerFailed || (combinedOutput.includes('command not found') || combinedOutput.includes('is not recognized'))) {
-            finalAiNotes = `[STATE: checker_unavailable] A required linter or compiler failed to execute. Raw output: ${combinedOutput.substring(0, 200)} ` + finalAiNotes;
-        }
-
         // Parse errors, filter out ignored paths
         const { errors, errorCount, warningCount } = parseCheckerOutput(combinedOutput);
         const filteredErrors = errors.filter(e => 
@@ -322,8 +319,30 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
         
         const parsedErrorCount = filteredErrors.filter(e => e.severity === 'error').length;
         
-        // FATAL ERROR TRAPPING: If commands failed but we parsed 0 structured errors, force error_count > 0 so the gate blocks!
-        const finalErrorCount = (checkerFailed && parsedErrorCount === 0) ? Math.max(1, universalFailures) : parsedErrorCount;
+        // Fatal commands (crashes, command not found) vs normal diagnostic failure:
+        // Linters and compilers often exit with non-zero when they find *valid* errors.
+        // We consider it a "fatal crash" if a command failed but produced NO parseable structured errors.
+        const isFatalCrash = checkerFailed && parsedErrorCount === 0;
+
+        if (isFatalCrash || (combinedOutput.includes('command not found') || combinedOutput.includes('is not recognized'))) {
+            finalAiNotes = `[STATE: checker_unavailable] A required linter or compiler failed to execute, or crashed without structured errors. Raw output: ${combinedOutput.substring(0, 200)} ` + finalAiNotes;
+        }
+        
+        // FATAL ERROR TRAPPING: If commands failed but we parsed 0 structured errors, 
+        // force error_count > 0 so the gate blocks! We MUST inject a synthetic error 
+        // into the array so the Dashboard and the Agent's loop can actually see *why* it failed.
+        if (isFatalCrash) {
+            filteredErrors.push({
+                file: 'project-workspace',
+                line: 1,
+                col: 1,
+                message: `Fatal Build/Lint Crash: A command exited with a non-zero status but no structured errors were found. Check raw output.`,
+                severity: 'error',
+                status: 'fix_now'
+            });
+        }
+        
+        const finalErrorCount = filteredErrors.filter(e => e.severity === 'error').length;
 
         const now = new Date().toISOString();
         const newMemory: AeclMemory = {
