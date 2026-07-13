@@ -174,7 +174,7 @@ export class OllamaApiAdapter implements AgentProvider {
             body: JSON.stringify({
                 model: this.modelName,
                 messages,
-                stream: false,
+                stream: true,
                 options: {
                     num_ctx: OLLAMA_MAX_CONTEXT_TOKENS
                 }
@@ -185,8 +185,42 @@ export class OllamaApiAdapter implements AgentProvider {
             throw new Error(`Ollama API Error: ${response.statusText}`);
         }
 
-        const data = await response.json() as OllamaChatResponse;
-        return data.message?.content || '';
+        if (!response.body) {
+            throw new Error('Ollama API returned empty body');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let fullText = '';
+        
+        console.log(`\n\x1b[35m[OLLAMA STREAM STARTED]\x1b[0m`);
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n').filter(line => line.trim() !== '');
+
+                for (const line of lines) {
+                    try {
+                        const parsed = JSON.parse(line) as { message?: { content?: string } };
+                        if (parsed.message?.content) {
+                            process.stdout.write(parsed.message.content);
+                            fullText += parsed.message.content;
+                        }
+                    } catch (e) {
+                        // ignore unparseable chunk lines
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
+
+        console.log(`\n\x1b[35m[OLLAMA STREAM END]\x1b[0m\n`);
+        return fullText;
     }
 
     private async initIfNeeded(): Promise<void> {
