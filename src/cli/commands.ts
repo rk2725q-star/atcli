@@ -368,8 +368,8 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                     state.currentProvider = provider;
                     state.currentModel = modelName;
                     router?.setLocalModel?.(provider, modelName);
-                    console.log(`\n  ✅ Local model switched to: \x1b[36m${modelName}\x1b[0m`);
-                    console.log(`  \x1b[2m  If the model is not installed yet, run /local pull ${modelName}\x1b[0m`);
+                    console.log(`\n  ✅ SUCCESS: ATCLI is now powered by local model \x1b[36m${modelName}\x1b[0m`);
+                    console.log(`  🤖 You can now type your tasks directly below.`);
                     return { handled: true };
                 }
 
@@ -537,8 +537,8 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                     console.log(`  \x1b[2m  Sequential queue active — 1 request at a time (40 RPM safe)\x1b[0m`);
                 } else if (['local', 'ollama', 'qwen-local'].includes(state.currentProvider) && router) {
                     router.setLocalModel(state.currentProvider, modelArg);
-                    console.log(`\n  ✅ Local model → \x1b[36m${modelArg}\x1b[0m`);
-                    console.log(`  \x1b[2m  If the model is not installed, use /local pull ${modelArg}\x1b[0m`);
+                    console.log(`\n  ✅ SUCCESS: ATCLI is now powered by local model \x1b[36m${modelArg}\x1b[0m`);
+                    console.log(`  🤖 You can now type your tasks directly below.`);
                 } else {
                     console.log(`\n✅ Model switched to: ${state.currentModel}`);
                 }

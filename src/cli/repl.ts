@@ -198,12 +198,12 @@ export async function startRepl() {
 
             if (trimmed.startsWith('ollama run ')) {
                 const modelName = trimmed.replace('ollama run ', '').replace(/^<|>$/g, '').trim();
-                console.log(`\n[ATCLI] Intercepted Ollama run command. Switching to local model: \x1b[36m${modelName}\x1b[0m...`);
+                console.log(`\n[ATCLI] 🔌 Intercepted 'ollama run'. Connecting ATCLI to your local model...`);
                 state.currentProvider = 'local';
                 state.currentModel = modelName;
                 router?.setLocalModel?.('local', modelName);
-                console.log(`  ✅ Local model → \x1b[36m${modelName}\x1b[0m`);
-                console.log(`  \x1b[2m  If the model is not installed, use /local pull ${modelName}\x1b[0m\n`);
+                console.log(`\n  ✅ SUCCESS: ATCLI is now powered by local model \x1b[36m${modelName}\x1b[0m`);
+                console.log(`  🤖 You can now type your tasks directly below (e.g., "Build a snake game in python")\n`);
                 promptLoop();
                 return;
             }
