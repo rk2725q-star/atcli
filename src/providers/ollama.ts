@@ -17,8 +17,8 @@ interface OllamaChatResponse {
 }
 
 const OLLAMA_API_BASE = 'http://localhost:11434/api';
-const OLLAMA_MAX_CONTEXT_TOKENS = 32000;
-const OLLAMA_TRIM_TARGET_TOKENS = 24000;
+const OLLAMA_MAX_CONTEXT_TOKENS = 16384;
+const OLLAMA_TRIM_TARGET_TOKENS = 12288;
 
 function getConversationPath(projectDir: string, providerId: string): string {
     const dir = path.join(projectDir, '.atcli-tmp');
@@ -166,6 +166,8 @@ export class OllamaApiAdapter implements AgentProvider {
 
     private async callChat(messages: OllamaMessage[]): Promise<string> {
         this.abortController = new AbortController();
+
+        console.log(`\n\x1b[90m[OLLAMA] 🧠 Loading model and evaluating prompt... (this may take 15-60 seconds on the very first run)\x1b[0m`);
 
         const response = await fetch(`${OLLAMA_API_BASE}/chat`, {
             method: 'POST',
