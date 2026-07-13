@@ -187,15 +187,55 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
 
         console.log(`\n🔍 [AECL] Running dynamic language checks (TS: ${hasTs}, PY: ${hasPy}, JS: ${hasJs})...`);
 
-        const runCmd = async (cmd: string, execCwd: string = cwd): Promise<string> => {
+        const runCmd = async (cmd: string, execCwd: string = cwd): Promise<{output: string, failed: boolean}> => {
             try {
-                const { stdout, stderr } = await execPromise(`${cmd} 2>&1 || true`, { cwd: execCwd, maxBuffer: 1024 * 1024 * 5 });
-                return stdout + stderr;
+                const { stdout, stderr } = await execPromise(cmd, { cwd: execCwd, maxBuffer: 1024 * 1024 * 5 });
+                return { output: (stdout || '') + (stderr || ''), failed: false };
             } catch (err: any) {
-                checkerFailed = true;
-                return err.stdout || err.stderr || err.message || 'Checker execution failed';
+                return { output: (err.stdout || '') + (err.stderr || '') + (err.message || ''), failed: true };
             }
         };
+
+        let universalFailures = 0;
+        
+        // --- UNIVERSAL PROJECT DETECTION ---
+        if (fs.existsSync(path.join(cwd, 'package.json'))) {
+            try {
+                const pkg = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
+                const scripts = pkg.scripts || {};
+                const scriptsToRun = ['typecheck', 'lint', 'build'].filter(s => scripts[s]);
+                for (const script of scriptsToRun) {
+                    console.log(`\n🔍 [AECL] Running Universal Check: npm run ${script}...`);
+                    const res = await runCmd(`npm run ${script}`, cwd);
+                    combinedOutput += `\n[npm run ${script} output]\n` + res.output + '\n';
+                    if (res.failed) {
+                        checkerFailed = true;
+                        universalFailures++;
+                    }
+                }
+            } catch (e) {}
+        }
+        
+        if (fs.existsSync(path.join(cwd, 'Cargo.toml'))) {
+            console.log(`\n🔍 [AECL] Running Universal Check: cargo check...`);
+            const res = await runCmd('cargo check', cwd);
+            combinedOutput += `\n[cargo check output]\n` + res.output + '\n';
+            if (res.failed) {
+                checkerFailed = true;
+                universalFailures++;
+            }
+        }
+        
+        if (fs.existsSync(path.join(cwd, 'go.mod'))) {
+            console.log(`\n🔍 [AECL] Running Universal Check: go vet & build...`);
+            const resVet = await runCmd('go vet ./...', cwd);
+            const resBuild = await runCmd('go build ./...', cwd);
+            combinedOutput += `\n[go vet/build output]\n` + resVet.output + '\n' + resBuild.output + '\n';
+            if (resVet.failed || resBuild.failed) {
+                checkerFailed = true;
+                universalFailures++;
+            }
+        }
 
         if (hasTs) {
             // Dynamically discover all unique sub-projects with a tsconfig.json that we touched
@@ -221,11 +261,13 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
                             tscCmd = 'npx tsc -b';
                         }
                     } catch (e) {}
-                    const output = await runCmd(tscCmd, tsconfigDir);
+                    const res = await runCmd(tscCmd, tsconfigDir);
+                    if (res.failed) checkerFailed = true;
+                    
                     const subpath = path.relative(cwd, tsconfigDir);
                     if (subpath && subpath !== '') {
                         // Re-map error paths from subproject-relative to workspace-relative so AECL can match them
-                        const lines = output.split('\n');
+                        const lines = res.output.split('\n');
                         const fixedOutput = lines.map((line: string) => {
                             const tsMatch = line.match(/^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+TS\d+:/);
                             if (tsMatch) {
@@ -235,11 +277,13 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
                         }).join('\n');
                         combinedOutput += fixedOutput + '\n';
                     } else {
-                        combinedOutput += output + '\n';
+                        combinedOutput += res.output + '\n';
                     }
                 }
             } else {
-                combinedOutput += await runCmd('npx tsc --noEmit');
+                const res = await runCmd('npx tsc --noEmit');
+                if (res.failed) checkerFailed = true;
+                combinedOutput += res.output + '\n';
             }
         }
         
@@ -250,7 +294,9 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
                 const pyCmd = process.platform === 'win32' 
                     ? `python -m pyflakes ${pyFiles.join(' ')} 2>nul || py -m pyflakes ${pyFiles.join(' ')} 2>nul || python -m py_compile ${pyFiles.join(' ')} 2>nul || py -m py_compile ${pyFiles.join(' ')} 2>nul || python3 -m py_compile ${pyFiles.join(' ')}`
                     : `python3 -m pyflakes ${pyFiles.join(' ')} 2>/dev/null || python -m pyflakes ${pyFiles.join(' ')} 2>/dev/null || python3 -m py_compile ${pyFiles.join(' ')} 2>/dev/null || python -m py_compile ${pyFiles.join(' ')}`;
-                combinedOutput += await runCmd(pyCmd);
+                const res = await runCmd(pyCmd);
+                if (res.failed) checkerFailed = true;
+                combinedOutput += res.output;
             }
         }
 
@@ -258,7 +304,9 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
             const jsFiles = allFilesChecked.filter(f => /\.jsx?$/.test(f));
             if (jsFiles.length > 0) {
                 // unix format is easily parseable by our generic unix match
-                combinedOutput += await runCmd(`npx eslint --format unix --no-eslintrc --env browser,es2021 ${jsFiles.join(' ')}`);
+                const res = await runCmd(`npx eslint --format unix --no-eslintrc --env browser,es2021 ${jsFiles.join(' ')}`);
+                if (res.failed) checkerFailed = true;
+                combinedOutput += res.output;
             }
         }
         
@@ -272,9 +320,14 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
             !ignoredPaths.some(ig => e.file.includes(ig))
         );
         
+        const parsedErrorCount = filteredErrors.filter(e => e.severity === 'error').length;
+        
+        // FATAL ERROR TRAPPING: If commands failed but we parsed 0 structured errors, force error_count > 0 so the gate blocks!
+        const finalErrorCount = (checkerFailed && parsedErrorCount === 0) ? Math.max(1, universalFailures) : parsedErrorCount;
+
         const now = new Date().toISOString();
         const newMemory: AeclMemory = {
-            error_count: filteredErrors.filter(e => e.severity === 'error').length,
+            error_count: finalErrorCount,
             warning_count: filteredErrors.filter(e => e.severity === 'warning').length,
             last_checked: now,
             files_checked: allFilesChecked,
@@ -298,11 +351,17 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
 Total Errors: ${newMemory.error_count}
 Total Warnings: ${newMemory.warning_count}
 Total Files Tracked: ${allFilesChecked.length}
-Last Checked: ${now}
+Last Checked: ${now}\n\n`;
 
-${filteredErrors.length > 0 ? 'ERRORS:\n' + errorSummary : '✅ No errors found!'}
-
-AECL Memory saved to: ${path.join(cwd, AECL_MEMORY_FILE)}`;
+        if (filteredErrors.length > 0) {
+            result += 'ERRORS:\n' + errorSummary;
+        } else if (checkerFailed) {
+            result += `[FATAL BUILD/LINT CRASH] Command returned non-zero exit code but no structured errors were found.\n\nRAW OUTPUT TRACE:\n${combinedOutput.substring(0, 1500)}...`;
+        } else {
+            result += '✅ No errors found!';
+        }
+        
+        result += `\n\nAECL Memory saved to: ${path.join(cwd, AECL_MEMORY_FILE)}`;
 
         if (newMemory.error_count > 0) {
             result += `\n\n[AECL ENFORCEMENT] You MUST fix these errors before proceeding. If an error is due to a missing file that will be created later, add it to ai_notes as "future_fix". Otherwise fix it NOW.`;
