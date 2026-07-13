@@ -214,7 +214,14 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
 
             if (tsconfigPaths.size > 0) {
                 for (const tsconfigDir of tsconfigPaths) {
-                    const output = await runCmd('npx tsc --noEmit', tsconfigDir);
+                    let tscCmd = 'npx tsc --noEmit';
+                    try {
+                        const tsconfigContent = fs.readFileSync(path.join(tsconfigDir, 'tsconfig.json'), 'utf-8');
+                        if (tsconfigContent.includes('"references"')) {
+                            tscCmd = 'npx tsc -b';
+                        }
+                    } catch (e) {}
+                    const output = await runCmd(tscCmd, tsconfigDir);
                     const subpath = path.relative(cwd, tsconfigDir);
                     if (subpath && subpath !== '') {
                         // Re-map error paths from subproject-relative to workspace-relative so AECL can match them
