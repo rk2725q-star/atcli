@@ -518,8 +518,8 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
             
             // Dynamic Context Refresh Threshold
             // Cloud AI (GPT-4o, Claude, DeepSeek): 128k-200k context — refresh at 120k
-            // Local AI (Ollama, Qwen-local): smaller context window, refresh more aggressively.
-            const refreshThreshold = isLocalModel ? 12000 : 120000;
+            // Local AI (Ollama, Qwen-local): smaller context window, refresh more aggressively but keep it above base prompt (16k+).
+            const refreshThreshold = isLocalModel ? 100000 : 120000;
             
             // CONTEXT REFRESH: Re-inject tools + Project Intent + Memory Snapshot to prevent memory loss
             if (this.totalTokensProcessed - lastRefreshTokens > refreshThreshold) {

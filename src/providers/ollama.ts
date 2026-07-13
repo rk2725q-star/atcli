@@ -17,8 +17,8 @@ interface OllamaChatResponse {
 }
 
 const OLLAMA_API_BASE = 'http://localhost:11434/api';
-const OLLAMA_MAX_CONTEXT_TOKENS = 16384;
-const OLLAMA_TRIM_TARGET_TOKENS = 12288;
+const OLLAMA_MAX_CONTEXT_TOKENS = 131072;
+const OLLAMA_TRIM_TARGET_TOKENS = 120000;
 
 function getConversationPath(projectDir: string, providerId: string): string {
     const dir = path.join(projectDir, '.atcli-tmp');
