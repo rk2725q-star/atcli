@@ -603,6 +603,7 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 // [INTELLIGENT FALLBACK]: If AI hallucinates and outputs plain markdown code blocks with filenames,
                 // instead of ignoring them and exiting, we auto-extract and apply them!
                 const extractedFiles = this.extractImplicitMarkdownFiles(aiText);
+                let fallbackApplied = false;
                 if (extractedFiles.length > 0) {
                     console.log(`\n⚡ [Smart Fallback] Detected ${extractedFiles.length} hallucinated markdown files. Auto-applying...`);
                     for (const file of extractedFiles) {
@@ -610,11 +611,7 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                         await this.skillManager.executeSkill('write_file', { action: 'write_file', path: file.path, content: file.content });
                     }
                     console.log(`\n✅ All ${extractedFiles.length} extracted files applied successfully.`);
-                    
-                    // We applied the files. Now what?
-                    // We can either break (finish the task), or send a message back saying "I extracted and applied these."
-                    // Breaking is probably best, as the AI intended to finish.
-                    break;
+                    fallbackApplied = true;
                 }
 
                 // No tool call found, meaning the AI has finished its task
@@ -623,7 +620,7 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 // Before we can gate on 0 errors, we must force a full-project scan
                 // so we don't just check the partial incremental memory.
                 console.log(`\n🔍 [AECL] Forcing full-project scan before finalization...`);
-                await this.skillManager.executeSkill('aecl_check', { action: 'aecl_check', full_scan: true, ai_notes: "Automated full-project scan before finalization." });
+                await this.skillManager.executeSkill('aecl_check', { action: 'aecl_check', full_scan: true, ai_notes: fallbackApplied ? "Post-fallback full scan." : "Automated full-project scan before finalization." });
                 
                 // ─── AECL ZERO-ERROR GATE ───────────────────────────────────────
                 const aeclPath = path.join(process.cwd(), '.aecl_memory.json');
