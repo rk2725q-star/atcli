@@ -2,6 +2,24 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { SkillManager } from './skillManager';
 
+function sanitizePromptForProviders(prompt: string): string {
+    return prompt
+        .replace(/\r\n/g, '\n')
+        .replace(/â€”|—/g, '-')
+        .replace(/â†’|→/g, '->')
+        .replace(/â†|←/g, '<-')
+        .replace(/â€¢|•/g, '-')
+        .replace(/â‰ˆ|≈/g, '~')
+        .replace(/â‰¥|≥/g, '>=')
+        .replace(/â‰¤|≤/g, '<=')
+        .replace(/âœ…|✅/g, '[OK]')
+        .replace(/âŒ|❌/g, '[X]')
+        .replace(/âš ï¸|⚠️/g, '[WARN]')
+        .replace(/â€œ|â€|“|”/g, '"')
+        .replace(/â€˜|â€™|‘|’/g, "'")
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+}
+
 export async function generateSystemPrompt(skillManager: SkillManager, isAgenticaMode: boolean = false): Promise<string> {
     const basePrompt = `
 You are a helpful coding assistant. The user is using an external ATCLI system. 
@@ -131,6 +149,11 @@ Every project delivered by ATCLI is VERIFIED to be working.
 <ZERO_ERROR_FINALIZATION>Before writing your final "Project Complete" message, you MUST call 'aecl_check' one final time. If errors remain, fix them. Repeat until error_count is exactly 0. Only THEN say the project is done.</ZERO_ERROR_FINALIZATION>
 <MEMORY_SCOPE>The .aecl_memory.json file is LOCAL to the current project directory. Each project has its own AECL memory. Never confuse error states between different projects.</MEMORY_SCOPE>
 </AECL_LSP_PROTOCOL>
+<WORKSPACE_ANALYZE_PROTOCOL>
+<DESCRIPTION>The 'workspace_analyze' tool runs broader terminal-level workspace diagnostics so you do not depend on AECL alone. It checks discovered scripts like typecheck, lint, test, and build, plus compiler fallbacks where relevant.</DESCRIPTION>
+<MANUAL_TRIGGER>Call 'workspace_analyze' after major feature groups, when a terminal/build issue is suspected, and before claiming the entire workspace is complete.</MANUAL_TRIGGER>
+<ENFORCEMENT>If 'workspace_analyze' reports any Failed checks, you MUST inspect the raw terminal output, fix the codebase, and re-run it until Failed is exactly 0.</ENFORCEMENT>
+</WORKSPACE_ANALYZE_PROTOCOL>
 <INTELLIGENT_DELETE_PROTOCOL>
 <DESCRIPTION>When you delete a file, the system will automatically provide you with the user's original Project Intent. You MUST use this to make an intelligent rebuild decision — do NOT blindly rebuild everything that gets deleted.</DESCRIPTION>
 <DECISION_TREE>After deleting a file, ask yourself:
@@ -493,5 +516,5 @@ ${customKnowledgeList}
 
 `;
 
-    return basePrompt + dynamicSkills + rules + fable5Protocols + customKnowledge + memoryGuidelines;
+    return sanitizePromptForProviders(basePrompt + dynamicSkills + rules + fable5Protocols + customKnowledge + memoryGuidelines);
 }

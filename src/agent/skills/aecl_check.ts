@@ -8,6 +8,16 @@ const execPromise = util.promisify(exec);
 
 const AECL_MEMORY_FILE = '.aecl_memory.json';
 const AECL_TMP_FILE = '.aecl_memory.tmp.json';
+const DEFAULT_IGNORED_PATHS = [
+    'node_modules',
+    'dist',
+    '.git',
+    '.agents',
+    '.codex',
+    '*.generated.ts',
+    '.aecl_memory.json',
+    '.aecl_memory.tmp.json'
+];
 
 interface AeclError {
     file: string;
@@ -46,7 +56,16 @@ function readAeclMemory(cwd: string): AeclMemory {
     const memPath = path.join(cwd, AECL_MEMORY_FILE);
     if (fs.existsSync(memPath)) {
         try {
-            return JSON.parse(fs.readFileSync(memPath, 'utf8'));
+            const parsed = JSON.parse(fs.readFileSync(memPath, 'utf8')) as Partial<AeclMemory>;
+            return {
+                error_count: parsed.error_count ?? 0,
+                warning_count: parsed.warning_count ?? 0,
+                last_checked: parsed.last_checked ?? new Date().toISOString(),
+                files_checked: parsed.files_checked ?? [],
+                errors: parsed.errors ?? [],
+                ai_notes: parsed.ai_notes ?? '',
+                ignored_paths: Array.from(new Set([...(parsed.ignored_paths ?? []), ...DEFAULT_IGNORED_PATHS]))
+            };
         } catch {
             // Corrupted - start fresh
         }
@@ -58,7 +77,7 @@ function readAeclMemory(cwd: string): AeclMemory {
         files_checked: [],
         errors: [],
         ai_notes: '',
-        ignored_paths: ['node_modules', 'dist', '*.generated.ts', '.aecl_memory.json']
+        ignored_paths: [...DEFAULT_IGNORED_PATHS]
     };
 }
 
@@ -162,7 +181,8 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
                     for (const e of entries) {
                         const full = path.join(currentDir, e.name);
                         const rel = path.relative(cwd, full);
-                        if (ignoredPaths.some(ig => rel.includes(ig) || rel === ig)) continue;
+                        const normalizedRel = rel.replace(/\\/g, '/');
+                        if (ignoredPaths.some(ig => normalizedRel.includes(ig) || normalizedRel === ig)) continue;
                         if (e.isDirectory()) await walk(full);
                         else if (exts.test(e.name)) results.push(rel);
                     }
@@ -304,10 +324,18 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
         if (hasJs) {
             const jsFiles = allFilesChecked.filter(f => /\.jsx?$/.test(f));
             if (jsFiles.length > 0) {
-                // unix format is easily parseable by our generic unix match
-                const res = await runCmd(`npx eslint --format unix --no-eslintrc --env browser,es2021 ${jsFiles.join(' ')}`);
-                if (res.failed) checkerFailed = true;
-                combinedOutput += res.output;
+                const eslintBin = process.platform === 'win32'
+                    ? path.join(cwd, 'node_modules', '.bin', 'eslint.cmd')
+                    : path.join(cwd, 'node_modules', '.bin', 'eslint');
+
+                if (fs.existsSync(eslintBin)) {
+                    // unix format is easily parseable by our generic unix match
+                    const res = await runCmd(`"${eslintBin}" --format unix --no-eslintrc --env browser,es2021 ${jsFiles.join(' ')}`);
+                    if (res.failed) checkerFailed = true;
+                    combinedOutput += res.output;
+                } else {
+                    console.log(`\n[AECL] Skipping JS lint: local eslint binary not installed in this workspace.`);
+                }
             }
         }
         

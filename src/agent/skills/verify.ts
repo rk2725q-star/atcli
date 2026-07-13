@@ -51,7 +51,7 @@ export const VerifyCodeSkill: AgentSkill = {
 
                 exec(cmd, { cwd: stat.isDirectory() ? targetPath : process.cwd() }, (error, stdout, stderr) => {
                     if (error || stderr) {
-                        resolve(`⚠️ ERRORS FOUND:\n${stderr || stdout || error?.message}\n\nPlease analyze the errors and fix them using replace_content.`);
+                        resolve(`⚠️ ERRORS FOUND:\n${stderr || stdout || error?.message}\n\nUse read_file to inspect the affected file, then use the replace tool to patch only the broken lines or smallest safe block. Do NOT rewrite the full file unless it is brand new or completely unrecoverable.`);
                     } else {
                         resolve(`✅ Success: No errors found in ${target}!`);
                     }

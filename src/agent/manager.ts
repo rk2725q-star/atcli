@@ -230,33 +230,26 @@ export class ManagerLoop {
             }
         }
         
-        // Auto-fix for run_command which often contains unescaped double quotes inside the command string
-        if (jsonStr.includes('"run_command"')) {
-            const cmdRegex = /"command"\s*:\s*"([\s\S]*)"\s*}/;
-            const cmdMatch = jsonStr.match(cmdRegex);
-            if (cmdMatch) {
-                let rawCmd = cmdMatch[1];
-                rawCmd = rawCmd
-                    .replace(/\\"/g, '"')
-                    .replace(/\\\\/g, '\\');
-                    
-                let safeCmd = rawCmd
-                    .replace(/\\/g, '\\\\')
-                    .replace(/"/g, '\\"');
-                    
-                jsonStr = jsonStr.replace(cmdRegex, `"command": "${safeCmd}"}`);
+        function repairJsonEscapes(str: string): string {
+            let repaired = str.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u');
+            repaired = repaired.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+            return repaired;
+        }
+
+        try {
+            return JSON.parse(jsonStr);
+        } catch (e) {
+            try {
+                return JSON.parse(repairJsonEscapes(jsonStr));
+            } catch (e2) {
+                try {
+                    const { jsonrepair } = require('jsonrepair');
+                    const repaired = jsonrepair(repairJsonEscapes(jsonStr));
+                    return JSON.parse(repaired);
+                } catch (e3) {
+                    throw e2;
+                }
             }
         }
-        
-        // Auto-fix unescaped backslashes (common when AI outputs Windows paths like C:\\Users)
-        // This regex replaces \\ with \\\\ ONLY if it's not part of a valid JSON escape sequence like \\n or \\t
-        jsonStr = jsonStr.replace(/\\([^"\\/bfnrtu])/g, '\\\\$1');
-        
-        // Auto-fix invalid \u escapes (like C:\users which crashes JSON.parse because 'sers' is not hex)
-        jsonStr = jsonStr.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u');
-        
-        // Let JSON.parse throw if invalid, so the loop can catch it and feed it back to the AI
-        const parsed = JSON.parse(jsonStr);
-        return parsed;
     }
 }

@@ -217,6 +217,9 @@ export class AgentLoop {
     // AECL: Mechanical edit counter (not prompt-based) to trigger aecl_check every 5 file writes
     private editsSinceLastAeclCheck: number = 0;
     private readonly AECL_CHECK_INTERVAL = 5;
+    // Workspace-wide terminal diagnostics: run periodically so we do not rely on AECL alone.
+    private editsSinceLastWorkspaceAnalyze: number = 0;
+    private readonly WORKSPACE_ANALYZE_INTERVAL = 10;
     // PROJECT INTENT: Stores the user's original project description for intelligent decision-making
     private projectIntent: string = '';
     // FILE REGISTRY: Tracks every file operation this session for memory and change log
@@ -225,6 +228,11 @@ export class AgentLoop {
     constructor(private provider: AgentProvider, private isFirstMessage: boolean = false) {
         this.skillManager = new SkillManager();
         this.gatekeeper = new Gatekeeper(process.cwd());
+    }
+
+    private getWorkspaceAnalyzeFailureCount(result: string): number {
+        const match = result.match(/Failed:\s*(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
     }
 
     public async run(userMessage: string): Promise<void> {
@@ -615,6 +623,18 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 }
 
                 // No tool call found, meaning the AI has finished its task
+
+                console.log(`\n🔎 [Workspace Analyze] Forcing full workspace terminal diagnostics before finalization...`);
+                const workspaceAnalyzeResult = await this.skillManager.executeSkill('workspace_analyze', {
+                    action: 'workspace_analyze',
+                    mode: 'full'
+                });
+                const workspaceFailures = this.getWorkspaceAnalyzeFailureCount(workspaceAnalyzeResult);
+                if (workspaceFailures > 0) {
+                    console.log(`\n🚫 [WORKSPACE GATE] Blocked finalization: ${workspaceFailures} terminal-level checks still failing.`);
+                    currentMessage = `<tool_result>\n[WORKSPACE GATE] Full workspace terminal diagnostics still failing.\n\n${workspaceAnalyzeResult}\n\nFix strategy: use read_file on the affected file, then use replace to patch only the failing lines or smallest safe block. Do NOT rewrite the full file unless it is genuinely necessary.\n</tool_result>`;
+                    continue;
+                }
                 
                 // ─── AECL FULL SCAN ─────────────────────────────────────────────
                 // Before we can gate on 0 errors, we must force a full-project scan
@@ -629,7 +649,7 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                         const mem = JSON.parse(fs.readFileSync(aeclPath, 'utf8'));
                         if (mem.error_count > 0) {
                             console.log(`\n🚫 [AECL GATE] Blocked finalization: ${mem.error_count} unresolved errors still present.`);
-                            currentMessage = `<tool_result>\n[AECL GATE] ${mem.error_count} unresolved errors still in .aecl_memory.json. You CANNOT finish. Fix them or mark false-positives as future_fix in ai_notes, then re-run aecl_check.\n</tool_result>`;
+                            currentMessage = `<tool_result>\n[AECL GATE] ${mem.error_count} unresolved errors still in .aecl_memory.json. You CANNOT finish. Fix them or mark false-positives as future_fix in ai_notes, then re-run aecl_check.\n\nFix strategy: use read_file first, then use replace to patch only the broken lines or the smallest safe block. Avoid full-file rewrites.\n</tool_result>`;
                             continue;   // force loop to keep going, don't break
                         }
                     } catch { /* ignore parse error */ }
@@ -946,6 +966,7 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 }
 
                 this.editsSinceLastAeclCheck++;
+                this.editsSinceLastWorkspaceAnalyze++;
                 console.log(`\n📝 [AECL Counter] ${this.editsSinceLastAeclCheck}/${this.AECL_CHECK_INTERVAL} file writes since last check.`);
                 if (this.editsSinceLastAeclCheck >= this.AECL_CHECK_INTERVAL) {
                     this.editsSinceLastAeclCheck = 0;
@@ -957,6 +978,17 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     });
                     console.log(`[AECL Auto-Check Result]:\n${aeclResult.substring(0, 500)}`);
                     result = result + `\n\n[AECL AUTO-CHECK TRIGGERED]:\n${aeclResult}`;
+                }
+                if (this.editsSinceLastWorkspaceAnalyze >= this.WORKSPACE_ANALYZE_INTERVAL) {
+                    this.editsSinceLastWorkspaceAnalyze = 0;
+                    console.log(`\n🔎 [Workspace Analyze] Auto-triggering terminal diagnostics after ${this.WORKSPACE_ANALYZE_INTERVAL} file writes...`);
+                    const workspaceAnalyzeResult = await this.skillManager.executeSkill('workspace_analyze', {
+                        action: 'workspace_analyze',
+                        mode: 'quick',
+                        include_build: false
+                    });
+                    console.log(`[Workspace Analyze Result]:\n${workspaceAnalyzeResult.substring(0, 500)}`);
+                    result = result + `\n\n[WORKSPACE ANALYZE AUTO-CHECK TRIGGERED]:\n${workspaceAnalyzeResult}`;
                 }
             }
 
