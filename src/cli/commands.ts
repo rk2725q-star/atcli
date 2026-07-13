@@ -210,6 +210,8 @@ ${C.bold}  What to do next:${C.reset}
 // ─────────────────────────────────────────────────────────────────────────────
 let _lastModelList: string[] = [];
 let _lastLocalModelList: string[] = [];
+let _lastModelListSource: 'nvidia' | 'local' | null = null;
+let _lastLocalProviderUsed: 'local' | 'ollama' | 'qwen-local' = 'local';
 
 function printModelList(models: string[], currentModel: string): void {
     // Group models by family prefix
@@ -237,6 +239,7 @@ function printModelList(models: string[], currentModel: string): void {
 
     // Reset the cache and rebuild it in the EXACT order we print it
     _lastModelList = [];
+    _lastModelListSource = 'nvidia';
     let idx = 1;
     
     for (const family of familyOrder) {
@@ -260,10 +263,11 @@ function printModelList(models: string[], currentModel: string): void {
 }
 
 function printLocalModelList(models: string[], currentModel: string): void {
+    _lastModelListSource = 'local';
     console.log(`\n  ╔══════════════════════════════════════════════════════════════════╗`);
     console.log(`  ║         Ollama Local Models (${String(models.length).padEnd(3)})                           ║`);
     console.log(`  ╚══════════════════════════════════════════════════════════════════╝`);
-    console.log(`  \x1b[2m  ★ = active  |  # = pick number  |  /local pull <model> to download\x1b[0m\n`);
+    console.log(`  \x1b[2m  ★ = active  |  # = pick number  |  /local pull model_name to download\x1b[0m\n`);
 
     _lastLocalModelList = [];
     let idx = 1;
@@ -275,15 +279,15 @@ function printLocalModelList(models: string[], currentModel: string): void {
     }
 
     if (models.length === 0) {
-        console.log(`  \x1b[90mNo local models found. Use /local pull <model> to download one.\x1b[0m`);
+        console.log(`  \x1b[90mNo local models found. Use /local pull model_name to download one.\x1b[0m`);
     }
 
-    console.log(`  \x1b[90mCustom model: type /local use <any-ollama-model> to try a model name that is not in the list yet.\x1b[0m`);
+    console.log(`  \x1b[90mCustom model: type /local use any-ollama-model to try a model name that is not in the list yet.\x1b[0m`);
 
     console.log(`\n  \x1b[1mQuick-switch:\x1b[0m`);
-    console.log(`    /local use <model>                e.g. /local use qwen2.5-coder:3b`);
-    console.log(`    /local pull <model>               e.g. /local pull llama3.1:8b`);
-    console.log(`    /local custom <model>             alias for /local use <model>`);
+    console.log(`    /local use model_name             e.g. /local use qwen2.5-coder:3b`);
+    console.log(`    /local pull model_name            e.g. /local pull llama3.1:8b`);
+    console.log(`    /local custom model_name          alias for /local use model_name`);
     console.log(`    /model <number or id>             works after /local models too`);
     console.log(`\n  \x1b[2mCurrent: \x1b[36m${currentModel}\x1b[0m\n`);
 }
@@ -318,7 +322,12 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
 
             if (provider === 'local' || provider === 'ollama' || provider === 'qwen-local') {
                 const sub = subAction;
+                _lastLocalProviderUsed = provider as 'local' | 'ollama' | 'qwen-local';
                 const currentLocalModel = router?.getLocalProvider?.(provider)?.getModel?.() || state.currentModel || 'qwen3-vl:2b';
+                if (sub === 'models' || sub === 'list' || sub === 'status' || !sub || (sub === 'model' && args.slice(2).join(' ').trim().length === 0)) {
+                    state.currentProvider = provider;
+                    state.currentModel = currentLocalModel;
+                }
 
                 if (sub === 'models' || sub === 'list' || sub === 'status' || !sub || (sub === 'model' && args.slice(2).join(' ').trim().length === 0)) {
                     console.log(`\n  🔄 Fetching local Ollama models...`);
@@ -329,9 +338,9 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 }
 
                 if (sub === 'pull' || sub === 'download') {
-                    const modelName = args.slice(2).join(' ').trim();
+                    const modelName = args.slice(2).join(' ').replace(/^<|>$/g, '').trim();
                     if (!modelName) {
-                        console.log(`\n  Usage: /local pull <model>`);
+                        console.log(`\n  Usage: /local pull model_name`);
                         return { handled: true };
                     }
                     console.log(`\n  ⬇️  Pulling Ollama model: ${modelName}...`);
@@ -351,9 +360,9 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 }
 
                 if (sub === 'use' || sub === 'custom' || sub === 'model') {
-                    const modelName = args.slice(2).join(' ').trim();
+                    const modelName = args.slice(2).join(' ').replace(/^<|>$/g, '').trim();
                     if (!modelName) {
-                        console.log(`\n  Usage: /local use <model>`);
+                        console.log(`\n  Usage: /local use model_name`);
                         return { handled: true };
                     }
                     state.currentProvider = provider;
@@ -541,7 +550,7 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 } else if (['local', 'ollama', 'qwen-local'].includes(state.currentProvider) && router) {
                     const m = router.getLocalProvider(state.currentProvider)?.getModel?.() || state.currentModel;
                     console.log(`\n  \x1b[36m★ Active local model:\x1b[0m \x1b[1m${m}\x1b[0m`);
-                    console.log(`  \x1b[2m  /local models to browse installed Ollama models  |  /local pull <model> to download\x1b[0m`);
+                    console.log(`  \x1b[2m  /local models to browse installed Ollama models  |  /local pull model_name to download\x1b[0m`);
                 } else {
                     console.log(`\nℹ️ Current model is: ${state.currentModel}`);
                 }
