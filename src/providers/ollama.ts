@@ -194,18 +194,21 @@ export class OllamaApiAdapter implements AgentProvider {
         const reader = response.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let fullText = '';
+        let buffer = '';
         
-        console.log(`\n\x1b[35m[OLLAMA STREAM STARTED]\x1b[0m`);
-
         try {
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
 
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n').filter(line => line.trim() !== '');
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                
+                // The last element might be an incomplete line, so we keep it in the buffer
+                buffer = lines.pop() || '';
 
                 for (const line of lines) {
+                    if (!line.trim()) continue;
                     try {
                         const parsed = JSON.parse(line) as { message?: { content?: string } };
                         if (parsed.message?.content) {
@@ -213,9 +216,20 @@ export class OllamaApiAdapter implements AgentProvider {
                             fullText += parsed.message.content;
                         }
                     } catch (e) {
-                        // ignore unparseable chunk lines
+                        // If it fails even after buffering, we can't do much but ignore
                     }
                 }
+            }
+            
+            // flush anything left in buffer
+            if (buffer.trim()) {
+                try {
+                    const parsed = JSON.parse(buffer) as { message?: { content?: string } };
+                    if (parsed.message?.content) {
+                        process.stdout.write(parsed.message.content);
+                        fullText += parsed.message.content;
+                    }
+                } catch (e) { }
             }
         } finally {
             reader.releaseLock();
