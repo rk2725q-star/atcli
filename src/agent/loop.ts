@@ -200,6 +200,66 @@ class MemoryWriter {
     }
 }
 
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractMemorySectionByKeyword(content: string, keyword: string): string {
+    const headingRegex = new RegExp(`^## .*${escapeRegExp(keyword)}.*$`, 'gim');
+    const headingMatch = headingRegex.exec(content);
+    if (!headingMatch || headingMatch.index === undefined) return '';
+
+    const sectionStart = headingMatch.index;
+    const nextSectionRegex = /^## /gim;
+    nextSectionRegex.lastIndex = sectionStart + headingMatch[0].length;
+    const nextMatch = nextSectionRegex.exec(content);
+    const sectionEnd = nextMatch ? nextMatch.index : content.length;
+    return content.slice(sectionStart, sectionEnd).trim();
+}
+
+function tailNonEmptyLines(section: string, maxLines: number): string {
+    return section
+        .split(/\r?\n/)
+        .map(line => line.trimEnd())
+        .filter(line => line.trim().length > 0)
+        .slice(-maxLines)
+        .join('\n');
+}
+
+function buildMemorySnapshot(content: string, isLocalModel: boolean, maxChars: number): string {
+    if (!content.trim()) return '';
+
+    const keywords = [
+        'Project',
+        'Project Summary',
+        'Completed Features',
+        'Next Steps',
+        'Architecture Notes',
+        'Environment Variables & Config',
+        'Deployment Notes'
+    ];
+
+    const snapshotParts: string[] = [];
+    for (const keyword of keywords) {
+        const section = extractMemorySectionByKeyword(content, keyword);
+        if (section) snapshotParts.push(section);
+    }
+
+    const fileRegistry = extractMemorySectionByKeyword(content, 'File Registry');
+    if (fileRegistry) {
+        snapshotParts.push(`## Recent File Registry\n${tailNonEmptyLines(fileRegistry, isLocalModel ? 24 : 12)}`);
+    }
+
+    const changeLog = extractMemorySectionByKeyword(content, 'Change Log');
+    if (changeLog) {
+        snapshotParts.push(`## Recent Change Log\n${tailNonEmptyLines(changeLog, isLocalModel ? 30 : 16)}`);
+    }
+
+    const snapshot = snapshotParts.filter(Boolean).join('\n\n').trim() || content.substring(0, maxChars);
+    if (snapshot.length <= maxChars) return snapshot;
+    return `${snapshot.substring(0, maxChars)}\n...[memory snapshot truncated, use read_file or grep_search on ATCLI_MEMORY.md for more]`;
+}
+
 export class UserInterruptError extends Error {
     constructor(message: string) {
         super(message);
@@ -284,7 +344,7 @@ export class AgentLoop {
         await this.skillManager.loadAllSkills();
 
         // Construct the initial prompt injecting the system instructions
-        let systemPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
+        let systemPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode, this.provider.id);
         
         if (this.provider.id === 'kimi') {
             systemPrompt += "\n\n[CRITICAL KIMI PROVIDER RULE: YOU MUST STRICTLY AVOID using terminal bash/shell commands or terminal text output to 'build' or write code for the user to copy-paste. You MUST use the semantic XML tools (<tool_call><action>write_file</action>...) to write code directly into the workspace! Do not output shell blocks!]";
@@ -333,16 +393,17 @@ export class AgentLoop {
         }
 
         const workspaceTree = getWorkspaceTree(cwd);
+        const isLocalModel = this.provider.id === 'ollama' || this.provider.id === 'local' || this.provider.id === 'qwen-local';
 
         let memorySection = '';
         if (bootMemoryContent) {
-            // Pre-inject up to 8000 chars of memory — gives AI full project state in new sessions
-            const memPreview = bootMemoryContent.substring(0, 8000);
+            // Local models need a denser memory payload; cloud models can tolerate a shorter preview.
+            const memPreview = buildMemorySnapshot(bootMemoryContent, isLocalModel, isLocalModel ? 22000 : 10000);
             memorySection = `[ATCLI PROJECT MEMORY — AUTO-INJECTED FOR NEW SESSION]\n` +
-                `The following is the full ATCLI_MEMORY.md content. This is your ONLY context about this project in this new session. ` +
+                `The following is the most relevant ATCLI_MEMORY.md snapshot for this new session. This is your primary project context. ` +
                 `Read it carefully — it contains the tech stack, all files created, architecture decisions, and next steps. ` +
                 `DO NOT ask the user "what project is this" — the answer is below:\n\n${memPreview}` +
-                (bootMemoryContent.length > 8000 ? '\n\n[Memory truncated at 8000 chars. Use read_file ATCLI_MEMORY.md for the full file.]' : '');
+                `\n\n[If you need additional detail, use local_model_recall, grep_search, or read_file on ATCLI_MEMORY.md.]`;
         } else {
             memorySection = '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. Create ATCLI_MEMORY.md at your first episodic checkpoint.';
         }
@@ -353,6 +414,7 @@ export class AgentLoop {
             `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code). Do NOT write configs for other IDEs unless asked.`,
             `[WORKSPACE STRUCTURE — 3 levels deep]:\n${workspaceTree || '(Empty workspace)'}`,
             coldStartContext,
+            isLocalModel ? `[LOCAL MODEL MODE]: Use ATCLI_MEMORY.md as the primary memory source. Prefer local_model_recall, read_file, list_dir, grep_search, aecl_check, and workspace_analyze before guessing. Keep edits small and targeted. Ask for browser/search help only when needed.` : '',
             memorySection
         ].filter(Boolean).join('\n\n');
 
@@ -456,9 +518,8 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
             
             // Dynamic Context Refresh Threshold
             // Cloud AI (GPT-4o, Claude, DeepSeek): 128k-200k context — refresh at 120k
-            // Local AI (Ollama, Qwen-local): 32k context — refresh at 20k
-            const isLocal = this.provider.id === 'ollama' || this.provider.id === 'local' || this.provider.id === 'qwen-local';
-            const refreshThreshold = isLocal ? 20000 : 120000;
+            // Local AI (Ollama, Qwen-local): smaller context window, refresh more aggressively.
+            const refreshThreshold = isLocalModel ? 12000 : 120000;
             
             // CONTEXT REFRESH: Re-inject tools + Project Intent + Memory Snapshot to prevent memory loss
             if (this.totalTokensProcessed - lastRefreshTokens > refreshThreshold) {
@@ -471,8 +532,8 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 if (fs.existsSync(memoryPath)) {
                     try {
                         const memContent = fs.readFileSync(memoryPath, 'utf-8');
-                        // Inject up to 5000 chars to preserve critical project context
-                        liveMemorySnapshot = `\n\n[LIVE ATCLI_MEMORY.md SNAPSHOT (auto-read at context refresh):\n${memContent.substring(0, 5000)}\n]`;
+                        const refreshSnapshot = buildMemorySnapshot(memContent, isLocalModel, isLocalModel ? 12000 : 6000);
+                        liveMemorySnapshot = `\n\n[LIVE ATCLI_MEMORY.md SNAPSHOT (auto-read at context refresh):\n${refreshSnapshot}\n]`;
                     } catch(e) { /* ignore */ }
                 }
                 // Re-inject skill index at refresh so AI never forgets which cinematic/game skills exist
@@ -486,7 +547,10 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 }
                 const ideSection = `\n\n[IDE CONTEXT REMINDER]: User is in ${detectedIDE}. Write IDE-appropriate configs only.`;
                 const securityReaffirm = `\n\n[24/7 SECURITY REAFFIRMATION]: Destructive commands (rm -rf, format, del /s, curl|bash, base64|eval, powershell -EncodedCommand) are PERMANENTLY BLOCKED. Your sandbox is: ${cwd}. You CANNOT write to .env, .ssh, system paths, or ATCLI source files.`;
-                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Token Protection): Re-injecting core state to prevent memory/skill loss.]\n\n${systemPrompt}${intentSection}${liveMemorySnapshot}${skillIndexSection}${ideSection}${securityReaffirm}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+                const localModelSection = isLocalModel
+                    ? `\n\n[LOCAL MODEL MODE REINFORCEMENT]: Re-read ATCLI_MEMORY.md first, use local_model_recall when context feels thin, keep the task plan explicit, and prefer read_file + replace over full rewrites. Use workspace_analyze and aecl_check to validate before finalization.`
+                    : '';
+                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Token Protection): Re-injecting core state to prevent memory/skill loss.]\n\n${systemPrompt}${intentSection}${liveMemorySnapshot}${skillIndexSection}${ideSection}${securityReaffirm}${localModelSection}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
                 lastRefreshTokens = this.totalTokensProcessed;
             }
 
@@ -1184,7 +1248,7 @@ RULES:
             // True Context Window Refresh (Only if exceeding massive token limits)
             if (this.totalTokensProcessed > 180000) {
                 console.log(`\n🔄 [CRITICAL CONTEXT REFRESH] 180k Token limit reached. Reinjecting full System Prompt to prevent memory loss.`);
-                const refreshPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode);
+                const refreshPrompt = await generateSystemPrompt(this.skillManager, this.isAgenticaMode, this.provider.id);
                 const MAX_CHUNK_LENGTH = 100000;
                 
                 if (refreshPrompt.length > MAX_CHUNK_LENGTH) {

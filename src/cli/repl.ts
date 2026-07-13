@@ -391,7 +391,8 @@ export async function startRepl() {
                         const isFirstForProvider = !initializedProviders.has(state.currentProvider);
                         if (isFirstForProvider && typeof (adapter as any).clearConversation === 'function') {
                             const isResume = process.argv.includes('--resume') || process.argv.includes('-r');
-                            if (!isResume) {
+                            const keepPersistentLocalConversation = ['local', 'ollama', 'qwen-local', 'nvidia'].includes(state.currentProvider);
+                            if (!isResume && !keepPersistentLocalConversation) {
                                 (adapter as any).clearConversation();
                             }
                         }

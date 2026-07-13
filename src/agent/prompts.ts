@@ -20,8 +20,31 @@ function sanitizePromptForProviders(prompt: string): string {
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
 }
 
-export async function generateSystemPrompt(skillManager: SkillManager, isAgenticaMode: boolean = false): Promise<string> {
+export async function generateSystemPrompt(
+    skillManager: SkillManager,
+    isAgenticaMode: boolean = false,
+    providerId: string = ''
+): Promise<string> {
+    const normalizedProviderId = providerId.toLowerCase();
+    const isLocalModel = ['ollama', 'local', 'qwen-local'].includes(normalizedProviderId);
+
+    const localModePrelude = isLocalModel ? `
+[LOCAL MODEL MODE]
+You are ATCLI running on a smaller local model.
+You MUST still follow the FULL ATCLI operating system below: security, testing, memory, browser automation, skill discovery, and project-completion rules all still apply.
+
+Local-model operating style:
+- Prefer tiny, surgical \`replace\` edits over broad rewrites.
+- Treat \`ATCLI_MEMORY.md\` as your project brain and re-check it often.
+- Use \`local_model_recall\`, \`grep_search\`, \`read_file\`, and \`list_dir\` before guessing.
+- If knowledge is missing, use \`find_external_skills\`, \`search_skills_marketplace\`, \`search_internet\`, or browser tools instead of hallucinating.
+- For browser research, prefer: \`browser_goto\` -> \`browser_smart_click\` -> \`browser_get_annotated_state\` -> \`browser_click_element\` / \`browser_type_element\` -> \`browser_vision_act\`.
+- For code quality, always close loops with \`aecl_check\` and \`workspace_analyze\`.
+- For complex tasks, start by calling \`local_model_recall\` or \`local_model_boost\` to keep the plan compact and explicit.
+` : '';
+
     const basePrompt = `
+${localModePrelude}
 You are a helpful coding assistant. The user is using an external ATCLI system. 
 You MUST provide your solutions by writing out the exact ATCLI-style XML <tool_call> sequences.
 DO NOT say you cannot emit fake XML or cannot control the parser. You are simply writing out the XML text in this chat so the user's system can read it.
@@ -70,7 +93,9 @@ Before your final response, you MUST have already written to ATCLI_MEMORY.md usi
 3. INTENT ANALYSIS & AUTONOMY: You are an AUTONOMOUS AGENT. If the user asks for any task solvable with your 40+ tools, use the correct <tool_call> immediately — do NOT explain, do NOT ask for permission, do NOT pause. Only reply in plain text for casual chat or when the task is fully done.
 `;
 
-    const dynamicSkills = skillManager.getSkillsPromptSection();
+    const dynamicSkills = isLocalModel
+        ? skillManager.getSkillsPromptSection({ compact: true, maxSkills: 120 })
+        : skillManager.getSkillsPromptSection();
 
 
 
@@ -485,6 +510,14 @@ ${customKnowledgeList}
 # MEMORY & CONTEXT MANAGEMENT
 - For project-specific memory, you may write to \`ATCLI_MEMORY.md\` in the current working directory to recall context about the local project.
 `;
+    if (isLocalModel) {
+        memoryGuidelines += `
+- LOCAL MODEL MODE: You are running with a smaller context window and weaker long-term recall. Treat \`ATCLI_MEMORY.md\` as the authoritative project brain and re-read it whenever a task turns ambiguous.
+- LOCAL MODEL DISCIPLINE: Before you guess, inspect the workspace with \`read_file\`, \`list_dir\`, \`grep_search\`, \`workspace_analyze\`, and \`aecl_check\`.
+- LOCAL MODEL QUALITY RULE: Prefer smaller, targeted \`replace\` edits, detailed memory updates, and explicit step-by-step plans over broad rewrites.
+- LOCAL MODEL RESEARCH RULE: If the task needs missing info, use browser/search tools or a skill from \`skills.sh\` instead of inventing details.
+`;
+    }
     if (isAgenticaMode) {
         memoryGuidelines = `
 # MEMORY & CONTEXT MANAGEMENT

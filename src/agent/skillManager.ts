@@ -69,13 +69,20 @@ export class SkillManager {
         }
     }
 
-    public getSkillsPromptSection(): string {
+    public getSkillsPromptSection(options: { compact?: boolean; maxSkills?: number } = {}): string {
+        const compact = options.compact === true;
+        const maxSkills = options.maxSkills ?? Number.POSITIVE_INFINITY;
         let section = "Available Tools:\n\n";
         let index = 1;
         for (const skill of this.skills.values()) {
+            if (index > maxSkills) break;
             section += `${index}. \`${skill.name}\`\n`;
             section += `${skill.description}\n`;
-            section += `${skill.example}\n\n`;
+            if (!compact) {
+                section += `${skill.example}\n\n`;
+            } else {
+                section += '\n';
+            }
             index++;
         }
         return section.trim();

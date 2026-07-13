@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { maskSecretsString } from '../utils/secrets';
+import { SkillManager } from '../agent/skillManager';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NVIDIA NIM Provider
@@ -201,8 +202,10 @@ export class NvidiaApiProvider implements AgentProvider {
 
         // Get system prompt from ATCLI (same full prompt as browser providers)
         try {
-            const { buildSystemPrompt } = require('../agent/prompts');
-            this.systemPrompt = await buildSystemPrompt(true); // isAgenticaMode=false for vibecoding
+            const { generateSystemPrompt } = require('../agent/prompts');
+            const skillManager = new SkillManager();
+            await skillManager.loadAllSkills();
+            this.systemPrompt = await generateSystemPrompt(skillManager, false, 'nvidia');
         } catch {
             this.systemPrompt = 'You are ATCLI, an expert AI coding assistant. Use all available tools to complete tasks autonomously.';
         }

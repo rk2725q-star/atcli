@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { ApiKeyStore } from '../providers/api-key-store';
 import { NvidiaApiProvider } from '../providers/nvidia';
+import { OllamaApiAdapter } from '../providers/ollama';
 import { execSync, spawnSync } from 'child_process';
 
 export interface AppState {
@@ -208,6 +209,7 @@ ${C.bold}  What to do next:${C.reset}
 // Model list cache — allows /model <number> shortcut after /models listing
 // ─────────────────────────────────────────────────────────────────────────────
 let _lastModelList: string[] = [];
+let _lastLocalModelList: string[] = [];
 
 function printModelList(models: string[], currentModel: string): void {
     // Group models by family prefix
@@ -257,6 +259,35 @@ function printModelList(models: string[], currentModel: string): void {
     console.log(`\n  \x1b[2mCurrent: \x1b[36m${currentModel}\x1b[0m\n`);
 }
 
+function printLocalModelList(models: string[], currentModel: string): void {
+    console.log(`\n  ╔══════════════════════════════════════════════════════════════════╗`);
+    console.log(`  ║         Ollama Local Models (${String(models.length).padEnd(3)})                           ║`);
+    console.log(`  ╚══════════════════════════════════════════════════════════════════╝`);
+    console.log(`  \x1b[2m  ★ = active  |  # = pick number  |  /local pull <model> to download\x1b[0m\n`);
+
+    _lastLocalModelList = [];
+    let idx = 1;
+    for (const model of models) {
+        _lastLocalModelList.push(model);
+        const isActive = model === currentModel ? ' \x1b[33m★ active\x1b[0m' : '';
+        console.log(`  \x1b[2m${String(idx).padStart(4)}.\x1b[0m \x1b[36m${model}\x1b[0m${isActive}`);
+        idx++;
+    }
+
+    if (models.length === 0) {
+        console.log(`  \x1b[90mNo local models found. Use /local pull <model> to download one.\x1b[0m`);
+    }
+
+    console.log(`  \x1b[90mCustom model: type /local use <any-ollama-model> to try a model name that is not in the list yet.\x1b[0m`);
+
+    console.log(`\n  \x1b[1mQuick-switch:\x1b[0m`);
+    console.log(`    /local use <model>                e.g. /local use qwen2.5-coder:3b`);
+    console.log(`    /local pull <model>               e.g. /local pull llama3.1:8b`);
+    console.log(`    /local custom <model>             alias for /local use <model>`);
+    console.log(`    /model <number or id>             works after /local models too`);
+    console.log(`\n  \x1b[2mCurrent: \x1b[36m${currentModel}\x1b[0m\n`);
+}
+
 export function handleSlashCommand(input: string, state: AppState, router?: any): { handled: boolean, action?: 'manage' | 'upload' | 'agentica' | 'session', args?: string } {
 
     const parts = input.trim().split(' ');
@@ -279,6 +310,61 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 console.log(`    /api nvidia models           — list all available NVIDIA models`);
                 console.log(`    /api nvidia clear            — remove stored key`);
                 console.log(`    /api nvidia status           — show current model and key status`);
+                console.log(`    /local models                — list installed Ollama models`);
+                console.log(`    /local use <model>           — switch to a local Ollama model`);
+                console.log(`    /local pull <model>          — download a local Ollama model`);
+                return { handled: true };
+            }
+
+            if (provider === 'local' || provider === 'ollama' || provider === 'qwen-local') {
+                const sub = subAction;
+                const currentLocalModel = router?.getLocalProvider?.(provider)?.getModel?.() || state.currentModel || 'qwen3-vl:2b';
+
+                if (sub === 'models' || sub === 'list' || sub === 'status' || !sub || (sub === 'model' && args.slice(2).join(' ').trim().length === 0)) {
+                    console.log(`\n  🔄 Fetching local Ollama models...`);
+                    OllamaApiAdapter.fetchInstalledModels().then(models => {
+                        printLocalModelList(models, currentLocalModel);
+                    }).catch((e: Error) => console.log(`\n  ❌ ${e.message}`));
+                    return { handled: true };
+                }
+
+                if (sub === 'pull' || sub === 'download') {
+                    const modelName = args.slice(2).join(' ').trim();
+                    if (!modelName) {
+                        console.log(`\n  Usage: /local pull <model>`);
+                        return { handled: true };
+                    }
+                    console.log(`\n  ⬇️  Pulling Ollama model: ${modelName}...`);
+                    OllamaApiAdapter.pullModel(modelName).then(result => {
+                        console.log(`\n  ✅ Pull complete for ${modelName}`);
+                        console.log(result.substring(0, 2000));
+                        state.currentProvider = provider;
+                        state.currentModel = modelName;
+                        router?.setLocalModel?.(provider, modelName);
+                        return OllamaApiAdapter.fetchInstalledModels();
+                    }).then(models => {
+                        if (models) {
+                            printLocalModelList(models, modelName);
+                        }
+                    }).catch((e: Error) => console.log(`\n  ❌ ${e.message}`));
+                    return { handled: true };
+                }
+
+                if (sub === 'use' || sub === 'custom' || sub === 'model') {
+                    const modelName = args.slice(2).join(' ').trim();
+                    if (!modelName) {
+                        console.log(`\n  Usage: /local use <model>`);
+                        return { handled: true };
+                    }
+                    state.currentProvider = provider;
+                    state.currentModel = modelName;
+                    router?.setLocalModel?.(provider, modelName);
+                    console.log(`\n  ✅ Local model switched to: \x1b[36m${modelName}\x1b[0m`);
+                    console.log(`  \x1b[2m  If the model is not installed yet, run /local pull ${modelName}\x1b[0m`);
+                    return { handled: true };
+                }
+
+                console.log(`\n  Supported local actions: models, list, status, use, custom, pull`);
                 return { handled: true };
             }
 
@@ -360,6 +446,11 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                     const currentModel = router?.getNvidiaProvider?.()?.getModel?.() || 'minimaxai/minimax-m3';
                     printModelList(models, currentModel);
                 }).catch((e: Error) => console.log(`  ❌ ${e.message}`));
+            } else if (['local', 'ollama', 'qwen-local'].includes(state.currentProvider)) {
+                OllamaApiAdapter.fetchInstalledModels().then(models => {
+                    const currentModel = router?.getLocalProvider?.(state.currentProvider)?.getModel?.() || state.currentModel;
+                    printLocalModelList(models, currentModel);
+                }).catch((e: Error) => console.log(`  ❌ ${e.message}`));
             } else {
                 console.log(`\n  ℹ  /models is supported for API providers (nvidia).`);
                 console.log(`  Current provider '${state.currentProvider}' uses browser sessions — no model list needed.`);
@@ -368,6 +459,9 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
         }
 
         // ── /setup atcli ─────────────────────────────────────────────────────
+        case '/local':
+            return handleSlashCommand(`/api local ${args.join(' ')}`.trim(), state, router);
+
         case '/setup':
             if (args[0]?.toLowerCase() === 'atcli' || args.length === 0) {
                 runSetup();
@@ -400,6 +494,9 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
         case '/provider':
             if (args.length > 0) {
                 state.currentProvider = args[0];
+                if (['local', 'ollama', 'qwen-local'].includes(state.currentProvider)) {
+                    state.currentModel = router?.getLocalProvider?.(state.currentProvider)?.getModel?.() || state.currentModel || 'qwen3-vl:2b';
+                }
                 console.log(`\n✅ Provider switched to: ${state.currentProvider}`);
             } else {
                 console.log(`\nℹ️ Current provider is: ${state.currentProvider}`);
@@ -412,12 +509,13 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
 
                 // Support /model <number> — pick from last /models listing
                 const numPick = parseInt(modelArg);
-                if (!isNaN(numPick) && numPick > 0 && _lastModelList.length > 0) {
-                    if (numPick <= _lastModelList.length) {
-                        modelArg = _lastModelList[numPick - 1];
+                const activeList = ['local', 'ollama', 'qwen-local'].includes(state.currentProvider) ? _lastLocalModelList : _lastModelList;
+                if (!isNaN(numPick) && numPick > 0 && activeList.length > 0) {
+                    if (numPick <= activeList.length) {
+                        modelArg = activeList[numPick - 1];
                         console.log(`\n  Picked #${numPick}: \x1b[36m${modelArg}\x1b[0m`);
                     } else {
-                        console.log(`\n  ❌ Number ${numPick} out of range (1–${_lastModelList.length}). Run /models first.`);
+                        console.log(`\n  ❌ Number ${numPick} out of range (1–${activeList.length}). Run /models first.`);
                         return { handled: true };
                     }
                 }
@@ -428,6 +526,10 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                     router.setNvidiaModel(modelArg);
                     console.log(`\n  ✅ NVIDIA model → \x1b[36m${modelArg}\x1b[0m`);
                     console.log(`  \x1b[2m  Sequential queue active — 1 request at a time (40 RPM safe)\x1b[0m`);
+                } else if (['local', 'ollama', 'qwen-local'].includes(state.currentProvider) && router) {
+                    router.setLocalModel(state.currentProvider, modelArg);
+                    console.log(`\n  ✅ Local model → \x1b[36m${modelArg}\x1b[0m`);
+                    console.log(`  \x1b[2m  If the model is not installed, use /local pull ${modelArg}\x1b[0m`);
                 } else {
                     console.log(`\n✅ Model switched to: ${state.currentModel}`);
                 }
@@ -436,6 +538,10 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                     const m = router.getNvidiaProvider().getModel();
                     console.log(`\n  \x1b[36m★ Active NVIDIA model:\x1b[0m \x1b[1m${m}\x1b[0m`);
                     console.log(`  \x1b[2m  /models to browse all  |  /model <number or id> to switch\x1b[0m`);
+                } else if (['local', 'ollama', 'qwen-local'].includes(state.currentProvider) && router) {
+                    const m = router.getLocalProvider(state.currentProvider)?.getModel?.() || state.currentModel;
+                    console.log(`\n  \x1b[36m★ Active local model:\x1b[0m \x1b[1m${m}\x1b[0m`);
+                    console.log(`  \x1b[2m  /local models to browse installed Ollama models  |  /local pull <model> to download\x1b[0m`);
                 } else {
                     console.log(`\nℹ️ Current model is: ${state.currentModel}`);
                 }
@@ -489,7 +595,10 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
             console.log('  /api nvidia status    - Show key status, current model, rate limit info');
             console.log('  /api nvidia clear     - Remove stored NVIDIA API key');
             console.log('  /models               - List models for current API provider');
-            console.log('  /provider <name>      - Switch AI provider: deepseek, chatgpt, gemini, qwen, kimi, zai, ollama, nvidia');
+            console.log('  /provider <name>      - Switch AI provider: deepseek, chatgpt, gemini, qwen, kimi, zai, ollama, local, nvidia');
+            console.log('  /local models         - List installed Ollama models');
+            console.log('  /local use <model>    - Switch to a local Ollama model');
+            console.log('  /local pull <model>   - Download a local Ollama model');
             console.log('  /model <name>         - Switch model (nvidia: applies live; others: sent to browser session)');
             console.log('  /rename <file> <old> <new> - Locally rename variables to protect IP from the AI');
             console.log('  /manage <task>   - Spawn the Tech Lead Agent to manage/review code');

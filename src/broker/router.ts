@@ -51,6 +51,18 @@ export class PromptRouter {
         return this.nvidiaProvider;
     }
 
+    public setLocalModel(providerId: string, model: string): void {
+        const adapter = this.adapters.get(providerId.toLowerCase());
+        if (!adapter) return;
+        if (typeof (adapter as any).setModel === 'function') {
+            (adapter as any).setModel(model);
+        }
+    }
+
+    public getLocalProvider(providerId: string): AgentProvider | undefined {
+        return this.adapters.get(providerId.toLowerCase());
+    }
+
     public async route(providerId: string, message: string): Promise<string> {
         const adapter = this.adapters.get(providerId.toLowerCase());
         if (!adapter) {
