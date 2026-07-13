@@ -196,6 +196,18 @@ export async function startRepl() {
                 return;
             }
 
+            if (trimmed.startsWith('ollama run ')) {
+                const modelName = trimmed.replace('ollama run ', '').replace(/^<|>$/g, '').trim();
+                console.log(`\n[ATCLI] Intercepted Ollama run command. Switching to local model: \x1b[36m${modelName}\x1b[0m...`);
+                state.currentProvider = 'local';
+                state.currentModel = modelName;
+                router?.setLocalModel?.('local', modelName);
+                console.log(`  ✅ Local model → \x1b[36m${modelName}\x1b[0m`);
+                console.log(`  \x1b[2m  If the model is not installed, use /local pull ${modelName}\x1b[0m\n`);
+                promptLoop();
+                return;
+            }
+
             if (trimmed.startsWith('/')) {
                 const result = handleSlashCommand(trimmed, state, router);
                 if (result.action === 'manage' && result.args) {

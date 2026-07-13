@@ -514,7 +514,7 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
         
         case '/model':
             if (args.length > 0) {
-                let modelArg = args[0];
+                let modelArg = args[0].replace(/^<|>$/g, '').trim();
 
                 // Support /model <number> — pick from last /models listing
                 const numPick = parseInt(modelArg);
