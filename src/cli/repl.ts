@@ -7,6 +7,7 @@ import { BrowserManager } from '../browser/manager';
 import { maskSecretsString } from '../utils/secrets';
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn } from 'child_process';
 
 // ────────────────────────────────────────────────────────────────────────
 // PROJECT ROOT DETECTION
@@ -228,44 +229,115 @@ export async function startRepl() {
                 return;
             }
 
-            // Pattern 3: Known CLI AI tools — intercept and bridge through ATCLI
-            // These tools are run as sub-processes; ATCLI provides file upload + full tool access
-            const INTERCEPTED_CLI_TOOLS = [
-                { cmd: 'opencode', name: 'OpenCode' },
-                { cmd: 'aider', name: 'Aider' },
-                { cmd: 'continue', name: 'Continue' },
-                { cmd: 'claude ', name: 'Claude CLI' },   // note: space to avoid catching "claude" as a model name
-                { cmd: 'cursor ', name: 'Cursor CLI' },
+            // Pattern 3: Known CLI AI tools — ACTUALLY SPAWN THEM with ATCLI context injected
+            // These tools run autonomously (read/write/fix) — ATCLI just gives them project context
+            // and file upload capability that these tools normally lack.
+            const PASSTHROUGH_CLI_TOOLS = [
+                { cmd: 'opencode',  name: 'OpenCode',  configDir: '.opencode',  instructionsFile: 'instructions.md' },
+                { cmd: 'aider',     name: 'Aider',     configDir: null,         instructionsFile: null },
+                { cmd: 'claude',    name: 'Claude CLI', configDir: null,        instructionsFile: null },
             ];
-            const matchedTool = INTERCEPTED_CLI_TOOLS.find(t => trimmed === t.cmd || trimmed.startsWith(t.cmd + ' '));
+            const matchedTool = PASSTHROUGH_CLI_TOOLS.find(t => trimmed === t.cmd || trimmed.startsWith(t.cmd + ' '));
             if (matchedTool) {
-                const userArgs = trimmed.slice(matchedTool.cmd.length).trim();
-                console.log(`\n[ATCLI] 🔌 Intercepted '${matchedTool.name}'. Bridging through ATCLI agent...\n`);
-                console.log(`  ⚡ ATCLI gives you everything ${matchedTool.name} has + more:`);
-                console.log(`  • 40+ tools: write_file, run_command, browser, aecl_check, senior planner`);
-                console.log(`  • Use /file <path> to inject any file into the conversation`);
-                console.log(`  • Use /paste to paste multi-line code or config directly\n`);
-                
-                // If the user typed a task after the tool name, use it as the prompt
-                if (userArgs.length > 0) {
-                    console.log(`\n[ATCLI] Sending to ${state.currentProvider}...`);
-                    try {
-                        const adapter = router.getAdapter(state.currentProvider);
-                        if (adapter) {
-                            const agent = new AgentLoop(adapter, !initializedProviders.has(state.currentProvider));
-                            isExecutingTask = true;
-                            savedPromptForEsc = userArgs;
-                            try { await agent.run(userArgs); } finally { isExecutingTask = false; }
-                            initializedProviders.set(state.currentProvider, 'vibecoding');
-                        }
-                    } catch (error: any) {
-                        if (error.name !== 'UserInterruptError') console.log(`\n❌ Error: ${error.message}`);
-                    }
-                } else {
-                    console.log(`[ATCLI] Type your task below, or use /file <path> to inject a file first.`);
+                const passthroughArgs = trimmed.slice(matchedTool.cmd.length).trim();
+                const cwd = process.cwd();
+                const memoryPath = path.join(cwd, 'ATCLI_MEMORY.md');
+                const stagedFiles = (global as any).__atcli_staged_files as string | undefined;
+
+                console.log(`\n[ATCLI] 🔌 Launching ${matchedTool.name} with ATCLI context...`);
+
+                // ── STEP 1: Build context block to inject ─────────────────────────
+                let contextBlock = '';
+
+                // Inject ATCLI_MEMORY.md (project context — tech stack, status, files)
+                if (fs.existsSync(memoryPath)) {
+                    const memContent = fs.readFileSync(memoryPath, 'utf-8');
+                    // Only send the essentials — not the full memory (keep it under 3k chars)
+                    const compressed = memContent
+                        .replace(/\n{3,}/g, '\n\n')
+                        .substring(0, 3000);
+                    contextBlock += `## Project Context (from ATCLI_MEMORY.md)\n\n${compressed}\n\n`;
+                    console.log(`  📖 Injected ATCLI_MEMORY.md (${memContent.length} chars compressed to 3k)`);
                 }
-                promptLoop();
-                return;
+
+                // Inject any files staged via /file or /paste
+                if (stagedFiles) {
+                    contextBlock += `## Staged Files (uploaded via ATCLI /file)\n\n${stagedFiles}\n\n`;
+                    (global as any).__atcli_staged_files = undefined;
+                    console.log(`  📎 Injected staged file(s)`);
+                }
+
+                // ── STEP 2: Write context to tool's instructions file ─────────────
+                if (matchedTool.configDir && matchedTool.instructionsFile && contextBlock) {
+                    const configDir = path.join(cwd, matchedTool.configDir);
+                    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+                    const instrPath = path.join(configDir, matchedTool.instructionsFile);
+                    
+                    // Preserve any existing custom instructions, prepend ATCLI context
+                    let existingInstr = '';
+                    if (fs.existsSync(instrPath)) {
+                        existingInstr = fs.readFileSync(instrPath, 'utf-8');
+                        // Remove old auto-injected block if present
+                        existingInstr = existingInstr.replace(/<!-- ATCLI_CONTEXT_START -->[\s\S]*?<!-- ATCLI_CONTEXT_END -->/g, '').trim();
+                    }
+                    
+                    const atcliBlock = `<!-- ATCLI_CONTEXT_START -->\n${contextBlock}<!-- ATCLI_CONTEXT_END -->`;
+                    fs.writeFileSync(instrPath, `${atcliBlock}\n\n${existingInstr}`, 'utf-8');
+                    console.log(`  ✅ Context written to ${matchedTool.configDir}/${matchedTool.instructionsFile}`);
+                }
+
+                // ── STEP 3: Spawn the real tool process (inherit stdio fully) ─────
+                console.log(`  🚀 Starting ${matchedTool.name}...\n`);
+                
+                // Pause the readline so the tool gets full terminal control
+                rl.pause();
+                
+                const toolProcess = spawn(
+                    matchedTool.cmd,
+                    passthroughArgs ? passthroughArgs.split(' ').filter(Boolean) : [],
+                    {
+                        stdio: 'inherit',  // full terminal passthrough — user types directly into opencode
+                        shell: true,
+                        cwd,
+                        env: process.env,
+                    }
+                );
+
+                toolProcess.on('close', (code) => {
+                    // ── STEP 4: Clean up injected context after tool exits ─────────
+                    if (matchedTool.configDir && matchedTool.instructionsFile) {
+                        const instrPath = path.join(cwd, matchedTool.configDir, matchedTool.instructionsFile);
+                        if (fs.existsSync(instrPath)) {
+                            let content = fs.readFileSync(instrPath, 'utf-8');
+                            content = content.replace(/<!-- ATCLI_CONTEXT_START -->[\s\S]*?<!-- ATCLI_CONTEXT_END -->/g, '').trim();
+                            if (content) {
+                                fs.writeFileSync(instrPath, content + '\n', 'utf-8');
+                            } else {
+                                fs.unlinkSync(instrPath); // Remove file if empty after cleanup
+                            }
+                        }
+                    }
+                    console.log(`\n[ATCLI] ${matchedTool.name} exited (code ${code}). Back in ATCLI. Use /file to stage more files.\n`);
+                    
+                    // Resume ATCLI readline
+                    rl.resume();
+                    promptLoop();
+                });
+
+                toolProcess.on('error', (err: any) => {
+                    if (err.code === 'ENOENT') {
+                        console.log(`\n❌ '${matchedTool.cmd}' not found. Install it first:`);
+                        if (matchedTool.cmd === 'opencode') {
+                            console.log(`   npm install -g @opencode-ai/opencode   (or check opencode.ai for install)`);
+                        }
+                    } else {
+                        console.log(`\n❌ Error launching ${matchedTool.name}: ${err.message}`);
+                    }
+                    rl.resume();
+                    promptLoop();
+                });
+
+                return; // Don't call promptLoop here — it's called in close/error handlers
             }
 
             if (trimmed.startsWith('/')) {
