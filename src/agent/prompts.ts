@@ -20,6 +20,53 @@ function sanitizePromptForProviders(prompt: string): string {
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
 }
 
+/**
+ * Lean prompt for local models (qwen2.5-coder:3b/7b, etc.)
+ * ~2k tokens vs the full 47k prompt — prevents VRAM thrashing.
+ * Full tool list is still included via skillManager.
+ */
+export async function generateLocalSystemPrompt(
+    skillManager: SkillManager,
+    cwd: string,
+    seniorPlan?: string
+): Promise<string> {
+    const dynamicSkills = skillManager.getSkillsPromptSection({ compact: true, maxSkills: 60 });
+
+    const planSection = seniorPlan
+        ? `\n${seniorPlan}\n`
+        : '';
+
+    const prompt = `You are ATCLI — an autonomous coding agent running on a local model.
+${planSection}
+WORKSPACE: \`${cwd.replace(/\\/g, '/')}\`
+All file paths are relative to this workspace. Do NOT go outside it.
+
+# TOOL CALL FORMAT (MANDATORY)
+Output EXACTLY ONE tool call per turn using this format:
+<tool_call>
+{"action": "ACTION_NAME", "key": "value"}
+</tool_call>
+
+Then WAIT for the <tool_result> before the next call.
+
+# KEY RULES
+- ONE tool call per turn. No exceptions.
+- Use \`replace\` for small edits, \`write_file\` only for new files.
+- Before guessing: use \`read_file\`, \`list_dir\`, \`grep_search\`.
+- For missing info: use \`browser_goto\` to search the web first.
+- After writing code: always call \`aecl_check\` to verify 0 errors.
+- Track progress in \`ATCLI_MEMORY.md\` using \`replace\` tool.
+- When done and 0 errors: take a browser screenshot with \`browser_screenshot\`.
+- NEVER say you can't output XML. Always use <tool_call> XML.
+- OS PROTECTION: Never run \`rm -rf\`, \`format\`, \`del /s\`, or destructive commands.
+- BROWSER RESEARCH: When you need docs or info → use \`browser_goto\` → \`browser_get_annotated_state\` → read content.
+
+# AVAILABLE TOOLS
+${dynamicSkills}
+`;
+    return sanitizePromptForProviders(prompt);
+}
+
 export async function generateSystemPrompt(
     skillManager: SkillManager,
     isAgenticaMode: boolean = false,

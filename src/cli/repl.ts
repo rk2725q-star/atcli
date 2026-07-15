@@ -202,6 +202,8 @@ export async function startRepl() {
                 state.currentProvider = 'local';
                 state.currentModel = modelName;
                 router?.setLocalModel?.('local', modelName);
+                // Clear any stale senior plan from previous project
+                (global as any).__atcli_senior_plan = undefined;
                 console.log(`\n  ✅ SUCCESS: ATCLI is now powered by local model \x1b[36m${modelName}\x1b[0m`);
                 console.log(`  🤖 You can now type your tasks directly below (e.g., "Build a snake game in python")\n`);
                 promptLoop();
@@ -409,6 +411,32 @@ export async function startRepl() {
                             }
                         }
                         const agent = new AgentLoop(adapter, isFirstForProvider);
+                        
+                        // ── SENIOR-JUNIOR ARCHITECTURE ───────────────────────────────────────
+                        // For local models (Ollama), consult cloud AI to create a plan first.
+                        // The plan is injected into the local model's system prompt so it
+                        // only executes steps instead of planning from scratch.
+                        if (['local', 'ollama', 'qwen-local'].includes(state.currentProvider)) {
+                            const { createSeniorPlan, formatPlanForLocalModel } = await import('../agent/skills/senior_planner');
+                            const isComplexTask = safeInput.length > 20 && 
+                                !safeInput.toLowerCase().startsWith('fix') &&
+                                !safeInput.toLowerCase().startsWith('hello') &&
+                                !safeInput.toLowerCase().startsWith('hi ');
+                            
+                            if (isComplexTask) {
+                                const plan = await createSeniorPlan(safeInput);
+                                if (plan) {
+                                    const planText = formatPlanForLocalModel(plan);
+                                    (global as any).__atcli_senior_plan = planText;
+                                    // Force re-init so new plan is baked into system prompt
+                                    if (typeof (adapter as any).clearConversation === 'function') {
+                                        (adapter as any).clearConversation();
+                                    }
+                                    (adapter as any).systemPrompt = '';
+                                    console.log(`\n📋 [SENIOR PLAN] ${plan.steps.length} steps generated. Injecting into local model...`);
+                                }
+                            }
+                        }
                         
                         isExecutingTask = true;
                         savedPromptForEsc = safeInput;

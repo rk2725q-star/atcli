@@ -491,7 +491,22 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
             
         case '/audit':
             return { handled: true, action: 'manage', args: args.length > 0 ? args.join(' ') : 'Perform a full deep architectural and bug audit on the entire codebase using all your available auditing skills.' };
-            
+
+        case '/loop': {
+            // Manual Loop Engineering trigger
+            const loopUrl = args[0] || 'http://localhost:3000';
+            const projectCtx = args.slice(1).join(' ') || 'Web application';
+            console.log(`\n🔁 [LOOP ENGINEER] Starting manual visual review loop on: ${loopUrl}`);
+            import('../agent/loop_engineer').then(async ({ runLoopEngineerRound, formatLoopEngineerInjection, resetLoopEngineer }) => {
+                resetLoopEngineer();
+                const result = await runLoopEngineerRound(loopUrl, projectCtx);
+                if (result) {
+                    console.log(formatLoopEngineerInjection(result));
+                }
+            }).catch((e: any) => console.log(`\n❌ Loop engineer error: ${e.message}`));
+            return { handled: true };
+        }
+
         case '/manage':
         case '/review':
             if (args.length === 0) {
@@ -616,6 +631,7 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
             console.log('  /upload <prompt> - Pause terminal so you can manually upload an image in the browser');
             console.log('  /session         - Pause terminal so you can manually select a past chat history to resume');
             console.log('  /audit           - Perform a full codebase scaling and bug audit');
+            console.log('  /loop [url]      - 🔁 Loop Engineering: screenshot app → vision review → inject bugs → repeat until perfect');
             console.log('  /exit            - Exit ATCLI');
             console.log('  /help            - Show this help message');
             console.log('');

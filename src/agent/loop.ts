@@ -726,6 +726,30 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     manager.isAgenticaMode = this.isAgenticaMode; // Pass the autonomy status to the manager
                     await manager.run('Perform a full deep architectural and bug audit on the entire codebase using all your available auditing skills. Fix any bugs found.');
                 } else {
+                    // ── LOOP ENGINEERING: Visual Review After 0-Error Gate ──────────
+                    // If a localhost URL was detected this session, automatically take a
+                    // screenshot and review it visually. If issues found → inject them
+                    // back into the loop instead of breaking.
+                    const detectedUrl = (this as any)._detectedLocalUrl as string | undefined;
+                    if (detectedUrl) {
+                        try {
+                            const { runLoopEngineerRound, formatLoopEngineerInjection } = await import('./loop_engineer');
+                            const projectContext = this.projectIntent || 'Web application';
+                            const reviewResult = await runLoopEngineerRound(detectedUrl, projectContext);
+                            
+                            if (reviewResult && !reviewResult.passed && reviewResult.issues.length > 0) {
+                                // Issues found — inject them back and continue fixing
+                                const injection = formatLoopEngineerInjection(reviewResult);
+                                currentMessage = `<tool_result>\n${injection}\n</tool_result>\n[SYSTEM REMINDER: Fix ALL issues listed above. Use read_file then replace. DO NOT mark project complete until loop engineer passes.]`;
+                                continue; // Keep loop going!
+                            } else if (reviewResult?.passed) {
+                                console.log(`\n✅ [LOOP ENGINEER] Visual QA passed after ${reviewResult.round} round(s). Project verified!`);
+                            }
+                        } catch (e: any) {
+                            console.log(`\n⚠️  [LOOP ENGINEER] Visual review skipped: ${e.message}`);
+                        }
+                    }
+                    
                     console.log(`\n✅ Agent task completed or requires user feedback.`);
                 }
                 break;
@@ -1098,6 +1122,8 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 }
 
                 if (localUrl) {
+                    // Store for Loop Engineering to use later
+                    (this as any)._detectedLocalUrl = localUrl;
                     console.log(`\n🌐 [Auto Browser] Dev server detected at: ${localUrl}`);
                     console.log(`🌐 [Auto Browser] Auto-opening in browser (no user prompt needed)...`);
                     // Non-blocking open — don't await, just fire-and-forget

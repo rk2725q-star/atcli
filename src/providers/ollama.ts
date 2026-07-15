@@ -1,6 +1,6 @@
 import { AgentProvider, ProviderResponse } from './interface';
 import { SkillManager } from '../agent/skillManager';
-import { generateSystemPrompt } from '../agent/prompts';
+import { generateLocalSystemPrompt } from '../agent/prompts';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -17,8 +17,10 @@ interface OllamaChatResponse {
 }
 
 const OLLAMA_API_BASE = 'http://localhost:11434/api';
-const OLLAMA_MAX_CONTEXT_TOKENS = 131072;
-const OLLAMA_TRIM_TARGET_TOKENS = 120000;
+// qwen2.5-coder:3b native context: 32768 tokens
+// qwen2.5-coder:7b native context: 32768 tokens
+const OLLAMA_MAX_CONTEXT_TOKENS = 32768;
+const OLLAMA_TRIM_TARGET_TOKENS = 28000;
 
 function getConversationPath(projectDir: string, providerId: string): string {
     const dir = path.join(projectDir, '.atcli-tmp');
@@ -144,9 +146,12 @@ export class OllamaApiAdapter implements AgentProvider {
             try {
                 const skillManager = new SkillManager();
                 await skillManager.loadAllSkills();
-                this.systemPrompt = await generateSystemPrompt(skillManager, false, this.id);
+                // Use the LEAN local prompt (~2k tokens) instead of the heavy 47k cloud prompt
+                // This prevents VRAM thrashing and drastically speeds up first-turn evaluation
+                const cachedPlan = (global as any).__atcli_senior_plan as string | undefined;
+                this.systemPrompt = await generateLocalSystemPrompt(skillManager, process.cwd(), cachedPlan);
             } catch {
-                this.systemPrompt = 'You are ATCLI local model mode. Use the available XML tool calls to inspect, edit, verify, and remember project state carefully.';
+                this.systemPrompt = 'You are ATCLI local model mode. Output ONE <tool_call> XML block per turn. Use write_file, read_file, replace, run_command, browser_goto, aecl_check tools. Wait for <tool_result> before next call.';
             }
         }
 
@@ -178,7 +183,8 @@ export class OllamaApiAdapter implements AgentProvider {
                 messages,
                 stream: true,
                 options: {
-                    num_ctx: OLLAMA_MAX_CONTEXT_TOKENS
+                    num_ctx: OLLAMA_MAX_CONTEXT_TOKENS,
+                    num_predict: 4096  // max output tokens per turn
                 }
             })
         });
