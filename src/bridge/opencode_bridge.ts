@@ -17,12 +17,19 @@ const UPLOAD_DIR  = '.opencode/uploads';
 const INSTR_FILE  = '.opencode/instructions.md';
 const LOG_FILE    = '.opencode/.atcli_uploads.json';
 
-// -- Vision API ----------------------------------------------------------------
+// -- Vision API -------------------------------------------------------------------
+// Uses NVIDIA vision model (llama-3.2-90b-vision-instruct) to describe images.
+// Falls back to DeepSeek if NVIDIA key not set.
 async function describeImage(buf: Buffer, filename: string): Promise<string|null> {
     try {
         const { ApiKeyStore } = await import('../providers/api-key-store');
-        const key = ApiKeyStore.get('nvidia');
-        if (!key) return null;
+        // Try nvidia key (primary and secondary)
+        const key = ApiKeyStore.get('nvidia') || ApiKeyStore.get('nvidia2');
+        if (!key) {
+            console.log(`\n  ??  [Bridge] No NVIDIA key found. Add one: atcli > /api nvidia <key>`);
+            console.log(`  ??  Without vision AI, OpenCode sees only the file path (not image content).`);
+            return null;
+        }
         const ext = path.extname(filename).replace('.','').toLowerCase();
         const mime = ext==='png'?'image/png':ext==='gif'?'image/gif':ext==='webp'?'image/webp':'image/jpeg';
         const b64  = buf.toString('base64');
