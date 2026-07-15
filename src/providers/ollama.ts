@@ -17,11 +17,15 @@ interface OllamaChatResponse {
 }
 
 const OLLAMA_API_BASE = 'http://localhost:11434/api';
-// Context window strategy for local models:
-// - num_ctx 16384 = faster KV cache init vs 32768 (model stays hot in RAM with keep_alive)
-// - Trim target at 12k so we always have headroom for outputs
-const OLLAMA_MAX_CONTEXT_TOKENS = 16384;
-const OLLAMA_TRIM_TARGET_TOKENS = 10000;
+// 8k context: fast KV cache init, sufficient for our 12k-trim strategy
+// (trim kicks in at 10k, so effective window is 8k with system prompt overhead)
+const OLLAMA_MAX_CONTEXT_TOKENS = 8192;
+const OLLAMA_TRIM_TARGET_TOKENS = 6000;
+
+// ── Global prompt cache ───────────────────────────────────────────────────────
+// System prompt is built ONCE and reused. This ensures Ollama's KV cache is
+// never invalidated between calls — eliminating the 10-20s re-evaluation penalty.
+const _promptCache: Map<string, string> = new Map();
 
 function getConversationPath(projectDir: string, providerId: string): string {
     const dir = path.join(projectDir, '.atcli-tmp');
@@ -144,15 +148,21 @@ export class OllamaApiAdapter implements AgentProvider {
         this.loadConversation();
 
         if (!this.systemPrompt) {
-            try {
-                const skillManager = new SkillManager();
-                await skillManager.loadAllSkills();
-                // Use the LEAN local prompt (~2k tokens) instead of the heavy 47k cloud prompt
-                // This prevents VRAM thrashing and drastically speeds up first-turn evaluation
-                const cachedPlan = (global as any).__atcli_senior_plan as string | undefined;
-                this.systemPrompt = await generateLocalSystemPrompt(skillManager, process.cwd(), cachedPlan);
-            } catch {
-                this.systemPrompt = 'You are ATCLI local model mode. Output ONE <tool_call> XML block per turn. Use write_file, read_file, replace, run_command, browser_goto, aecl_check tools. Wait for <tool_result> before next call.';
+            // ── Check global cache first — avoids skill reload + re-evaluation penalty
+            const cacheKey = `${this.modelName}::${process.cwd()}`;
+            if (_promptCache.has(cacheKey)) {
+                this.systemPrompt = _promptCache.get(cacheKey)!;
+            } else {
+                try {
+                    const skillManager = new SkillManager();
+                    await skillManager.loadAllSkills();
+                    const cachedPlan = (global as any).__atcli_senior_plan as string | undefined;
+                    this.systemPrompt = await generateLocalSystemPrompt(skillManager, process.cwd(), cachedPlan);
+                    _promptCache.set(cacheKey, this.systemPrompt);
+                } catch {
+                    this.systemPrompt = 'You are ATCLI local agent. Output ONE <tool_call> JSON block per turn. Wait for <tool_result> before next call.';
+                    _promptCache.set(cacheKey, this.systemPrompt);
+                }
             }
         }
 
@@ -161,6 +171,26 @@ export class OllamaApiAdapter implements AgentProvider {
         } else if (this.messages[0].content !== this.systemPrompt) {
             this.messages[0] = { role: 'system', content: this.systemPrompt };
         }
+    }
+
+    /**
+     * Pre-warm: load model into VRAM immediately when user connects.
+     * Called right after setModel() so by the time user types, model is hot.
+     */
+    public async preWarm(): Promise<void> {
+        try {
+            // Fire keep_alive=-1 with tiny payload — just wakes up the model loader
+            await fetch(`${OLLAMA_API_BASE}/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: this.modelName,
+                    prompt: '',
+                    keep_alive: -1,
+                    stream: false
+                })
+            });
+        } catch { /* silent — if Ollama is not running, user will see error on first real call */ }
     }
 
     public abort(): void {
@@ -190,12 +220,12 @@ export class OllamaApiAdapter implements AgentProvider {
                 model: this.modelName,
                 messages,
                 stream: true,
-                keep_alive: -1,   // keep model hot in RAM indefinitely — eliminates 30-60s cold reload
+                keep_alive: -1,   // keep model hot in RAM between calls
                 options: {
                     num_ctx: OLLAMA_MAX_CONTEXT_TOKENS,
-                    num_predict: 8192,  // enough for full file writes in vibecoding
-                    temperature: 0.1,   // lower = more deterministic code output
-                    repeat_penalty: 1.1 // reduce repetition loops
+                    num_predict: 8192,
+                    temperature: 0.1,
+                    repeat_penalty: 1.1
                 }
             })
         });

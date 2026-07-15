@@ -209,7 +209,11 @@ export async function startRepl() {
                 router?.setLocalModel?.('local', modelName);
                 (global as any).__atcli_senior_plan = undefined;
                 console.log(`\n  ✅ SUCCESS: ATCLI is now powered by local model \x1b[36m${modelName}\x1b[0m`);
-                console.log(`  🤖 You can now type your tasks directly below (e.g., "Build a snake game in python")\n`);
+                console.log(`  🔥 Pre-warming model in background — first response will be fast!`);
+                console.log(`  🤖 You can now type your tasks directly below\n`);
+                // Background pre-warm: load model into VRAM NOW while user reads this message
+                const { OllamaApiAdapter } = await import('../providers/ollama');
+                new OllamaApiAdapter('local-prewarm', modelName).preWarm().catch(() => {});
                 promptLoop();
                 return;
             }
@@ -224,7 +228,11 @@ export async function startRepl() {
                 router?.setLocalModel?.('local', modelName);
                 (global as any).__atcli_senior_plan = undefined;
                 console.log(`\n  ✅ SUCCESS: ATCLI is now powered by local model \x1b[36m${modelName}\x1b[0m`);
+                console.log(`  🔥 Pre-warming model in background — first response will be fast!`);
                 console.log(`  🤖 You can now type your tasks directly below\n`);
+                // Background pre-warm: load model into VRAM NOW while user reads this message
+                const { OllamaApiAdapter } = await import('../providers/ollama');
+                new OllamaApiAdapter('local-prewarm', modelName).preWarm().catch(() => {});
                 promptLoop();
                 return;
             }
