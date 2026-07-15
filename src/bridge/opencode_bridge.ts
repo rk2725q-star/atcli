@@ -1,411 +1,193 @@
 /**
  * OpenCode File Bridge Server
- *
- * When the user launches OpenCode from ATCLI, this server runs in the background.
- * The user opens http://localhost:7891 in any browser to drag-drop files and images.
- * Files are saved to .opencode/uploads/ and injected into .opencode/instructions.md
- * so OpenCode sees them on the next message.
+ * Runs in background while OpenCode is active.
+ * - Auto-opens browser on start
+ * - Drag-drop files/images ? injected into .opencode/instructions.md
+ * - Images ? NVIDIA Vision API description (text OpenCode can understand)
+ * - Delete button per upload
  */
 
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import { exec } from 'child_process';
 
 const BRIDGE_PORT = 7891;
-const UPLOAD_DIR_NAME = '.opencode/uploads';
-const INSTRUCTIONS_FILE = '.opencode/instructions.md';
+const UPLOAD_DIR  = '.opencode/uploads';
+const INSTR_FILE  = '.opencode/instructions.md';
+const LOG_FILE    = '.opencode/.atcli_uploads.json';
 
-const HTML_UI = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ATCLI → OpenCode File Bridge</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      background: #0d0d0d;
-      color: #e0e0e0;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-    }
-    .logo {
-      font-size: 13px;
-      letter-spacing: 3px;
-      text-transform: uppercase;
-      color: #555;
-      margin-bottom: 8px;
-    }
-    h1 {
-      font-size: 22px;
-      font-weight: 600;
-      color: #fff;
-      margin-bottom: 4px;
-    }
-    .subtitle {
-      font-size: 13px;
-      color: #666;
-      margin-bottom: 32px;
-    }
-    .drop-zone {
-      width: 100%;
-      max-width: 560px;
-      border: 2px dashed #333;
-      border-radius: 16px;
-      padding: 56px 32px;
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      background: #111;
-      position: relative;
-    }
-    .drop-zone:hover, .drop-zone.drag-over {
-      border-color: #4f8ef7;
-      background: #0f1a2e;
-    }
-    .drop-icon { font-size: 48px; margin-bottom: 16px; }
-    .drop-label {
-      font-size: 16px;
-      color: #aaa;
-      margin-bottom: 8px;
-    }
-    .drop-hint { font-size: 12px; color: #555; }
-    #file-input { display: none; }
+// -- Vision API ----------------------------------------------------------------
+async function describeImage(buf: Buffer, filename: string): Promise<string|null> {
+    try {
+        const { ApiKeyStore } = await import('../providers/api-key-store');
+        const key = ApiKeyStore.get('nvidia');
+        if (!key) return null;
+        const ext = path.extname(filename).replace('.','').toLowerCase();
+        const mime = ext==='png'?'image/png':ext==='gif'?'image/gif':ext==='webp'?'image/webp':'image/jpeg';
+        const b64  = buf.toString('base64');
+        const body = JSON.stringify({
+            model:'nvidia/llama-3.2-90b-vision-instruct',
+            messages:[{role:'user',content:[
+                {type:'image_url',image_url:{url:`data:${mime};base64,${b64}`}},
+                {type:'text',text:'Describe this image in detail for a developer. Include UI layout, components, colors, any text/code visible, error messages, design patterns. Be thorough.'}
+            ]}],
+            max_tokens:1024,temperature:0.3
+        });
+        return await new Promise(resolve=>{
+            const https=require('https');
+            const req=https.request({hostname:'integrate.api.nvidia.com',port:443,path:'/v1/chat/completions',method:'POST',
+                headers:{'Authorization':`Bearer ${key}`,'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}},
+                (res:any)=>{let d='';res.on('data',(c:any)=>d+=c);res.on('end',()=>{try{resolve(JSON.parse(d).choices?.[0]?.message?.content||null);}catch{resolve(null);}});});
+            req.on('error',()=>resolve(null));req.write(body);req.end();
+        });
+    } catch { return null; }
+}
 
-    .log {
-      width: 100%;
-      max-width: 560px;
-      margin-top: 24px;
-    }
-    .log-title { font-size: 12px; color: #555; margin-bottom: 10px; }
-    .log-list { list-style: none; }
-    .log-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 10px 14px;
-      background: #111;
-      border-radius: 8px;
-      margin-bottom: 8px;
-      font-size: 13px;
-      border: 1px solid #1e1e1e;
-    }
-    .log-item .icon { font-size: 18px; flex-shrink: 0; }
-    .log-item .info { flex: 1; min-width: 0; }
-    .log-item .name { color: #fff; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .log-item .meta { color: #555; font-size: 11px; margin-top: 2px; }
-    .log-item .status { font-size: 11px; color: #4caf50; font-weight: 600; flex-shrink: 0; }
-    .log-item .status.err { color: #f44336; }
+// -- Upload log ----------------------------------------------------------------
+interface Entry { id:string;filename:string;savedAs:string;content:string;timestamp:number;isImage:boolean; }
+const readLog=(cwd:string):Entry[]=>{ try{return JSON.parse(fs.readFileSync(path.join(cwd,LOG_FILE),'utf-8'));}catch{return[];} };
+const writeLog=(cwd:string,e:Entry[])=>fs.writeFileSync(path.join(cwd,LOG_FILE),JSON.stringify(e,null,2),'utf-8');
+function rebuild(cwd:string,entries:Entry[],base:string){
+    const sec=entries.length?`<!-- ATCLI_UPLOADS_START -->\n## Uploaded via ATCLI Bridge\n\n${entries.map(e=>e.content).join('\n\n---\n\n')}\n<!-- ATCLI_UPLOADS_END -->`:'';
+    const clean=base.replace(/<!-- ATCLI_UPLOADS_START -->[\s\S]*?<!-- ATCLI_UPLOADS_END -->/g,'').trim();
+    const dir=path.dirname(path.join(cwd,INSTR_FILE));
+    if(!fs.existsSync(dir))fs.mkdirSync(dir,{recursive:true});
+    fs.writeFileSync(path.join(cwd,INSTR_FILE),`${clean}\n\n${sec}\n`,'utf-8');
+}
 
-    .badge {
-      display: inline-block;
-      background: #4f8ef7;
-      color: #fff;
-      font-size: 11px;
-      font-weight: 700;
-      padding: 3px 8px;
-      border-radius: 20px;
-      margin-bottom: 32px;
-    }
-    .instructions {
-      width: 100%;
-      max-width: 560px;
-      margin-top: 24px;
-      background: #111;
-      border: 1px solid #1e1e1e;
-      border-radius: 12px;
-      padding: 16px 20px;
-      font-size: 12px;
-      color: #666;
-      line-height: 1.8;
-    }
-    .instructions strong { color: #aaa; }
-    .instructions code {
-      background: #1a1a1a;
-      border-radius: 4px;
-      padding: 1px 6px;
-      color: #4f8ef7;
-      font-family: monospace;
-    }
-  </style>
-</head>
-<body>
-  <div class="logo">ATCLI Bridge</div>
-  <h1>OpenCode File Upload</h1>
-  <p class="subtitle">Drop files here → they appear in OpenCode automatically</p>
-  <div class="badge">🔴 LIVE — OpenCode is running</div>
+// -- File helpers --------------------------------------------------------------
+const isImg =(f:string)=>/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(f);
+const isTxt =(f:string)=>/\.(ts|tsx|js|jsx|py|rs|go|java|c|cpp|h|css|scss|html|json|yaml|yml|toml|md|txt|sh|bat|env|sql|xml|vue|svelte)$/i.test(f);
+const lang  =(f:string)=>{const m:Record<string,string>={ts:'typescript',tsx:'tsx',js:'javascript',jsx:'jsx',py:'python',rs:'rust',go:'go',css:'css',scss:'scss',html:'html',json:'json',yaml:'yaml',yml:'yaml',md:'markdown',sh:'bash',sql:'sql',vue:'vue',svelte:'svelte'};return m[path.extname(f).replace('.','')]||'text';};
+function parseMP(body:Buffer,boundary:string):{filename:string;data:Buffer}|null{
+    const bb=Buffer.from('--'+boundary);
+    const s=body.indexOf(bb)+bb.length+2;
+    const he=body.indexOf(Buffer.from('\r\n\r\n'),s);if(he===-1)return null;
+    const m=body.slice(s,he).toString().match(/filename="([^"]+)"/);if(!m)return null;
+    const ds=he+4;const eb=Buffer.from('\r\n--'+boundary);const de=body.indexOf(eb,ds);
+    return{filename:m[1],data:body.slice(ds,de===-1?undefined:de)};
+}
+function openBrowser(url:string){
+    const c=process.platform==='win32'?`start "" "${url}"`:process.platform==='darwin'?`open "${url}"`:`xdg-open "${url}"`;
+    exec(c,()=>{});
+}
 
-  <div class="drop-zone" id="drop-zone">
-    <input type="file" id="file-input" multiple accept="*/*" />
-    <div class="drop-icon">📎</div>
-    <div class="drop-label">Drop files or images here</div>
-    <div class="drop-hint">or click to browse — any file type supported</div>
-  </div>
+// -- HTML UI -------------------------------------------------------------------
+const HTML=`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>ATCLI Bridge</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 20px}.logo{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#444;margin-bottom:6px}h1{font-size:22px;font-weight:700;color:#fff;margin-bottom:4px}.sub{font-size:13px;color:#555;margin-bottom:22px}.badge{background:#0f2a0f;color:#4caf50;border:1px solid #1e4a1e;font-size:11px;font-weight:700;padding:4px 14px;border-radius:20px;margin-bottom:26px;display:flex;align-items:center;gap:7px}.dot{width:7px;height:7px;background:#4caf50;border-radius:50%;animation:p 1.5s infinite}@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}.dz{width:100%;max-width:580px;border:2px dashed #222;border-radius:14px;padding:52px 32px;text-align:center;cursor:pointer;transition:all .2s;background:#111;margin-bottom:22px}.dz:hover,.dz.over{border-color:#4f8ef7;background:#0d1a2e}.di{font-size:40px;margin-bottom:14px}.dl{font-size:15px;color:#999;margin-bottom:6px}.dh{font-size:12px;color:#444}#fi{display:none}.log{width:100%;max-width:580px}.lt{font-size:11px;color:#444;margin-bottom:10px;letter-spacing:1px;text-transform:uppercase}.ll{list-style:none}.li{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;background:#111;border-radius:10px;margin-bottom:8px;font-size:13px;border:1px solid #1a1a1a;transition:all .2s}.li:hover{border-color:#2a2a2a}.th{width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #222;flex-shrink:0}.ic{font-size:20px;flex-shrink:0;margin-top:2px}.ii{flex:1;min-width:0}.in{color:#fff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.im{color:#555;font-size:11px;margin-top:3px;line-height:1.5}.ih{color:#4f8ef7;font-size:11px;margin-top:4px;font-style:italic}.ir{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}.st{font-size:11px;font-weight:700;white-space:nowrap}.ok{color:#4caf50}.er{color:#f44336}.ld{color:#888}.db{background:transparent;border:1px solid #2a2a2a;color:#666;font-size:11px;padding:3px 8px;border-radius:6px;cursor:pointer;transition:all .15s}.db:hover{background:#2a1010;border-color:#5a2020;color:#f44336}.en{color:#444;font-size:13px;text-align:center;padding:20px}.hw{width:100%;max-width:580px;background:#111;border:1px solid #1a1a1a;border-radius:12px;padding:16px 20px;font-size:12px;color:#555;line-height:2;margin-top:16px}.hw strong{color:#888}.hw code{background:#1a1a1a;border-radius:4px;padding:1px 6px;color:#4f8ef7;font-family:monospace}.sp{display:inline-block;width:12px;height:12px;border:2px solid #333;border-top-color:#4f8ef7;border-radius:50%;animation:s .7s linear infinite;margin-right:4px;vertical-align:middle}@keyframes s{to{transform:rotate(360deg)}}</style></head><body>
+<div class="logo">ATCLI Bridge</div><h1>OpenCode File Upload</h1><p class="sub">Drop files or images � OpenCode sees them automatically</p>
+<div class="badge"><span class="dot"></span>LIVE � OpenCode is running</div>
+<div class="dz" id="dz"><input type="file" id="fi" multiple/><div class="di">??</div><div class="dl">Drop files or images here</div><div class="dh">or click to browse � any file type</div></div>
+<div class="log"><div class="lt">Upload Log</div><ul class="ll" id="ll"></ul></div>
+<div class="hw"><strong>Images:</strong> AI vision analyzes ? OpenCode gets a text description it can understand.<br/><strong>Code files:</strong> Full content injected as code blocks.<br/>After upload, tell OpenCode: <code>I uploaded a file, please review it</code><br/><strong>Delete:</strong> Click ?? to remove a wrong upload from OpenCode's context.</div>
+<script>
+const dz=document.getElementById('dz'),fi=document.getElementById('fi'),ll=document.getElementById('ll');
+fetch('/uploads').then(r=>r.json()).then(renderAll);
+dz.addEventListener('click',()=>fi.click());
+fi.addEventListener('change',e=>go(e.target.files));
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');go(e.dataTransfer.files)});
+function renderAll(a){ll.innerHTML='';if(!a.length){ll.innerHTML='<li class="li en">No uploads yet</li>';return;}a.slice().reverse().forEach(e=>addItem(e,false));}
+function addItem(e,pre=true){
+  const li=document.createElement('li');li.className='li';li.dataset.id=e.id;
+  const img=e.isImage;
+  const med=img?\`<img class="th" src="/thumb/\${e.savedAs}" onerror="this.style.display='none'"/>\`:\`<span class="ic">\${e.filename.match(/\\.(ts|tsx|js|jsx)$/)?\`??\`:\`??\`}</span>\`;
+  li.innerHTML=\`\${med}<div class="ii"><div class="in">\${e.filename}</div><div class="im">\${img?\`??? Vision-described\`:\`?? Injected\`} � \${new Date(e.timestamp).toLocaleTimeString()}</div><div class="ih">Tell OpenCode: "I uploaded a file, please review it"</div></div><div class="ir"><span class="st ok">? Injected</span><button class="db" onclick="del('\${e.id}',this)">?? Delete</button></div>\`;
+  if(pre)ll.prepend(li);else ll.appendChild(li);
+  const en=ll.querySelector('.en');if(en)en.remove();
+}
+async function go(files){
+  for(const f of files){
+    const li=document.createElement('li');li.className='li';
+    li.innerHTML=\`<span class="ic">\${f.type.startsWith('image/')?\`???\`:\`??\`}</span><div class="ii"><div class="in">\${f.name}</div><div class="im">\${f.type.startsWith('image/')?\`<span class="sp"></span>Analyzing with AI vision...\`:\`Processing...\`}</div></div><div class="ir"><span class="st ld">?</span></div>\`;
+    ll.prepend(li);const en=ll.querySelector('.en');if(en)en.remove();
+    const fd=new FormData();fd.append('file',f,f.name);
+    try{const r=await fetch('/upload',{method:'POST',body:fd});const j=await r.json();
+      if(j.ok){li.remove();addItem(j.entry,true);}
+      else{li.querySelector('.st').textContent='? '+j.error;li.querySelector('.st').className='st er';li.querySelector('.im').textContent=j.error||'Failed';}
+    }catch(e){li.querySelector('.st').textContent='? Error';li.querySelector('.st').className='st er';}
+  }
+}
+async function del(id,btn){
+  btn.textContent='...';btn.disabled=true;
+  try{const r=await fetch('/delete/'+id,{method:'DELETE'});const j=await r.json();
+    if(j.ok){const li=document.querySelector('[data-id="'+id+'"]');if(li){li.style.opacity='0';li.style.transition='opacity .3s';setTimeout(()=>{li.remove();if(!ll.querySelector('.li:not(.en)'))ll.innerHTML='<li class="li en">No uploads yet</li>';},300);}}
+  }catch(e){btn.textContent='?? Delete';btn.disabled=false;}
+}
+</script></body></html>`;
 
-  <div class="log">
-    <div class="log-title">UPLOAD LOG</div>
-    <ul class="log-list" id="log-list">
-      <li class="log-item">
-        <span class="icon">ℹ️</span>
-        <span class="info">
-          <span class="name">Waiting for files...</span>
-          <span class="meta">Files uploaded here are injected into OpenCode's context</span>
-        </span>
-      </li>
-    </ul>
-  </div>
+// -- Main ----------------------------------------------------------------------
+export interface BridgeServer { stop:()=>void; port:number; }
 
-  <div class="instructions">
-    <strong>How it works:</strong><br/>
-    1. Drop a file above → ATCLI saves it and updates <code>.opencode/instructions.md</code><br/>
-    2. In OpenCode, type: <code>I've uploaded a new file, please review it</code><br/>
-    3. OpenCode reads the injected context and processes your file<br/>
-    <br/>
-    <strong>Images:</strong> Saved to <code>.opencode/uploads/</code> folder. Tell OpenCode the filename.<br/>
-    <strong>Code files:</strong> Injected as full code blocks with syntax highlighting hints.
-  </div>
+export function startOpenCodeBridge(cwd:string):BridgeServer {
+    const uploadDir=path.join(cwd,UPLOAD_DIR);
+    if(!fs.existsSync(uploadDir))fs.mkdirSync(uploadDir,{recursive:true});
+    const instrPath=path.join(cwd,INSTR_FILE);
+    let baseCtx='';
+    if(fs.existsSync(instrPath))baseCtx=fs.readFileSync(instrPath,'utf-8');
+    writeLog(cwd,[]);
 
-  <script>
-    const dropZone = document.getElementById('drop-zone');
-    const fileInput = document.getElementById('file-input');
-    const logList = document.getElementById('log-list');
+    const server=http.createServer(async(req,res)=>{
+        const url=req.url||'/';
+        res.setHeader('Access-Control-Allow-Origin','*');
 
-    dropZone.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', (e) => uploadFiles(e.target.files));
+        if(req.method==='GET'&&url==='/'){res.writeHead(200,{'Content-Type':'text/html;charset=utf-8'});res.end(HTML);return;}
+        if(req.method==='GET'&&url==='/uploads'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(readLog(cwd)));return;}
 
-    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-      uploadFiles(e.dataTransfer.files);
-    });
-
-    async function uploadFiles(files) {
-      for (const file of files) {
-        const logItem = addLogItem(file.name, 'Uploading...');
-        const form = new FormData();
-        form.append('file', file, file.name);
-        try {
-          const res = await fetch('/upload', { method: 'POST', body: form });
-          const json = await res.json();
-          updateLogItem(logItem, json.ok ? '✅ Injected' : '❌ ' + json.error, json.ok ? '' : 'err');
-          if (json.ok && json.hint) {
-            updateMeta(logItem, json.hint);
-          }
-        } catch (err) {
-          updateLogItem(logItem, '❌ Network error', 'err');
+        if(req.method==='GET'&&url.startsWith('/thumb/')){
+            const fn=url.replace('/thumb/','');const p=path.join(uploadDir,fn);
+            if(fs.existsSync(p)){const ext=path.extname(fn).toLowerCase();const mime=ext==='.png'?'image/png':ext==='.gif'?'image/gif':ext==='.webp'?'image/webp':'image/jpeg';res.writeHead(200,{'Content-Type':mime});res.end(fs.readFileSync(p));}
+            else{res.writeHead(404);res.end();}return;
         }
-      }
-    }
 
-    function addLogItem(name, status) {
-      if (logList.children.length === 1 && logList.children[0].querySelector('.name').textContent === 'Waiting for files...') {
-        logList.innerHTML = '';
-      }
-      const li = document.createElement('li');
-      li.className = 'log-item';
-      li.innerHTML = \`
-        <span class="icon">📄</span>
-        <span class="info">
-          <span class="name">\${name}</span>
-          <span class="meta">Processing...</span>
-        </span>
-        <span class="status">\${status}</span>
-      \`;
-      logList.prepend(li);
-      return li;
-    }
+        if(req.method==='POST'&&url==='/upload'){
+            const ct=req.headers['content-type']||'';const bm=ct.match(/boundary=(.+)/);
+            if(!bm){res.writeHead(400);res.end(JSON.stringify({ok:false,error:'No boundary'}));return;}
+            const chunks:Buffer[]=[];req.on('data',(c:Buffer)=>chunks.push(c));
+            req.on('end',async()=>{
+                const parsed=parseMP(Buffer.concat(chunks),bm[1]);
+                if(!parsed){res.writeHead(400);res.end(JSON.stringify({ok:false,error:'Parse failed'}));return;}
+                const{filename,data}=parsed;
+                const id=`${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+                const safe=`${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+                fs.writeFileSync(path.join(uploadDir,safe),data);
+                const imgFile=isImg(filename);let content='';
+                if(imgFile){
+                    console.log(`\n  ?? [Bridge] Vision AI analyzing: ${filename}...`);
+                    const desc=await describeImage(data,filename);
+                    if(desc){content=`### Image: ${filename}\n**AI Vision Description:**\n\n${desc}\n\n*File saved at \`.opencode/uploads/${safe}\`*`;console.log(`  ? [Bridge] Vision done: ${filename}`);}
+                    else{content=`### Image: ${filename}\n*Saved at \`.opencode/uploads/${safe}\`*\n*(Add NVIDIA key via /api nvidia <key> to enable vision descriptions)*`;}
+                } else if(isTxt(filename)){
+                    const txt=data.toString('utf-8');content=`### File: ${filename}\n\`\`\`${lang(filename)}\n${txt.substring(0,8000)}\n\`\`\`${txt.length>8000?'\n*(truncated)*':''}`;
+                } else {content=`### File: ${filename}\nSaved at \`.opencode/uploads/${safe}\` � ${data.length} bytes`;}
+                const entry:Entry={id,filename,savedAs:safe,content,timestamp:Date.now(),isImage:imgFile};
+                const entries=readLog(cwd);entries.push(entry);writeLog(cwd,entries);rebuild(cwd,entries,baseCtx);
+                console.log(`\n  ?? [Bridge] Injected: ${filename}`);
+                res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,entry}));
+            });return;
+        }
 
-    function updateLogItem(li, status, cls) {
-      const s = li.querySelector('.status');
-      s.textContent = status;
-      if (cls === 'err') s.classList.add('err');
-    }
-
-    function updateMeta(li, text) {
-      li.querySelector('.meta').textContent = text;
-    }
-  </script>
-</body>
-</html>`;
-
-function getContentType(filename: string): string {
-    const ext = path.extname(filename).toLowerCase();
-    const map: Record<string, string> = {
-        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-        '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
-        '.pdf': 'application/pdf',
-    };
-    return map[ext] || 'application/octet-stream';
-}
-
-function isImageFile(filename: string): boolean {
-    return /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(filename);
-}
-
-function isTextFile(filename: string): boolean {
-    return /\.(ts|tsx|js|jsx|py|rs|go|java|c|cpp|h|css|scss|html|json|yaml|yml|toml|md|txt|sh|bat|env|sql|xml|vue|svelte|kt|swift|rb|php)$/i.test(filename);
-}
-
-function getLang(filename: string): string {
-    const ext = path.extname(filename).replace('.', '');
-    const map: Record<string, string> = {
-        'ts': 'typescript', 'tsx': 'tsx', 'js': 'javascript', 'jsx': 'jsx',
-        'py': 'python', 'rs': 'rust', 'go': 'go', 'java': 'java',
-        'css': 'css', 'scss': 'scss', 'html': 'html', 'json': 'json',
-        'yaml': 'yaml', 'yml': 'yaml', 'md': 'markdown', 'sh': 'bash',
-        'sql': 'sql', 'vue': 'vue', 'svelte': 'svelte',
-    };
-    return map[ext] || ext || 'text';
-}
-
-function injectIntoInstructions(cwd: string, content: string): void {
-    const instrPath = path.join(cwd, INSTRUCTIONS_FILE);
-    const dir = path.dirname(instrPath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    let existing = '';
-    if (fs.existsSync(instrPath)) {
-        existing = fs.readFileSync(instrPath, 'utf-8');
-        // Remove old uploads section
-        existing = existing.replace(/<!-- ATCLI_UPLOADS_START -->[\s\S]*?<!-- ATCLI_UPLOADS_END -->/g, '').trim();
-    }
-
-    // Read all current uploads section
-    const uploadsMarkerPath = path.join(cwd, '.opencode', '.atcli_uploads_log');
-    let uploadsLog: string[] = [];
-    if (fs.existsSync(uploadsMarkerPath)) {
-        uploadsLog = JSON.parse(fs.readFileSync(uploadsMarkerPath, 'utf-8'));
-    }
-    uploadsLog.push(content);
-    fs.writeFileSync(uploadsMarkerPath, JSON.stringify(uploadsLog), 'utf-8');
-
-    const uploadsSection = `<!-- ATCLI_UPLOADS_START -->\n## Files Uploaded via ATCLI Bridge\n\n${uploadsLog.join('\n\n')}\n<!-- ATCLI_UPLOADS_END -->`;
-    fs.writeFileSync(instrPath, `${existing}\n\n${uploadsSection}\n`, 'utf-8');
-}
-
-function parseMultipart(body: Buffer, boundary: string): { filename: string; data: Buffer } | null {
-    const boundaryBuf = Buffer.from('--' + boundary);
-    let start = body.indexOf(boundaryBuf) + boundaryBuf.length + 2; // skip \r\n
-    const headersEnd = body.indexOf(Buffer.from('\r\n\r\n'), start);
-    if (headersEnd === -1) return null;
-
-    const headers = body.slice(start, headersEnd).toString();
-    const filenameMatch = headers.match(/filename="([^"]+)"/);
-    if (!filenameMatch) return null;
-
-    const filename = filenameMatch[1];
-    const dataStart = headersEnd + 4;
-    const endBoundary = Buffer.from('\r\n--' + boundary);
-    const dataEnd = body.indexOf(endBoundary, dataStart);
-    const data = body.slice(dataStart, dataEnd === -1 ? undefined : dataEnd);
-
-    return { filename, data };
-}
-
-export interface BridgeServer {
-    stop: () => void;
-    port: number;
-}
-
-export function startOpenCodeBridge(cwd: string): BridgeServer {
-    const uploadDir = path.join(cwd, UPLOAD_DIR_NAME);
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-    // Clear old uploads log on new session
-    const logPath = path.join(cwd, '.opencode', '.atcli_uploads_log');
-    if (fs.existsSync(logPath)) fs.unlinkSync(logPath);
-
-    const server = http.createServer((req, res) => {
-        if (req.method === 'GET' && req.url === '/') {
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(HTML_UI);
+        if(req.method==='DELETE'&&url.startsWith('/delete/')){
+            const id=url.replace('/delete/','');let entries=readLog(cwd);
+            const e=entries.find(x=>x.id===id);
+            if(e){
+                const fp=path.join(uploadDir,e.savedAs);
+                try{if(fs.existsSync(fp))fs.unlinkSync(fp);}catch{}
+                entries=entries.filter(x=>x.id!==id);writeLog(cwd,entries);rebuild(cwd,entries,baseCtx);
+                console.log(`\n  ???  [Bridge] Deleted: ${e.filename}`);
+                res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true}));
+            } else {res.writeHead(404);res.end(JSON.stringify({ok:false,error:'Not found'}));}
             return;
         }
-
-        if (req.method === 'POST' && req.url === '/upload') {
-            const contentType = req.headers['content-type'] || '';
-            const boundaryMatch = contentType.match(/boundary=(.+)/);
-            if (!boundaryMatch) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'No boundary' }));
-                return;
-            }
-
-            const chunks: Buffer[] = [];
-            req.on('data', (chunk: Buffer) => chunks.push(chunk));
-            req.on('end', () => {
-                const body = Buffer.concat(chunks);
-                const parsed = parseMultipart(body, boundaryMatch[1]);
-                if (!parsed) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ ok: false, error: 'Parse failed' }));
-                    return;
-                }
-
-                const { filename, data } = parsed;
-                const ts = Date.now();
-                const safeName = `${ts}-${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-                const savePath = path.join(uploadDir, safeName);
-                fs.writeFileSync(savePath, data);
-
-                let injectedContent = '';
-                let hint = '';
-
-                if (isImageFile(filename)) {
-                    // Save image and reference by path
-                    const relPath = `.opencode/uploads/${safeName}`;
-                    injectedContent = `### Image: ${filename}\nSaved to: \`${relPath}\`\n> Tell OpenCode: "Review the image at ${relPath}"`;
-                    hint = `Tell OpenCode: "Review the image at ${relPath}"`;
-                } else if (isTextFile(filename)) {
-                    // Embed full file content as code block
-                    const text = data.toString('utf-8');
-                    const lang = getLang(filename);
-                    injectedContent = `### File: ${filename}\n\`\`\`${lang}\n${text.substring(0, 8000)}\n\`\`\``;
-                    if (text.length > 8000) injectedContent += `\n*(truncated — ${text.length} chars total)*`;
-                    hint = `Tell OpenCode: "I uploaded ${filename}, please review it"`;
-                } else {
-                    // Binary or unknown — just note it
-                    injectedContent = `### File: ${filename}\nSaved to: \`.opencode/uploads/${safeName}\`\nSize: ${data.length} bytes`;
-                    hint = `File saved to .opencode/uploads/${safeName}`;
-                }
-
-                try {
-                    injectIntoInstructions(cwd, injectedContent);
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ ok: true, filename: safeName, hint }));
-                    console.log(`\n📎 [ATCLI Bridge] Injected into OpenCode: ${filename}`);
-                } catch (e: any) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ ok: false, error: e.message }));
-                }
-            });
-            return;
-        }
-
-        res.writeHead(404);
-        res.end();
+        res.writeHead(404);res.end();
     });
 
-    server.listen(BRIDGE_PORT, '127.0.0.1', () => {
-        console.log(`\n  📎 [ATCLI Bridge] File upload server: \x1b[36mhttp://localhost:${BRIDGE_PORT}\x1b[0m`);
-        console.log(`  → Open in browser to drag-drop files & images into OpenCode\n`);
+    server.listen(BRIDGE_PORT,'127.0.0.1',()=>{
+        const url=`http://localhost:${BRIDGE_PORT}`;
+        console.log(`\n  ?? [ATCLI Bridge] \x1b[36m${url}\x1b[0m � opening browser...`);
+        setTimeout(()=>openBrowser(url),600);
     });
-
-    server.on('error', (err: any) => {
-        if (err.code === 'EADDRINUSE') {
-            console.log(`\n  ⚠️  [ATCLI Bridge] Port ${BRIDGE_PORT} already in use — skipping file server.`);
-        }
-    });
-
-    return {
-        stop: () => server.close(),
-        port: BRIDGE_PORT,
-    };
+    server.on('error',(err:any)=>{if(err.code==='EADDRINUSE'){setTimeout(()=>openBrowser(`http://localhost:${BRIDGE_PORT}`),200);}});
+    return{stop:()=>server.close(),port:BRIDGE_PORT};
 }

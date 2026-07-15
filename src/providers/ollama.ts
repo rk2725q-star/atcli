@@ -17,10 +17,11 @@ interface OllamaChatResponse {
 }
 
 const OLLAMA_API_BASE = 'http://localhost:11434/api';
-// qwen2.5-coder:3b native context: 32768 tokens
-// qwen2.5-coder:7b native context: 32768 tokens
-const OLLAMA_MAX_CONTEXT_TOKENS = 32768;
-const OLLAMA_TRIM_TARGET_TOKENS = 28000;
+// Context window strategy for local models:
+// - num_ctx 16384 = faster KV cache init vs 32768 (model stays hot in RAM with keep_alive)
+// - Trim target at 12k so we always have headroom for outputs
+const OLLAMA_MAX_CONTEXT_TOKENS = 16384;
+const OLLAMA_TRIM_TARGET_TOKENS = 10000;
 
 function getConversationPath(projectDir: string, providerId: string): string {
     const dir = path.join(projectDir, '.atcli-tmp');
@@ -169,10 +170,17 @@ export class OllamaApiAdapter implements AgentProvider {
         }
     }
 
+    private _firstCall = true;
+
     private async callChat(messages: OllamaMessage[]): Promise<string> {
         this.abortController = new AbortController();
 
-        console.log(`\n\x1b[90m[OLLAMA] 🧠 Loading model and evaluating prompt... (this may take 15-60 seconds on the very first run)\x1b[0m`);
+        if (this._firstCall) {
+            console.log(`\n\x1b[90m[OLLAMA] 🔥 Warming up ${this.modelName}... (first call loads model into VRAM, ~5-20s)\x1b[0m`);
+            this._firstCall = false;
+        } else {
+            console.log(`\n\x1b[90m[OLLAMA] ⚡ ${this.modelName} is hot — responding...\x1b[0m`);
+        }
 
         const response = await fetch(`${OLLAMA_API_BASE}/chat`, {
             method: 'POST',
@@ -182,9 +190,12 @@ export class OllamaApiAdapter implements AgentProvider {
                 model: this.modelName,
                 messages,
                 stream: true,
+                keep_alive: -1,   // keep model hot in RAM indefinitely — eliminates 30-60s cold reload
                 options: {
                     num_ctx: OLLAMA_MAX_CONTEXT_TOKENS,
-                    num_predict: 4096  // max output tokens per turn
+                    num_predict: 8192,  // enough for full file writes in vibecoding
+                    temperature: 0.1,   // lower = more deterministic code output
+                    repeat_penalty: 1.1 // reduce repetition loops
                 }
             })
         });
