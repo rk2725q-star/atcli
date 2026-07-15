@@ -17,10 +17,11 @@ interface OllamaChatResponse {
 }
 
 const OLLAMA_API_BASE = 'http://localhost:11434/api';
-// 8k context: fast KV cache init, sufficient for our 12k-trim strategy
-// (trim kicks in at 10k, so effective window is 8k with system prompt overhead)
-const OLLAMA_MAX_CONTEXT_TOKENS = 8192;
-const OLLAMA_TRIM_TARGET_TOKENS = 6000;
+// CRITICAL: num_ctx must be larger than (system_prompt_tokens + conversation + num_predict)
+// System prompt ~3-4k tokens, so: num_ctx:16384 leaves 12k for conversation + 3k output
+// num_predict must be < (num_ctx - prompt_tokens). 3072 is safe for most file writes.
+const OLLAMA_MAX_CONTEXT_TOKENS = 16384;
+const OLLAMA_TRIM_TARGET_TOKENS = 8000;
 
 // ── Global prompt cache ───────────────────────────────────────────────────────
 // System prompt is built ONCE and reused. This ensures Ollama's KV cache is
@@ -179,18 +180,21 @@ export class OllamaApiAdapter implements AgentProvider {
      */
     public async preWarm(): Promise<void> {
         try {
-            // Fire keep_alive=-1 with tiny payload — just wakes up the model loader
+            // Send a real tiny prompt so Ollama actually loads the model into VRAM
+            // Empty string prompt causes Ollama to skip model loading!
             await fetch(`${OLLAMA_API_BASE}/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: this.modelName,
-                    prompt: '',
+                    prompt: 'hi',            // tiny real prompt — forces model load
                     keep_alive: -1,
-                    stream: false
+                    stream: false,
+                    options: { num_predict: 1 }  // generate only 1 token — fast warmup
                 })
             });
-        } catch { /* silent — if Ollama is not running, user will see error on first real call */ }
+            console.log(`\x1b[90m  [OLLAMA] ✅ ${this.modelName} loaded into VRAM and ready.\x1b[0m`);
+        } catch { /* silent — error shown on first real call */ }
     }
 
     public abort(): void {
@@ -223,7 +227,7 @@ export class OllamaApiAdapter implements AgentProvider {
                 keep_alive: -1,   // keep model hot in RAM between calls
                 options: {
                     num_ctx: OLLAMA_MAX_CONTEXT_TOKENS,
-                    num_predict: 8192,
+                    num_predict: 3072,       // safe: leaves 13k for prompt+history in 16k ctx
                     temperature: 0.1,
                     repeat_penalty: 1.1
                 }
