@@ -196,16 +196,74 @@ export async function startRepl() {
                 return;
             }
 
+            // ── UNIVERSAL MODEL & TOOL INTERCEPTOR ───────────────────────────────
+            // Catches any local model or CLI tool typed inside ATCLI and bridges it.
+            
+            // Pattern 1: "ollama run <model>" — existing exact command
             if (trimmed.startsWith('ollama run ')) {
                 const modelName = trimmed.replace('ollama run ', '').replace(/^<|>$/g, '').trim();
                 console.log(`\n[ATCLI] 🔌 Intercepted 'ollama run'. Connecting ATCLI to your local model...`);
                 state.currentProvider = 'local';
                 state.currentModel = modelName;
                 router?.setLocalModel?.('local', modelName);
-                // Clear any stale senior plan from previous project
                 (global as any).__atcli_senior_plan = undefined;
                 console.log(`\n  ✅ SUCCESS: ATCLI is now powered by local model \x1b[36m${modelName}\x1b[0m`);
                 console.log(`  🤖 You can now type your tasks directly below (e.g., "Build a snake game in python")\n`);
+                promptLoop();
+                return;
+            }
+            
+            // Pattern 2: Just a bare Ollama model name typed directly (e.g., "qwen2.5-coder:3b")
+            // Matches format: "name:tag" or "namespace/name:tag"
+            if (/^[\w][\w.\-]*(\/[\w][\w.\-]*)?:[\w][\w.\-]*$/.test(trimmed)) {
+                const modelName = trimmed;
+                console.log(`\n[ATCLI] 🔌 Detected Ollama model shorthand. Connecting ATCLI to: \x1b[36m${modelName}\x1b[0m...`);
+                state.currentProvider = 'local';
+                state.currentModel = modelName;
+                router?.setLocalModel?.('local', modelName);
+                (global as any).__atcli_senior_plan = undefined;
+                console.log(`\n  ✅ SUCCESS: ATCLI is now powered by local model \x1b[36m${modelName}\x1b[0m`);
+                console.log(`  🤖 You can now type your tasks directly below\n`);
+                promptLoop();
+                return;
+            }
+
+            // Pattern 3: Known CLI AI tools — intercept and bridge through ATCLI
+            // These tools are run as sub-processes; ATCLI provides file upload + full tool access
+            const INTERCEPTED_CLI_TOOLS = [
+                { cmd: 'opencode', name: 'OpenCode' },
+                { cmd: 'aider', name: 'Aider' },
+                { cmd: 'continue', name: 'Continue' },
+                { cmd: 'claude ', name: 'Claude CLI' },   // note: space to avoid catching "claude" as a model name
+                { cmd: 'cursor ', name: 'Cursor CLI' },
+            ];
+            const matchedTool = INTERCEPTED_CLI_TOOLS.find(t => trimmed === t.cmd || trimmed.startsWith(t.cmd + ' '));
+            if (matchedTool) {
+                const userArgs = trimmed.slice(matchedTool.cmd.length).trim();
+                console.log(`\n[ATCLI] 🔌 Intercepted '${matchedTool.name}'. Bridging through ATCLI agent...\n`);
+                console.log(`  ⚡ ATCLI gives you everything ${matchedTool.name} has + more:`);
+                console.log(`  • 40+ tools: write_file, run_command, browser, aecl_check, senior planner`);
+                console.log(`  • Use /file <path> to inject any file into the conversation`);
+                console.log(`  • Use /paste to paste multi-line code or config directly\n`);
+                
+                // If the user typed a task after the tool name, use it as the prompt
+                if (userArgs.length > 0) {
+                    console.log(`\n[ATCLI] Sending to ${state.currentProvider}...`);
+                    try {
+                        const adapter = router.getAdapter(state.currentProvider);
+                        if (adapter) {
+                            const agent = new AgentLoop(adapter, !initializedProviders.has(state.currentProvider));
+                            isExecutingTask = true;
+                            savedPromptForEsc = userArgs;
+                            try { await agent.run(userArgs); } finally { isExecutingTask = false; }
+                            initializedProviders.set(state.currentProvider, 'vibecoding');
+                        }
+                    } catch (error: any) {
+                        if (error.name !== 'UserInterruptError') console.log(`\n❌ Error: ${error.message}`);
+                    }
+                } else {
+                    console.log(`[ATCLI] Type your task below, or use /file <path> to inject a file first.`);
+                }
                 promptLoop();
                 return;
             }
@@ -381,12 +439,23 @@ export async function startRepl() {
             } else {
                 
                 // 🛡️ LOCAL INPUT INTERCEPTOR (SECRET SCANNER)
-                const { masked: safeInput, changed: secretMasked } = maskSecretsString(trimmed);
+                const { masked: maskedInput, changed: secretMasked } = maskSecretsString(trimmed);
                 
                 if (secretMasked) {
                     console.log(`\n⚠️  [ATCLI SHIELD] Sensitive API Key detected in your input!`);
                     console.log(`⚠️  It has been LOCALLY MASKED before sending to the Cloud AI to protect your security.`);
                     console.log(`⚠️  The AI will receive: "[REDACTED_LOCAL_SECRET]" instead of your real key.`);
+                }
+                
+                // ── FILE/PASTE BRIDGE: Prepend staged file content ───────────────
+                // If user ran /file or /paste before this message, inject the file
+                // content into the message automatically and then clear the stage.
+                let safeInput = maskedInput;
+                const stagedFiles = (global as any).__atcli_staged_files as string | undefined;
+                if (stagedFiles) {
+                    safeInput = `${safeInput}\n\n${stagedFiles}`;
+                    (global as any).__atcli_staged_files = undefined;
+                    console.log(`\n📎 [ATCLI] Injecting staged file(s) into your message...`);
                 }
 
                 console.log(`\n[ATCLI] Sending to ${state.currentProvider}...`);

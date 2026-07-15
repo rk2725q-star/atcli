@@ -517,40 +517,62 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
         for (let i = 1; i <= this.maxIterations; i++) {
             
             // Dynamic Context Refresh Threshold
-            // Cloud AI (GPT-4o, Claude, DeepSeek): 128k-200k context — refresh at 120k
-            // Local AI (Ollama, Qwen-local): smaller context window, refresh more aggressively but keep it above base prompt (16k+).
-            const refreshThreshold = isLocalModel ? 100000 : 120000;
+            // Cloud AI: 128k-200k context — refresh at 120k with full system prompt
+            // Local AI: 20-32k context — refresh at 12k with LIGHTWEIGHT MEMORY PING ONLY
+            // The lean system prompt is already in Ollama's KV cache (already evaluated).
+            // We must NOT resend it — that would fill the entire context window.
+            // Instead, we inject a tiny ~500-token memory snapshot to keep the model on-track.
+            const refreshThreshold = isLocalModel ? 12000 : 120000;
             
-            // CONTEXT REFRESH: Re-inject tools + Project Intent + Memory Snapshot to prevent memory loss
+            // CONTEXT REFRESH: Re-inject state to prevent memory loss
             if (this.totalTokensProcessed - lastRefreshTokens > refreshThreshold) {
-                console.log(`\n🔄 [Agent] Context window approaching (${refreshThreshold} tokens). Auto-resending System Prompt + Intent + Memory + Skills...`);
-                const intentSection = this.projectIntent 
-                    ? `\n\n[PROJECT INTENT RE-INJECTION: The user's original goal is:\n"${this.projectIntent}"\nStay strictly aligned to this. Do not add unrequested features or delete files not related to this goal.]`
-                    : '';
-                // Re-read ATCLI_MEMORY.md at refresh time for latest state
-                let liveMemorySnapshot = '';
-                if (fs.existsSync(memoryPath)) {
-                    try {
-                        const memContent = fs.readFileSync(memoryPath, 'utf-8');
-                        const refreshSnapshot = buildMemorySnapshot(memContent, isLocalModel, isLocalModel ? 12000 : 6000);
-                        liveMemorySnapshot = `\n\n[LIVE ATCLI_MEMORY.md SNAPSHOT (auto-read at context refresh):\n${refreshSnapshot}\n]`;
-                    } catch(e) { /* ignore */ }
+                if (isLocalModel) {
+                    // ── LOCAL MODEL: LIGHTWEIGHT MEMORY PING (~500 tokens, NOT full resend) ──
+                    console.log(`\n🔄 [Local Model] Context approaching ${refreshThreshold} tokens. Injecting memory ping...`);
+                    
+                    let memPing = '';
+                    if (fs.existsSync(memoryPath)) {
+                        try {
+                            const memContent = fs.readFileSync(memoryPath, 'utf-8');
+                            // Compress to max 2000 chars — just status, current files, next steps
+                            const compressedMem = memContent
+                                .replace(/^#{1,6}\s+[^\n]*/gm, s => s) // keep headings
+                                .replace(/\n{3,}/g, '\n\n')              // collapse blank lines
+                                .substring(0, 2000);
+                            memPing = `[📋 MEMORY PING — You are mid-task. Re-read your progress below to stay on track]\n\nProject Intent: "${this.projectIntent?.substring(0, 200) || 'See memory'}"\n\n${compressedMem}\n\n${(global as any).__atcli_senior_plan ? `[ACTIVE PLAN — continue from where you left off]\n${(global as any).__atcli_senior_plan.substring(0, 800)}` : ''}`;
+                        } catch { /* ignore */ }
+                    } else {
+                        memPing = `[MEMORY PING]: Project intent: "${this.projectIntent?.substring(0, 200)}". No ATCLI_MEMORY.md yet — create it when you finish a logical group of steps.`;
+                    }
+                    
+                    // Append to current message (DON'T replace — keeps conversation flow intact)
+                    currentMessage = currentMessage + `\n\n${memPing}\n\n[RULE: Output ONE <tool_call> block. Keep going. Do NOT stop.]`;
+                } else {
+                    // ── CLOUD MODEL: FULL SYSTEM PROMPT RESEND ──
+                    console.log(`\n🔄 [Agent] Context window approaching (${refreshThreshold} tokens). Auto-resending System Prompt + Intent + Memory + Skills...`);
+                    const intentSection = this.projectIntent 
+                        ? `\n\n[PROJECT INTENT RE-INJECTION: The user's original goal is:\n"${this.projectIntent}"\nStay strictly aligned to this. Do not add unrequested features or delete files not related to this goal.]`
+                        : '';
+                    let liveMemorySnapshot = '';
+                    if (fs.existsSync(memoryPath)) {
+                        try {
+                            const memContent = fs.readFileSync(memoryPath, 'utf-8');
+                            const refreshSnapshot = buildMemorySnapshot(memContent, false, 6000);
+                            liveMemorySnapshot = `\n\n[LIVE ATCLI_MEMORY.md SNAPSHOT (auto-read at context refresh):\n${refreshSnapshot}\n]`;
+                        } catch(e) { /* ignore */ }
+                    }
+                    let skillIndexSection = '';
+                    const skillIndexPath = path.join(cwd, '.agents', 'SKILL_INDEX.md');
+                    if (fs.existsSync(skillIndexPath)) {
+                        try {
+                            const indexContent = fs.readFileSync(skillIndexPath, 'utf-8');
+                            skillIndexSection = `\n\n[SKILL INDEX RE-INJECTION — Your available global skills:\n${indexContent.substring(0, 1200)}\n]`;
+                        } catch(e) { /* ignore */ }
+                    }
+                    const ideSection = `\n\n[IDE CONTEXT REMINDER]: User is in ${detectedIDE}. Write IDE-appropriate configs only.`;
+                    const securityReaffirm = `\n\n[24/7 SECURITY REAFFIRMATION]: Destructive commands (rm -rf, format, del /s, curl|bash, base64|eval, powershell -EncodedCommand) are PERMANENTLY BLOCKED. Your sandbox is: ${cwd}. You CANNOT write to .env, .ssh, system paths, or ATCLI source files.`;
+                    currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Token Protection): Re-injecting core state to prevent memory/skill loss.]\n\n${systemPrompt}${intentSection}${liveMemorySnapshot}${skillIndexSection}${ideSection}${securityReaffirm}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
                 }
-                // Re-inject skill index at refresh so AI never forgets which cinematic/game skills exist
-                let skillIndexSection = '';
-                const skillIndexPath = path.join(cwd, '.agents', 'SKILL_INDEX.md');
-                if (fs.existsSync(skillIndexPath)) {
-                    try {
-                        const indexContent = fs.readFileSync(skillIndexPath, 'utf-8');
-                        skillIndexSection = `\n\n[SKILL INDEX RE-INJECTION — Your available global skills:\n${indexContent.substring(0, 1200)}\n]`;
-                    } catch(e) { /* ignore */ }
-                }
-                const ideSection = `\n\n[IDE CONTEXT REMINDER]: User is in ${detectedIDE}. Write IDE-appropriate configs only.`;
-                const securityReaffirm = `\n\n[24/7 SECURITY REAFFIRMATION]: Destructive commands (rm -rf, format, del /s, curl|bash, base64|eval, powershell -EncodedCommand) are PERMANENTLY BLOCKED. Your sandbox is: ${cwd}. You CANNOT write to .env, .ssh, system paths, or ATCLI source files.`;
-                const localModelSection = isLocalModel
-                    ? `\n\n[LOCAL MODEL MODE REINFORCEMENT]: Re-read ATCLI_MEMORY.md first, use local_model_recall when context feels thin, keep the task plan explicit, and prefer read_file + replace over full rewrites. Use workspace_analyze and aecl_check to validate before finalization.`
-                    : '';
-                currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Token Protection): Re-injecting core state to prevent memory/skill loss.]\n\n${systemPrompt}${intentSection}${liveMemorySnapshot}${skillIndexSection}${ideSection}${securityReaffirm}${localModelSection}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
                 lastRefreshTokens = this.totalTokensProcessed;
             }
 

@@ -292,7 +292,7 @@ function printLocalModelList(models: string[], currentModel: string): void {
     console.log(`\n  \x1b[2mCurrent: \x1b[36m${currentModel}\x1b[0m\n`);
 }
 
-export function handleSlashCommand(input: string, state: AppState, router?: any): { handled: boolean, action?: 'manage' | 'upload' | 'agentica' | 'session', args?: string } {
+export function handleSlashCommand(input: string, state: AppState, router?: any): { handled: boolean, action?: 'manage' | 'upload' | 'agentica' | 'session' | 'file_staged', args?: string } {
 
     const parts = input.trim().split(' ');
     const command = parts[0];
@@ -507,6 +507,69 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
             return { handled: true };
         }
 
+        case '/file': {
+            // ── FILE UPLOAD BRIDGE ────────────────────────────────────────────
+            // Reads one or more local files and stages them for the next AI message.
+            // Usage: /file src/App.tsx
+            //        /file src/App.tsx src/api.ts src/types.ts
+            if (args.length === 0) {
+                console.log(`\n❌ Usage: /file <path> [path2] [path3]`);
+                console.log(`   Example: /file src/App.tsx`);
+                console.log(`   Example: /file src/App.tsx src/api.ts`);
+                return { handled: true };
+            }
+            const fileBuffers: string[] = [];
+            let totalLines = 0;
+            for (const filePath of args) {
+                const absPath = path.resolve(process.cwd(), filePath);
+                if (!fs.existsSync(absPath)) {
+                    console.log(`\n⚠️  File not found: ${filePath}`);
+                    continue;
+                }
+                const content = fs.readFileSync(absPath, 'utf-8');
+                const lines = content.split('\n');
+                totalLines += lines.length;
+                const lang = path.extname(filePath).replace('.', '') || 'text';
+                fileBuffers.push(`--- FILE: ${filePath} (${lines.length} lines) ---\n\`\`\`${lang}\n${content}\n\`\`\``);
+                console.log(`\n✅ Loaded: ${filePath} (${lines.length} lines)`);
+            }
+            if (fileBuffers.length === 0) {
+                return { handled: true };
+            }
+            // Stage file content in global for next run
+            (global as any).__atcli_staged_files = fileBuffers.join('\n\n');
+            console.log(`\n📎 ${fileBuffers.length} file(s) staged (${totalLines} total lines). Type your instruction and press ENTER to send.\n`);
+            return { handled: true, action: 'file_staged' };
+        }
+
+        case '/paste': {
+            // ── PASTE BRIDGE ─────────────────────────────────────────────────
+            // Opens multi-line input mode — user pastes code/config, Ctrl+D submits.
+            // Perfect for pasting error logs, API responses, or code snippets.
+            console.log(`\n📋 [PASTE MODE] Paste your content below.`);
+            console.log(`   Press \x1b[1mCtrl+D\x1b[0m (Linux/Mac) or \x1b[1mCtrl+Z then Enter\x1b[0m (Windows) to finish.\n`);
+            
+            // Collect multi-line input via stdin
+            const chunks: string[] = [];
+            process.stdin.setEncoding('utf-8');
+            process.stdin.resume();
+            process.stdin.on('data', (chunk: string) => chunks.push(chunk));
+            process.stdin.once('end', () => {
+                const pastedContent = chunks.join('');
+                if (pastedContent.trim().length === 0) {
+                    console.log(`\n⚠️  Nothing pasted. Cancelling.`);
+                    process.stdin.pause();
+                    return;
+                }
+                const lineCount = pastedContent.split('\n').length;
+                (global as any).__atcli_staged_files = `--- PASTED CONTENT (${lineCount} lines) ---\n${pastedContent}`;
+                console.log(`\n✅ Content captured (${lineCount} lines). Type your instruction and press ENTER to send.\n`);
+                process.stdin.pause();
+            });
+            return { handled: true };
+        }
+
+
         case '/manage':
         case '/review':
             if (args.length === 0) {
@@ -631,9 +694,15 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
             console.log('  /upload <prompt> - Pause terminal so you can manually upload an image in the browser');
             console.log('  /session         - Pause terminal so you can manually select a past chat history to resume');
             console.log('  /audit           - Perform a full codebase scaling and bug audit');
-            console.log('  /loop [url]      - 🔁 Loop Engineering: screenshot app → vision review → inject bugs → repeat until perfect');
+            console.log('  /loop [url]      - 🔁 Loop Engineering: screenshot → vision review → inject bugs → repeat');
+            console.log('  /file <path>     - 📎 Stage file(s) and inject into next AI message (multi-file supported)');
+            console.log('  /paste           - 📋 Open paste mode — paste code/errors/logs, then type your instruction');
             console.log('  /exit            - Exit ATCLI');
             console.log('  /help            - Show this help message');
+            console.log('');
+            console.log('\x1b[36m\x1b[1m⚡ UNIVERSAL INTERCEPTOR:\x1b[0m');
+            console.log('\x1b[90m  Type an Ollama model name directly to connect:  qwen2.5-coder:3b\x1b[0m');
+            console.log('\x1b[90m  Type opencode, aider, or other CLI tools to bridge them through ATCLI.\x1b[0m');
             console.log('');
             console.log('\x1b[36m\x1b[1m🔍 AECL — Auto Error Checker Live:\x1b[0m');
             console.log('\x1b[90m  AECL is a separate command that shows live TypeScript/JS errors');
