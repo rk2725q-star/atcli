@@ -286,8 +286,22 @@ export async function startRepl() {
                     console.log(`  ✅ Context written to ${matchedTool.configDir}/${matchedTool.instructionsFile}`);
                 }
 
-                // ── STEP 3: Spawn the real tool process (inherit stdio fully) ─────
-                console.log(`  🚀 Starting ${matchedTool.name}...\n`);
+                // ── STEP 3: Start file upload bridge server (OpenCode only) ──────
+                let bridgeServer: { stop: () => void; port: number } | null = null;
+                if (matchedTool.cmd === 'opencode') {
+                    try {
+                        const { startOpenCodeBridge } = await import('../bridge/opencode_bridge');
+                        bridgeServer = startOpenCodeBridge(cwd);
+                    } catch (e: any) {
+                        console.log(`  ⚠️  Bridge server skipped: ${e.message}`);
+                    }
+                }
+
+                // ── STEP 4: Spawn the real tool process (inherit stdio fully) ─────
+                console.log(`  🚀 Starting ${matchedTool.name}...`);
+                if (bridgeServer) {
+                    console.log(`  📎 File upload: \x1b[36mhttp://localhost:${bridgeServer.port}\x1b[0m (open in browser)\n`);
+                }
                 
                 // Pause the readline so the tool gets full terminal control
                 rl.pause();
@@ -304,20 +318,27 @@ export async function startRepl() {
                 );
 
                 toolProcess.on('close', (code) => {
-                    // ── STEP 4: Clean up injected context after tool exits ─────────
+                    // ── STEP 5: Stop bridge server ─────────────────────────────────
+                    if (bridgeServer) bridgeServer.stop();
+                    
+                    // ── STEP 6: Clean up injected context after tool exits ─────────
                     if (matchedTool.configDir && matchedTool.instructionsFile) {
                         const instrPath = path.join(cwd, matchedTool.configDir, matchedTool.instructionsFile);
                         if (fs.existsSync(instrPath)) {
                             let content = fs.readFileSync(instrPath, 'utf-8');
-                            content = content.replace(/<!-- ATCLI_CONTEXT_START -->[\s\S]*?<!-- ATCLI_CONTEXT_END -->/g, '').trim();
+                            // Clean both context and uploads injections
+                            content = content
+                                .replace(/<!-- ATCLI_CONTEXT_START -->[\s\S]*?<!-- ATCLI_CONTEXT_END -->/g, '')
+                                .replace(/<!-- ATCLI_UPLOADS_START -->[\s\S]*?<!-- ATCLI_UPLOADS_END -->/g, '')
+                                .trim();
                             if (content) {
                                 fs.writeFileSync(instrPath, content + '\n', 'utf-8');
                             } else {
-                                fs.unlinkSync(instrPath); // Remove file if empty after cleanup
+                                fs.unlinkSync(instrPath);
                             }
                         }
                     }
-                    console.log(`\n[ATCLI] ${matchedTool.name} exited (code ${code}). Back in ATCLI. Use /file to stage more files.\n`);
+                    console.log(`\n[ATCLI] ${matchedTool.name} exited (code ${code}). Back in ATCLI.\n`);
                     
                     // Resume ATCLI readline
                     rl.resume();
@@ -325,6 +346,7 @@ export async function startRepl() {
                 });
 
                 toolProcess.on('error', (err: any) => {
+                    if (bridgeServer) bridgeServer.stop();
                     if (err.code === 'ENOENT') {
                         console.log(`\n❌ '${matchedTool.cmd}' not found. Install it first:`);
                         if (matchedTool.cmd === 'opencode') {
