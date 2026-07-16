@@ -244,7 +244,15 @@ async function sendMessageToBrowser(prompt: string): Promise<string | null> {
             const isStopButton = (b: Element) => {
                 const aria = (b.getAttribute('aria-label') || '').toLowerCase();
                 const title = (b.getAttribute('title') || '').toLowerCase();
-                return aria.includes('stop') || title.includes('stop');
+                if (aria.includes('stop') || title.includes('stop')) return true;
+                
+                const svg = b.querySelector('svg');
+                if (svg) {
+                    const html = svg.innerHTML;
+                    if (html.includes('rect') && !html.includes('circle')) return true;
+                    if (html.includes('M6 6h12v12H6z')) return true;
+                }
+                return false;
             };
 
             // Strategy 1: Find the textarea, walk up to its container, find the button inside
@@ -359,16 +367,24 @@ async function sendMessageToBrowser(prompt: string): Promise<string | null> {
                 if (document.querySelector('span[class*="cursor"]')) return true;
                 if (document.querySelector('[class*="stream"]')) return true;
                 
-                // DeepSeek "Stop generating" button check
+                // DeepSeek "Stop generating" button check via SVG path (most reliable)
                 const buttons = Array.from(document.querySelectorAll('div[role="button"], button'));
                 for (const b of buttons) {
                     const aria = (b.getAttribute('aria-label') || '').toLowerCase();
                     if (aria.includes('stop')) return true;
+                    
+                    const svg = b.querySelector('svg');
+                    if (svg) {
+                        const html = svg.innerHTML;
+                        // Stop buttons are usually a square (rect) or specific path like M6 6h12v12H6z
+                        if (html.includes('rect') && !html.includes('circle')) return true;
+                        if (html.includes('M6 6h12v12H6z')) return true;
+                    }
                 }
                 return false;
             }).catch(() => false);
 
-            // Any valid JSON tool call is at least ~15 chars. Do not block if < 100 chars!
+            // Any valid JSON tool call is at least ~15 chars. Do not block if < 10 chars!
             if (!isGenerating && rawText.length > 10) {
                 if (rawText === lastResponseText) {
                     stableCount++;
