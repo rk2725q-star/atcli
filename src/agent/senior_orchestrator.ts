@@ -190,6 +190,43 @@ async function sendMessageToBrowser(prompt: string): Promise<string | null> {
             console.log(`\n💬 [SENIOR] Sending follow-up in same conversation...`);
         }
 
+        // Wait for any previous generation to finish before typing the new prompt
+        let waitCount = 0;
+        let wasGenerating = false;
+        while (waitCount < 60) {
+            const isGenerating = await page.evaluate(() => {
+                if (document.querySelector('[class*="loading"]')) return true;
+                if (document.querySelector('[class*="generating"]')) return true;
+                if (document.querySelector('span[class*="cursor"]')) return true;
+                if (document.querySelector('[class*="stream"]')) return true;
+                
+                const buttons = Array.from(document.querySelectorAll('div[role="button"], button'));
+                for (const b of buttons) {
+                    const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                    if (aria.includes('stop')) return true;
+                    
+                    const svg = b.querySelector('svg');
+                    if (svg) {
+                        const html = svg.innerHTML;
+                        if (html.includes('rect') && !html.includes('circle')) return true;
+                        if (html.includes('M6 6h12v12H6z')) return true;
+                    }
+                }
+                return false;
+            }).catch(() => false);
+
+            if (!isGenerating) break;
+            
+            wasGenerating = true;
+            if (waitCount === 0) {
+                process.stdout.write(`\n⏳ [SENIOR] Waiting for previous response to finish... `);
+            }
+            process.stdout.write('.');
+            await page.waitForTimeout(3000);
+            waitCount++;
+        }
+        if (wasGenerating) console.log(' Done.');
+
         // Find the text input
         const inputSelectors = [
             'textarea#chat-input',
