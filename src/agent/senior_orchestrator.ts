@@ -1,37 +1,34 @@
 /**
- * SeniorJuniorOrchestrator
+ * SeniorJuniorOrchestrator — "Father of AI" Architecture
  *
- * Architecture: "Father of AI" pattern
+ * PRIMARY: Browser DeepSeek + DeepThink ON
+ *   → Real reasoning (think block)
+ *   → Strip <think>...</think>, use only final answer
+ *   → Same browser tab for all escalations (senior has full conversation memory)
  *
- *   [User Task]
- *       ↓
- *   SENIOR (cloud AI) → generates structured plan + reasoning
- *       ↓
- *   LOCAL 3b → executes step by step, fast file writes
- *       ↓
- *   [Error / Stall detected]
- *       ↓
- *   SENIOR (same API session) → fixes reasoning → local resumes
+ * FALLBACK: NVIDIA / DeepSeek API (if browser unavailable)
  *
- * The local model is the HANDS. The senior is the BRAIN.
- * Between them: 90%+ of top model quality at local model speed.
+ * Flow:
+ *   User Task → Senior reasons (browser DeepThink) → structured plan
+ *   Local 3b executes step by step
+ *   [ESCALATE] signal → SAME senior browser tab → fix → local continues
  */
 
 import { ApiKeyStore } from '../providers/api-key-store';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
-// ── Senior AI Config ──────────────────────────────────────────────────────────
+// ── Config ────────────────────────────────────────────────────────────────────
 const NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1';
-
-// Priority order: best reasoning model first
 const SENIOR_MODELS = [
-    { id: 'deepseek-r1',     model: 'deepseek-ai/deepseek-r1-0528',            keyAlias: 'nvidia'   },
-    { id: 'qwen3-235b',      model: 'qwen/qwen3-235b-a22b',                    keyAlias: 'nvidia'   },
-    { id: 'llama4-maverick', model: 'meta/llama-4-maverick-17b-128e-instruct', keyAlias: 'nvidia'   },
+    { id: 'deepseek-r1', model: 'deepseek-ai/deepseek-r1-0528', keyAlias: 'nvidia' },
+    { id: 'qwen3-235b',  model: 'qwen/qwen3-235b-a22b',         keyAlias: 'nvidia' },
 ];
-
 const PLAN_CACHE_FILE = '.atcli-tmp/orchestrator_session.json';
+
+// Persistent Playwright profile (keeps DeepSeek login cookies)
+const BROWSER_PROFILE_DIR = path.join(os.homedir(), '.atcli', 'senior_browser_profile');
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -61,7 +58,19 @@ export interface EscalationResult {
     explanation: string;
 }
 
-// ── Session State (singleton per ATCLI process) ───────────────────────────────
+// ── Browser Session (persisted across escalations — SAME conversation) ────────
+
+interface SeniorBrowserSession {
+    browser: any;      // Playwright Browser
+    page: any;         // Playwright Page — stays open for follow-up escalations
+    isReady: boolean;
+    isFirstMessage: boolean;
+    deepthinkEnabled: boolean;
+}
+
+let browserSession: SeniorBrowserSession | null = null;
+
+// ── Session Plan State ────────────────────────────────────────────────────────
 
 interface OrchestratorSession {
     plan: OrchestratorPlan | null;
@@ -69,7 +78,7 @@ interface OrchestratorSession {
     escalationCount: number;
     stallCount: number;
     lastToolCall: string;
-    seniorModel: typeof SENIOR_MODELS[0] | null;
+    seniorModel: string;
 }
 
 const SESSION: OrchestratorSession = {
@@ -78,35 +87,312 @@ const SESSION: OrchestratorSession = {
     escalationCount: 0,
     stallCount: 0,
     lastToolCall: '',
-    seniorModel: null,
+    seniorModel: 'deepseek-deepthink-browser',
 };
 
-// ── Core Senior API Call ──────────────────────────────────────────────────────
+// ── BROWSER SENIOR: DeepSeek + DeepThink (PRIMARY) ───────────────────────────
 
-async function callSenior(
+async function initSeniorBrowser(): Promise<SeniorBrowserSession | null> {
+    if (browserSession?.isReady) return browserSession;
+
+    try {
+        const { chromium } = await import('playwright');
+
+        // Use persistent profile so login/cookies are remembered
+        if (!fs.existsSync(BROWSER_PROFILE_DIR)) {
+            fs.mkdirSync(BROWSER_PROFILE_DIR, { recursive: true });
+        }
+
+        const browser = await chromium.launchPersistentContext(BROWSER_PROFILE_DIR, {
+            headless: false,           // visible — user can see the thinking happen
+            args: ['--start-maximized'],
+            timeout: 30000,
+        });
+
+        const pages = browser.pages();
+        const page = pages.length > 0 ? pages[0] : await browser.newPage();
+
+        browserSession = { browser, page, isReady: false, isFirstMessage: true, deepthinkEnabled: false };
+
+        console.log(`\n🌐 [SENIOR BROWSER] Navigating to DeepSeek...`);
+        await page.goto('https://chat.deepseek.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        // Wait for page to be interactive
+        await page.waitForTimeout(3000);
+
+        // Check if DeepThink button exists and enable it
+        await enableDeepThink(page);
+
+        browserSession.isReady = true;
+        console.log(`✅ [SENIOR BROWSER] DeepSeek ready with DeepThink — same tab for all escalations`);
+        return browserSession;
+
+    } catch (e: any) {
+        console.log(`\x1b[33m[SENIOR BROWSER] Could not launch browser: ${e.message}\x1b[0m`);
+        return null;
+    }
+}
+
+async function enableDeepThink(page: any): Promise<void> {
+    // Try multiple selectors for the DeepThink button
+    const deepThinkSelectors = [
+        'div[class*="deepThink"]',
+        'div[class*="deep-think"]',
+        'div[class*="deepthink"]',
+        'button[class*="deepThink"]',
+        '[class*="think"]:not([class*="thinking"])',
+        'div:has-text("DeepThink")',
+        'button:has-text("DeepThink")',
+        'span:has-text("DeepThink")',
+    ];
+
+    for (const sel of deepThinkSelectors) {
+        try {
+            const el = await page.$(sel);
+            if (el) {
+                // Check if already active
+                const isActive = await el.evaluate((node: Element) =>
+                    node.getAttribute('class')?.includes('active') ||
+                    node.getAttribute('aria-pressed') === 'true' ||
+                    node.getAttribute('data-selected') === 'true'
+                );
+                if (!isActive) {
+                    await el.click();
+                    await page.waitForTimeout(800);
+                    console.log(`✅ [SENIOR] DeepThink mode enabled`);
+                } else {
+                    console.log(`✅ [SENIOR] DeepThink already active`);
+                }
+                if (browserSession) browserSession.deepthinkEnabled = true;
+                return;
+            }
+        } catch (_) {}
+    }
+    console.log(`\x1b[90m[SENIOR] DeepThink toggle not found — using default mode\x1b[0m`);
+}
+
+async function sendMessageToBrowser(prompt: string): Promise<string | null> {
+    const session = await initSeniorBrowser();
+    if (!session?.isReady) return null;
+
+    const { page, isFirstMessage } = session;
+
+    try {
+        // If NOT first message, we're in the same conversation — just type next message
+        if (!isFirstMessage) {
+            console.log(`\n💬 [SENIOR] Sending follow-up in same conversation...`);
+        }
+
+        // Find the text input
+        const inputSelectors = [
+            'textarea#chat-input',
+            'textarea[placeholder*="Send"]',
+            'textarea[placeholder*="message"]',
+            'div[contenteditable="true"]',
+            'textarea',
+        ];
+
+        let input = null;
+        for (const sel of inputSelectors) {
+            input = await page.$(sel);
+            if (input) break;
+        }
+
+        if (!input) {
+            console.log(`\x1b[33m[SENIOR BROWSER] Input field not found\x1b[0m`);
+            return null;
+        }
+
+        // Clear and type
+        await input.click();
+        await page.waitForTimeout(300);
+
+        // Use clipboard for large prompts (faster + avoids typing artifacts)
+        await page.evaluate((text: string) => {
+            navigator.clipboard.writeText(text).catch(() => {});
+        }, prompt);
+
+        // Ctrl+A to select all, then type (overwrites)
+        await input.press('Control+a');
+        await page.waitForTimeout(100);
+
+        // Type via keyboard for reliability
+        await input.type(prompt.substring(0, 100)); // type first 100 chars
+        if (prompt.length > 100) {
+            // For long prompts, use fill for the rest
+            await input.press('Control+a');
+            await input.fill(prompt);
+        }
+
+        await page.waitForTimeout(500);
+
+        // Click send button
+        const sendSelectors = [
+            'button[aria-label*="send" i]',
+            'button[class*="send"]',
+            'button[class*="Send"]',
+            'div[class*="send"]:not([class*="disabled"])',
+            '#send-button',
+        ];
+
+        let sent = false;
+        for (const sel of sendSelectors) {
+            const btn = await page.$(sel);
+            if (btn) {
+                await btn.click();
+                sent = true;
+                break;
+            }
+        }
+
+        if (!sent) {
+            // Fallback: Enter key
+            await input.press('Enter');
+        }
+
+        session.isFirstMessage = false;
+
+        // ── Wait for response ─────────────────────────────────────────────────
+        console.log(`\n⏳ [SENIOR] Thinking... (DeepThink is reasoning — this may take 30-120s)`);
+
+        let lastResponseText = '';
+        let stableCount = 0;
+        let thinkingDone = false;
+        const startTime = Date.now();
+        const maxWait = 180 * 1000; // 3 minutes max
+
+        while (Date.now() - startTime < maxWait) {
+            await page.waitForTimeout(3000);
+
+            // Get the last assistant message text
+            const rawText = await page.evaluate(() => {
+                // Try multiple selectors for the response content
+                const selectors = [
+                    '[class*="markdown"] > *',
+                    '[class*="message-content"]',
+                    '[class*="chat-message"]:last-child',
+                    '[class*="ds-message-content"]',
+                    '[class*="response"]',
+                ];
+
+                for (const sel of selectors) {
+                    const elements = document.querySelectorAll(sel);
+                    if (elements.length > 0) {
+                        const last = elements[elements.length - 1];
+                        return last?.textContent || '';
+                    }
+                }
+
+                // Fallback: get all text from last message div
+                const msgs = document.querySelectorAll('[class*="message"]');
+                const lastMsg = msgs[msgs.length - 1];
+                return lastMsg?.textContent || '';
+            }).catch(() => '');
+
+            // Check if thinking is done (</think> or thinking block collapsed)
+            const thinkDone = await page.evaluate(() => {
+                // Look for think block completion indicators
+                return (
+                    document.querySelector('[class*="think-complete"]') !== null ||
+                    document.querySelector('[class*="thinking-complete"]') !== null ||
+                    // Common pattern: thinking collapsed/done
+                    document.querySelector('[class*="think"][class*="done"]') !== null ||
+                    document.querySelector('[class*="think"][class*="collapse"]') !== null
+                );
+            }).catch(() => false);
+
+            if (thinkDone && !thinkingDone) {
+                thinkingDone = true;
+                console.log(`\n💡 [SENIOR] Thinking complete — reading final answer...`);
+            }
+
+            // Check if still generating (loading spinner)
+            const isGenerating = await page.evaluate(() => {
+                return (
+                    document.querySelector('[class*="loading"]') !== null ||
+                    document.querySelector('[class*="generating"]') !== null ||
+                    document.querySelector('span[class*="cursor"]') !== null ||
+                    document.querySelector('[class*="stream"]') !== null
+                );
+            }).catch(() => false);
+
+            if (!isGenerating && rawText.length > 100) {
+                if (rawText === lastResponseText) {
+                    stableCount++;
+                    if (stableCount >= 2) {
+                        // Response stable for 6 seconds — done
+                        break;
+                    }
+                } else {
+                    stableCount = 0;
+                    lastResponseText = rawText;
+                }
+            } else {
+                stableCount = 0;
+                lastResponseText = rawText;
+                if (rawText.length > 0) {
+                    const elapsed = Math.round((Date.now() - startTime) / 1000);
+                    process.stdout.write(`\r\x1b[90m   [SENIOR] Reasoning... ${elapsed}s (${rawText.length} chars so far)\x1b[0m`);
+                }
+            }
+        }
+
+        console.log(''); // newline after progress
+
+        if (!lastResponseText) {
+            console.log(`\x1b[33m[SENIOR BROWSER] No response received\x1b[0m`);
+            return null;
+        }
+
+        // ── Extract final answer: strip think blocks ───────────────────────────
+        let finalAnswer = lastResponseText;
+
+        // Strip <think>...</think> content (DeepSeek R1 thinking)
+        finalAnswer = finalAnswer.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+        // Also strip "Thinking..." prefix sections
+        finalAnswer = finalAnswer.replace(/^[\s\S]*?(?=\{|Step 1|##|The|To|I |Let|First|Here)/i, '').trim();
+
+        // If we stripped too much, try getting just the last paragraph
+        if (finalAnswer.length < 50) {
+            const parts = lastResponseText.split('\n\n');
+            finalAnswer = parts.slice(-Math.min(3, parts.length)).join('\n\n').trim();
+        }
+
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`✅ [SENIOR] Response received in ${elapsed}s (${finalAnswer.length} chars)`);
+
+        return finalAnswer;
+
+    } catch (e: any) {
+        console.log(`\x1b[33m[SENIOR BROWSER] Error: ${e.message}\x1b[0m`);
+        return null;
+    }
+}
+
+// ── API SENIOR: NVIDIA / DeepSeek API (FALLBACK) ──────────────────────────────
+
+async function callSeniorViaApi(
     systemPrompt: string,
     userMessage: string,
-    maxTokens = 3000,
-    temperature = 0.2
+    maxTokens = 4000
 ): Promise<string | null> {
     const nvidiaKey = ApiKeyStore.get('nvidia') || ApiKeyStore.get('nvidia2');
     const deepseekKey = ApiKeyStore.get('deepseek');
 
-    // Try NVIDIA first (access to DeepSeek-R1, Qwen3, LLaMA4)
     if (nvidiaKey) {
-        const senior = SESSION.seniorModel || SENIOR_MODELS[0];
-        SESSION.seniorModel = senior;
+        const model = SENIOR_MODELS[0];
         try {
             const res = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${nvidiaKey}` },
                 body: JSON.stringify({
-                    model: senior.model,
+                    model: model.model,
                     messages: [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: userMessage }
                     ],
-                    temperature,
+                    temperature: 0.2,
                     max_tokens: maxTokens,
                     stream: false,
                 }),
@@ -114,54 +400,68 @@ async function callSenior(
             if (res.ok) {
                 const data = await res.json() as any;
                 let raw: string = data.choices?.[0]?.message?.content || '';
-                raw = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim(); // strip R1 reasoning
+                raw = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                SESSION.seniorModel = model.model;
                 return raw;
             }
-        } catch (_) { /* fall through */ }
+        } catch (_) {}
     }
 
-    // Fallback: DeepSeek direct API
     if (deepseekKey) {
         try {
             const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${deepseekKey}` },
                 body: JSON.stringify({
-                    model: 'deepseek-chat',
+                    model: 'deepseek-reasoner',  // R1 — actual reasoning model
                     messages: [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: userMessage }
                     ],
-                    temperature,
+                    temperature: 0.2,
                     max_tokens: maxTokens,
                     stream: false,
                 }),
             });
             if (res.ok) {
                 const data = await res.json() as any;
-                SESSION.seniorModel = { id: 'deepseek-api', model: 'deepseek-chat', keyAlias: 'deepseek' };
-                return data.choices?.[0]?.message?.content || null;
+                let raw: string = data.choices?.[0]?.message?.content || '';
+                // DeepSeek reasoner returns reasoning_content separately
+                const reasoning = (data.choices?.[0]?.message as any)?.reasoning_content;
+                if (reasoning) {
+                    console.log(`\x1b[90m   [SENIOR API] Reasoning: ${reasoning.length} chars (stripped)\x1b[0m`);
+                }
+                raw = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                SESSION.seniorModel = 'deepseek-reasoner-api';
+                return raw;
             }
-        } catch (_) { /* fall through */ }
+        } catch (_) {}
     }
 
-    return null; // No senior available — local model works alone
+    return null;
 }
 
-// ── FUNCTION 1: Generate Task Plan (call ONCE at project start) ───────────────
+// ── UNIFIED SENIOR CALL: Browser first, API fallback ─────────────────────────
 
-export async function orchestratePlan(userTask: string): Promise<OrchestratorPlan | null> {
-    // Skip simple conversational messages
-    const isSimple = userTask.length < 25 ||
-        /^(hello|hi|hey|thanks|ok|yes|no|done|good|test|ping)\b/i.test(userTask.trim());
-    if (isSimple) return null;
+async function callSenior(prompt: string, systemHint?: string): Promise<string | null> {
+    // PRIMARY: Browser DeepSeek with DeepThink (real reasoning)
+    const fullPrompt = systemHint ? `${systemHint}\n\n${prompt}` : prompt;
+    const browserResult = await sendMessageToBrowser(fullPrompt);
+    if (browserResult && browserResult.length > 50) return browserResult;
 
-    const systemPrompt = `You are a SENIOR PRINCIPAL ENGINEER — the BRAIN of an AI system.
-A junior 3b local model (HANDS) will execute your plan step by step.
-The junior can write files, run commands, use browser — but CANNOT reason or architect.
-YOUR JOB: Generate a perfect, atomic execution plan.
+    // FALLBACK: API if browser failed
+    console.log(`\x1b[90m[SENIOR] Browser unavailable — falling back to API\x1b[0m`);
+    const apiSystem = systemHint || 'You are a senior software architect. Be precise and concise.';
+    return await callSeniorViaApi(apiSystem, prompt, 4000);
+}
 
-OUTPUT ONLY VALID JSON (no text before or after):
+// ── FUNCTION 1: Generate Task Plan ───────────────────────────────────────────
+
+const PLANNING_PROMPT_PREFIX = `You are a SENIOR PRINCIPAL ENGINEER — the reasoning brain of an AI system.
+A junior 3b local model will execute your plan step-by-step.
+The junior has limited reasoning — YOUR JOB: perfect atomic plan, no ambiguity.
+
+OUTPUT ONLY VALID JSON (no text outside the JSON):
 {
   "task": "one-sentence summary",
   "tech_stack": "exact stack (e.g. Next.js 14 + TypeScript + Tailwind + Prisma)",
@@ -170,9 +470,9 @@ OUTPUT ONLY VALID JSON (no text before or after):
   "steps": [
     {
       "id": 1,
-      "title": "short action title",
-      "what": "EXACT instruction — name files, imports, exact code patterns",
-      "tool": "write_file|run_command|browser_goto|replace|read_file|list_dir",
+      "title": "short action",
+      "what": "EXACT instruction — name exact files, imports, code patterns",
+      "tool": "write_file|run_command|browser_goto|replace|read_file",
       "file": "src/path/to/file.ts",
       "command": "npm install pkg1 pkg2",
       "critical": true
@@ -180,56 +480,66 @@ OUTPUT ONLY VALID JSON (no text before or after):
   ]
 }
 
-PLANNING RULES:
-1. 5-25 atomic steps. Each step = exactly 1 tool call.
-2. Be CRYSTAL CLEAR — junior cannot interpret ambiguity.
-3. Sequence: scaffold → install → core files → features → tests → run & verify.
-4. Include exact package names, import paths, and code patterns.
-5. critical:true = escalate to senior AI if this step fails.
-6. Final step: browser_screenshot to confirm it works.`;
+RULES: 5-25 steps. Each = 1 tool call. crystal clear. critical:true = escalate on failure.
+Final step: browser_screenshot to verify.`;
 
-    console.log(`\n🧠 [SENIOR BRAIN] Generating plan via ${SENIOR_MODELS[0].id}...`);
-    const t0 = Date.now();
+export async function orchestratePlan(userTask: string): Promise<OrchestratorPlan | null> {
+    const isSimple = userTask.length < 25 ||
+        /^(hello|hi|hey|thanks|ok|yes|no|done|good|test|ping)\b/i.test(userTask.trim());
+    if (isSimple) return null;
 
-    const raw = await callSenior(systemPrompt, `USER TASK: "${userTask}"`, 4000, 0.2);
+    console.log(`\n🧠 [SENIOR BRAIN] Opening DeepSeek with DeepThink for project planning...`);
+
+    const prompt = `${PLANNING_PROMPT_PREFIX}\n\nUSER TASK: "${userTask}"`;
+    const raw = await callSenior(prompt);
+
     if (!raw) {
-        console.log(`\x1b[90m[SENIOR] No API key available — local model working independently\x1b[0m`);
+        console.log(`\x1b[33m[SENIOR] No response — local model will self-plan\x1b[0m`);
         return null;
     }
 
     try {
-        const jsonStr = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        let jsonStr = raw;
+
+        // Extract JSON if wrapped in markdown
+        const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonMatch) jsonStr = jsonMatch[1];
+
+        // Find first { and last } if raw has surrounding text
+        const start = jsonStr.indexOf('{');
+        const end = jsonStr.lastIndexOf('}');
+        if (start !== -1 && end !== -1) jsonStr = jsonStr.substring(start, end + 1);
+
         const plan: OrchestratorPlan = JSON.parse(jsonStr);
         plan.createdAt = new Date().toISOString();
-        plan.seniorModel = SESSION.seniorModel?.model || 'unknown';
+        plan.seniorModel = SESSION.seniorModel;
 
-        // Reset session
         SESSION.plan = plan;
         SESSION.currentStepId = 1;
         SESSION.escalationCount = 0;
         SESSION.stallCount = 0;
 
-        // Persist to disk
+        // Cache to disk
         const cacheDir = path.join(process.cwd(), '.atcli-tmp');
         if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
         fs.writeFileSync(
             path.join(process.cwd(), PLAN_CACHE_FILE),
-            JSON.stringify({ plan, session: { currentStepId: SESSION.currentStepId } }, null, 2),
+            JSON.stringify({ plan, session: { currentStepId: 1 } }, null, 2),
             'utf-8'
         );
 
-        const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-        console.log(`✅ [SENIOR BRAIN] Plan ready in ${elapsed}s — ${plan.steps.length} steps | ${plan.tech_stack}`);
+        console.log(`\n✅ [SENIOR BRAIN] Plan ready: ${plan.steps.length} steps | ${plan.tech_stack}`);
         console.log(`\x1b[90m   Architecture: ${plan.architecture}\x1b[0m`);
         return plan;
 
     } catch (e: any) {
-        console.log(`\x1b[33m[SENIOR] Plan parse failed: ${e.message} — local model will self-plan\x1b[0m`);
+        console.log(`\x1b[33m[SENIOR] Plan parse failed: ${e.message} — showing raw:\x1b[0m`);
+        console.log(raw.substring(0, 500));
         return null;
     }
 }
 
-// ── FUNCTION 2: Mid-Task Escalation (call when local model is stuck) ──────────
+// ── FUNCTION 2: Mid-Task Escalation (SAME browser tab = full context) ─────────
 
 export async function escalateToSenior(
     issue: string,
@@ -237,45 +547,32 @@ export async function escalateToSenior(
 ): Promise<EscalationResult | null> {
     SESSION.escalationCount++;
 
-    const systemPrompt = `You are a SENIOR ENGINEER rescuing a stuck junior AI model.
-Give a PRECISE, COPY-PASTEABLE solution. Be specific. No filler.
-Output JSON: {"solution":"exact fix","explanation":"why","code":"full corrected content if needed"}`;
-
-    const userMsg = [
-        `TASK: ${SESSION.plan?.task || 'unknown'}`,
-        `STACK: ${SESSION.plan?.tech_stack || 'unknown'}`,
-        `STEP: ${context.stepId || SESSION.currentStepId}`,
-        `ESCALATION #${SESSION.escalationCount}`,
-        ``,
-        `PROBLEM: ${issue}`,
-        context.errorOutput ? `\nERROR:\n${context.errorOutput.substring(0, 1500)}` : '',
-        context.fileContent ? `\nFILE:\n\`\`\`\n${context.fileContent.substring(0, 1500)}\n\`\`\`` : '',
+    // Use SAME browser session → senior remembers the full plan and previous conversation!
+    const prompt = [
+        `I'm on Step ${context.stepId || SESSION.currentStepId} of the plan.`,
+        `Problem: ${issue}`,
+        context.errorOutput ? `\nError output:\n${context.errorOutput.substring(0, 1000)}` : '',
+        context.fileContent ? `\nCurrent file:\n\`\`\`\n${context.fileContent.substring(0, 1000)}\n\`\`\`` : '',
+        `\nProvide the EXACT fix. Output JSON: {"solution":"exact fix code or command","explanation":"why","code":"full corrected content if needed"}`,
     ].filter(Boolean).join('\n');
 
-    console.log(`\n🆘 [SENIOR RESCUE] Escalation #${SESSION.escalationCount} — asking senior for step ${context.stepId || SESSION.currentStepId}...`);
+    console.log(`\n🆘 [SENIOR RESCUE] Escalation #${SESSION.escalationCount} — asking senior (same conversation)...`);
 
-    const raw = await callSenior(systemPrompt, userMsg, 2000, 0.1);
+    const raw = await callSenior(prompt,
+        `You are the senior engineer helping with the project we just planned. Give a precise, copy-pasteable fix.`);
+
     if (!raw) return null;
 
     try {
-        const jsonStr = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        if (jsonStr.startsWith('{')) return JSON.parse(jsonStr) as EscalationResult;
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) return JSON.parse(jsonMatch[0]) as EscalationResult;
         return { solution: raw, explanation: 'Senior provided direct answer', code: undefined };
     } catch {
         return { solution: raw, explanation: 'Senior provided direct answer', code: undefined };
     }
 }
 
-// ── FUNCTION 3: Reasoning On-Demand ──────────────────────────────────────────
-
-export async function seniorReason(question: string, context?: string): Promise<string | null> {
-    const sys = `You are a senior software architect. Answer with precise technical detail.
-Give exact code, commands, and patterns. No padding.`;
-    const msg = context ? `CONTEXT:\n${context}\n\nQUESTION: ${question}` : question;
-    return await callSenior(sys, msg, 1500, 0.1);
-}
-
-// ── FUNCTION 4: Format Plan for Local Model's System Prompt ──────────────────
+// ── FUNCTION 3: Format Plan for Local Model ───────────────────────────────────
 
 export function formatOrchestratorPlan(plan: OrchestratorPlan): string {
     const stepLines = plan.steps.map(s => {
@@ -283,7 +580,7 @@ export function formatOrchestratorPlan(plan: OrchestratorPlan): string {
         line += `\n  → ${s.what}`;
         if (s.file) line += `\n  → File: ${s.file}`;
         if (s.command) line += `\n  → Run: ${s.command}`;
-        if (s.critical) line += `\n  ⚠️ CRITICAL — output [ESCALATE] + error if this fails`;
+        if (s.critical) line += `\n  ⚠️ CRITICAL — write [ESCALATE]: <error> if this fails`;
         return line;
     }).join('\n\n');
 
@@ -302,12 +599,12 @@ ${warnings}
 STEPS (one tool call per step, in order):
 ${stepLines}
 
-RULES: ONE step per turn. If CRITICAL step fails → write "[ESCALATE]: <error>".
-After ALL steps done → aecl_check → browser_screenshot.
+RULES: ONE step per turn. If CRITICAL step fails → write "[ESCALATE]: <exact error>".
+After ALL steps → aecl_check → browser_screenshot.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 }
 
-// ── FUNCTION 5: Stall Detection ───────────────────────────────────────────────
+// ── FUNCTION 4: Stall Detection ───────────────────────────────────────────────
 
 export function detectStall(toolCallAction: string): boolean {
     if (toolCallAction === SESSION.lastToolCall) {
@@ -319,7 +616,7 @@ export function detectStall(toolCallAction: string): boolean {
     return SESSION.stallCount >= 2;
 }
 
-// ── FUNCTION 6: Session Accessors ─────────────────────────────────────────────
+// ── FUNCTION 5: Session Accessors ─────────────────────────────────────────────
 
 export function getSessionPlan(): OrchestratorPlan | null { return SESSION.plan; }
 export function getCurrentStep(): number { return SESSION.currentStepId; }
@@ -329,9 +626,10 @@ export function resetSession(): void {
     SESSION.currentStepId = 1;
     SESSION.escalationCount = 0;
     SESSION.stallCount = 0;
+    // Don't close browser — keep for next project
 }
 
-// ── FUNCTION 7: Resume from cached plan ───────────────────────────────────────
+// ── FUNCTION 6: Resume cached plan ────────────────────────────────────────────
 
 export function loadCachedPlan(): OrchestratorPlan | null {
     try {
@@ -339,9 +637,19 @@ export function loadCachedPlan(): OrchestratorPlan | null {
         if (!fs.existsSync(p)) return null;
         const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
         const age = Date.now() - new Date(data.plan.createdAt).getTime();
-        if (age > 2 * 60 * 60 * 1000) return null; // 2 hours max
+        if (age > 2 * 60 * 60 * 1000) return null; // 2 hour max
         SESSION.plan = data.plan;
         SESSION.currentStepId = data.session?.currentStepId ?? 1;
+        console.log(`\x1b[90m[ORCHESTRATOR] Resumed cached plan (step ${SESSION.currentStepId}/${SESSION.plan?.steps.length})\x1b[0m`);
         return data.plan;
     } catch { return null; }
+}
+
+// ── FUNCTION 7: Cleanup ───────────────────────────────────────────────────────
+
+export async function closeSeniorBrowser(): Promise<void> {
+    if (browserSession?.browser) {
+        try { await browserSession.browser.close(); } catch (_) {}
+        browserSession = null;
+    }
 }

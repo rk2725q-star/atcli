@@ -98,6 +98,11 @@ export class BrowserManager {
             this.context = null;
         }
         this.pages.clear();
+        // Also close senior brain browser if open
+        try {
+            const { closeSeniorBrowser } = await import('../agent/senior_orchestrator');
+            await closeSeniorBrowser();
+        } catch (_) {}
     }
 
     public async close(): Promise<void> {
