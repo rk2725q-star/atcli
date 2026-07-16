@@ -27,8 +27,7 @@ const SENIOR_MODELS = [
 ];
 const PLAN_CACHE_FILE = '.atcli-tmp/orchestrator_session.json';
 
-// Persistent Playwright profile (keeps DeepSeek login cookies)
-const BROWSER_PROFILE_DIR = path.join(os.homedir(), '.atcli', 'senior_browser_profile');
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,26 +95,18 @@ async function initSeniorBrowser(): Promise<SeniorBrowserSession | null> {
     if (browserSession?.isReady) return browserSession;
 
     try {
-        const { chromium } = await import('playwright');
-
-        // Use persistent profile so login/cookies are remembered
-        if (!fs.existsSync(BROWSER_PROFILE_DIR)) {
-            fs.mkdirSync(BROWSER_PROFILE_DIR, { recursive: true });
+        const { BrowserManager } = await import('../browser/manager');
+        const browserManager = BrowserManager.getInstance();
+        if (!browserManager.context) {
+            await browserManager.initialize();
         }
 
-        const browser = await chromium.launchPersistentContext(BROWSER_PROFILE_DIR, {
-            headless: false,           // visible — user can see the thinking happen
-            args: ['--start-maximized'],
-            timeout: 30000,
-        });
-
-        const pages = browser.pages();
-        const page = pages.length > 0 ? pages[0] : await browser.newPage();
+        const browser = browserManager.context;
+        const page = await browserManager.getOrCreatePage('senior_orchestrator', 'https://chat.deepseek.com');
 
         browserSession = { browser, page, isReady: false, isFirstMessage: true, deepthinkEnabled: false };
 
         console.log(`\n🌐 [SENIOR BROWSER] Navigating to DeepSeek...`);
-        await page.goto('https://chat.deepseek.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
         // Wait for page to be interactive
         await page.waitForTimeout(3000);
@@ -664,8 +655,8 @@ export function loadCachedPlan(): OrchestratorPlan | null {
 // ── FUNCTION 7: Cleanup ───────────────────────────────────────────────────────
 
 export async function closeSeniorBrowser(): Promise<void> {
-    if (browserSession?.browser) {
-        try { await browserSession.browser.close(); } catch (_) {}
+    if (browserSession) {
         browserSession = null;
+        // Actual browser close is now handled by BrowserManager.closeAll()
     }
 }
