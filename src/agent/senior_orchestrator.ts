@@ -241,6 +241,12 @@ async function sendMessageToBrowser(prompt: string): Promise<string | null> {
         // Click send button
         // ── ROBUST SEND BUTTON CLICKER ──
         let sent = await page.evaluate(() => {
+            const isStopButton = (b: Element) => {
+                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                const title = (b.getAttribute('title') || '').toLowerCase();
+                return aria.includes('stop') || title.includes('stop');
+            };
+
             // Strategy 1: Find the textarea, walk up to its container, find the button inside
             const textareas = document.querySelectorAll('textarea');
             if (textareas.length > 0) {
@@ -252,9 +258,14 @@ async function sendMessageToBrowser(prompt: string): Promise<string | null> {
                     // DeepSeek uses a div[role="button"] for send, usually the last button in the wrapper
                     const buttons = Array.from(wrapper.querySelectorAll('div[role="button"], button')).reverse();
                     for (const btn of buttons) {
-                        // The send button usually doesn't have text, but has an SVG and isn't disabled
                         if (btn !== ta && !btn.hasAttribute('disabled')) {
-                            // Verify it has an SVG (send icon)
+                            // RACE CONDITION FIX: If the button is a Stop button, the prompt auto-submitted!
+                            // Do NOT click it, just consider it successfully sent.
+                            if (isStopButton(btn)) {
+                                return true; 
+                            }
+                            
+                            // The send button usually doesn't have text, but has an SVG
                             if (btn.querySelector('svg')) {
                                 (btn as HTMLElement).click();
                                 return true;
@@ -268,7 +279,7 @@ async function sendMessageToBrowser(prompt: string): Promise<string | null> {
             // Strategy 2: Fallback to aria-label
             const ariaBtns = document.querySelectorAll('[aria-label*="send" i]');
             for (const b of Array.from(ariaBtns)) {
-                if (!b.hasAttribute('disabled')) {
+                if (!b.hasAttribute('disabled') && !isStopButton(b)) {
                     (b as HTMLElement).click();
                     return true;
                 }
