@@ -334,15 +334,22 @@ async function sendMessageToBrowser(prompt: string): Promise<string | null> {
 
             // Check if still generating (loading spinner)
             const isGenerating = await page.evaluate(() => {
-                return (
-                    document.querySelector('[class*="loading"]') !== null ||
-                    document.querySelector('[class*="generating"]') !== null ||
-                    document.querySelector('span[class*="cursor"]') !== null ||
-                    document.querySelector('[class*="stream"]') !== null
-                );
+                if (document.querySelector('[class*="loading"]')) return true;
+                if (document.querySelector('[class*="generating"]')) return true;
+                if (document.querySelector('span[class*="cursor"]')) return true;
+                if (document.querySelector('[class*="stream"]')) return true;
+                
+                // DeepSeek "Stop generating" button check
+                const buttons = Array.from(document.querySelectorAll('div[role="button"], button'));
+                for (const b of buttons) {
+                    const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                    if (aria.includes('stop')) return true;
+                }
+                return false;
             }).catch(() => false);
 
-            if (!isGenerating && rawText.length > 100) {
+            // Any valid JSON tool call is at least ~15 chars. Do not block if < 100 chars!
+            if (!isGenerating && rawText.length > 10) {
                 if (rawText === lastResponseText) {
                     stableCount++;
                     if (stableCount >= 2) {
