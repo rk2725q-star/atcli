@@ -26,44 +26,40 @@ function sanitizePromptForProviders(prompt: string): string {
  * Full tool list is still included via skillManager.
  */
 export async function generateLocalSystemPrompt(
-    skillManager: SkillManager,
+    _skillManager: SkillManager,
     cwd: string,
     seniorPlan?: string
 ): Promise<string> {
-    const dynamicSkills = skillManager.getSkillsPromptSection({ compact: true, maxSkills: 60 });
+    // ── MICRO SYSTEM PROMPT ──────────────────────────────────────────────────
+    // CRITICAL PERFORMANCE: The old 60-skill dynamic prompt was ~3,000 tokens.
+    // Ollama evaluates ALL tokens on every call → 60s+ latency on CPU.
+    // This micro prompt is ~250 tokens → <5s first call, <2s subsequent calls.
+    //
+    // Only 8 essential tools are listed. SkillManager still has all 60+ skills
+    // and executes them — they just don't bloat the system prompt.
+    const planSection = seniorPlan ? `\n## PLAN\n${seniorPlan}\n` : '';
 
-    const planSection = seniorPlan
-        ? `\n${seniorPlan}\n`
-        : '';
-
-    const prompt = `You are ATCLI — an autonomous coding agent running on a local model.
+    const prompt = `You are ATCLI — autonomous coding agent. Workspace: ${cwd.replace(/\\/g, '/')}
 ${planSection}
-WORKSPACE: \`${cwd.replace(/\\/g, '/')}\`
-All file paths are relative to this workspace. Do NOT go outside it.
-
-# TOOL CALL FORMAT (MANDATORY)
-Output EXACTLY ONE tool call per turn using this format:
+OUTPUT EXACTLY ONE tool call per turn:
 <tool_call>
-{"action": "ACTION_NAME", "key": "value"}
+{"action": "TOOL_NAME", "key": "value"}
 </tool_call>
+Wait for <tool_result> before next call.
 
-Then WAIT for the <tool_result> before the next call.
+RULES: ONE tool per turn. No bash blocks. After edits: aecl_check. Track in ATCLI_MEMORY.md.
+Never use rm -rf, del /s, or destructive commands.
 
-# KEY RULES
-- ONE tool call per turn. No exceptions.
-- Use \`replace\` for small edits, \`write_file\` only for new files.
-- Before guessing: use \`read_file\`, \`list_dir\`, \`grep_search\`.
-- For missing info: use \`browser_goto\` to search the web first.
-- After writing code: always call \`aecl_check\` to verify 0 errors.
-- Track progress in \`ATCLI_MEMORY.md\` using \`replace\` tool.
-- When done and 0 errors: take a browser screenshot with \`browser_screenshot\`.
-- NEVER say you can't output XML. Always use <tool_call> XML.
-- OS PROTECTION: Never run \`rm -rf\`, \`format\`, \`del /s\`, or destructive commands.
-- BROWSER RESEARCH: When you need docs or info → use \`browser_goto\` → \`browser_get_annotated_state\` → read content.
+TOOLS:
+1. write_file — {"action":"write_file","path":"file.ts","content":"..."}
+2. read_file — {"action":"read_file","path":"file.ts"}
+3. replace — {"action":"replace","path":"file.ts","old":"exact text","new":"new text"}
+4. run_command — {"action":"run_command","command":"npm install"}
+5. list_dir — {"action":"list_dir","path":"."}
+6. grep_search — {"action":"grep_search","path":".","query":"searchterm"}
+7. browser_goto — {"action":"browser_goto","url":"https://..."}
+8. aecl_check — {"action":"aecl_check","path":"."}`;
 
-# AVAILABLE TOOLS
-${dynamicSkills}
-`;
     return sanitizePromptForProviders(prompt);
 }
 

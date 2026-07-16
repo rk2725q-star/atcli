@@ -375,48 +375,74 @@ export class AgentLoop {
         };
 
         // AUTO-READ KEY FILES for cold-start context (saves AI from spending iterations discovering project)
+        // ⚡ LOCAL MODEL FAST PATH: Skip auto-read — these tokens are expensive on local models.
+        // Local models use list_dir/read_file tools to discover project structure as needed.
         let coldStartContext = '';
-        const keyFiles = ['package.json', 'tsconfig.json', 'next.config.ts', 'next.config.js', 'vite.config.ts', 'pyproject.toml', 'requirements.txt', '.env.example', 'README.md'];
-        const autoReadFiles: string[] = [];
-        for (const kf of keyFiles) {
-            const kfPath = path.join(cwd, kf);
-            if (fs.existsSync(kfPath)) {
-                try {
-                    const content = fs.readFileSync(kfPath, 'utf-8').substring(0, 1500);
-                    autoReadFiles.push(`--- ${kf} ---\n${content}`);
-                } catch(e) { /* ignore */ }
-                if (autoReadFiles.length >= 3) break; // Max 3 key files to keep context lean
+        const isLocalModel = this.provider.id === 'ollama' || this.provider.id === 'local' || this.provider.id === 'qwen-local';
+
+        if (!isLocalModel) {
+            // Cloud models: full cold-start context (they handle large contexts efficiently)
+            const keyFiles = ['package.json', 'tsconfig.json', 'next.config.ts', 'next.config.js', 'vite.config.ts', 'pyproject.toml', 'requirements.txt', '.env.example', 'README.md'];
+            const autoReadFiles: string[] = [];
+            for (const kf of keyFiles) {
+                const kfPath = path.join(cwd, kf);
+                if (fs.existsSync(kfPath)) {
+                    try {
+                        const content = fs.readFileSync(kfPath, 'utf-8').substring(0, 1500);
+                        autoReadFiles.push(`--- ${kf} ---\n${content}`);
+                    } catch(e) { /* ignore */ }
+                    if (autoReadFiles.length >= 3) break;
+                }
+            }
+            if (autoReadFiles.length > 0) {
+                coldStartContext = `[AUTO-READ KEY FILES (cold-start context, no iteration wasted)]:\n${autoReadFiles.join('\n\n')}`;
             }
         }
-        if (autoReadFiles.length > 0) {
-            coldStartContext = `[AUTO-READ KEY FILES (cold-start context, no iteration wasted)]:\n${autoReadFiles.join('\n\n')}`;
-        }
 
-        const workspaceTree = getWorkspaceTree(cwd);
-        const isLocalModel = this.provider.id === 'ollama' || this.provider.id === 'local' || this.provider.id === 'qwen-local';
+        // ⚡ LOCAL MODEL: skip workspace tree (saves ~1,000 tokens)
+        const workspaceTree = isLocalModel ? '' : getWorkspaceTree(cwd);
 
         let memorySection = '';
         if (bootMemoryContent) {
-            // Local models need a denser memory payload; cloud models can tolerate a shorter preview.
-            const memPreview = buildMemorySnapshot(bootMemoryContent, isLocalModel, isLocalModel ? 22000 : 10000);
-            memorySection = `[ATCLI PROJECT MEMORY — AUTO-INJECTED FOR NEW SESSION]\n` +
-                `The following is the most relevant ATCLI_MEMORY.md snapshot for this new session. This is your primary project context. ` +
-                `Read it carefully — it contains the tech stack, all files created, architecture decisions, and next steps. ` +
-                `DO NOT ask the user "what project is this" — the answer is below:\n\n${memPreview}` +
-                `\n\n[If you need additional detail, use local_model_recall, grep_search, or read_file on ATCLI_MEMORY.md.]`;
+            if (isLocalModel) {
+                // ⚡ LOCAL MODEL: cap memory at 800 chars (~200 tokens) — enough for project intent
+                // Model uses read_file("ATCLI_MEMORY.md") tool to get more detail when needed
+                const memCompact = bootMemoryContent
+                    .split('\n')
+                    .filter(l => l.trim())
+                    .slice(0, 20)
+                    .join('\n')
+                    .substring(0, 800);
+                memorySection = `[PROJECT MEMORY SNAPSHOT]:\n${memCompact}\n[Use read_file("ATCLI_MEMORY.md") for full context.]`;
+            } else {
+                // Cloud models: full snapshot (large context window, efficient evaluation)
+                const memPreview = buildMemorySnapshot(bootMemoryContent, false, 10000);
+                memorySection = `[ATCLI PROJECT MEMORY — AUTO-INJECTED FOR NEW SESSION]\n` +
+                    `The following is the most relevant ATCLI_MEMORY.md snapshot for this new session. This is your primary project context. ` +
+                    `Read it carefully — it contains the tech stack, all files created, architecture decisions, and next steps. ` +
+                    `DO NOT ask the user "what project is this" — the answer is below:\n\n${memPreview}` +
+                    `\n\n[If you need additional detail, use local_model_recall, grep_search, or read_file on ATCLI_MEMORY.md.]`;
+            }
         } else {
             memorySection = '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. Create ATCLI_MEMORY.md at your first episodic checkpoint.';
         }
 
-        // Boot injection: full cold-start context for new sessions
-        const bootInjection = [
-            `[PROJECT INTENT]: ${this.projectIntent}`,
-            `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code). Do NOT write configs for other IDEs unless asked.`,
-            `[WORKSPACE STRUCTURE — 3 levels deep]:\n${workspaceTree || '(Empty workspace)'}`,
-            coldStartContext,
-            isLocalModel ? `[LOCAL MODEL MODE]: Use ATCLI_MEMORY.md as the primary memory source. Prefer local_model_recall, read_file, list_dir, grep_search, aecl_check, and workspace_analyze before guessing. Keep edits small and targeted. Ask for browser/search help only when needed.` : '',
-            memorySection
-        ].filter(Boolean).join('\n\n');
+        // Boot injection: full context for cloud, lean context for local
+        const bootInjection = isLocalModel
+            ? [
+                // ⚡ LOCAL: only 3 sections — project intent + IDE + compact memory (~300 tokens total)
+                `[TASK]: ${this.projectIntent}`,
+                `[IDE]: ${detectedIDE}`,
+                memorySection
+              ].filter(Boolean).join('\n\n')
+            : [
+                // ☁️  CLOUD: full boot context (unchanged)
+                `[PROJECT INTENT]: ${this.projectIntent}`,
+                `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code). Do NOT write configs for other IDEs unless asked.`,
+                `[WORKSPACE STRUCTURE — 3 levels deep]:\n${workspaceTree || '(Empty workspace)'}`,
+                coldStartContext,
+                memorySection
+              ].filter(Boolean).join('\n\n');
 
         if (this.isFirstMessage) {
             // MAX_CHUNK_LENGTH: 100k chars per chunk — safe for all providers (ChatGPT, Gemini, Claude, DeepSeek)

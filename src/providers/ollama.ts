@@ -17,11 +17,23 @@ interface OllamaChatResponse {
 }
 
 const OLLAMA_API_BASE = 'http://localhost:11434/api';
-// CRITICAL: num_ctx must be larger than (system_prompt_tokens + conversation + num_predict)
-// System prompt ~3-4k tokens, so: num_ctx:16384 leaves 12k for conversation + 3k output
-// num_predict must be < (num_ctx - prompt_tokens). 3072 is safe for most file writes.
-const OLLAMA_MAX_CONTEXT_TOKENS = 16384;
-const OLLAMA_TRIM_TARGET_TOKENS = 8000;
+
+// ── Context window: auto-sized by model parameter count ─────────────────────
+// 3b models: 4096 (fast KV init, ~8s first call on CPU)
+// 7b models: 8192
+// 14b+ models: 16384
+// Override: set ATCLI_OLLAMA_CTX env var
+function getNumCtx(modelName: string): number {
+    if (process.env.ATCLI_OLLAMA_CTX) return parseInt(process.env.ATCLI_OLLAMA_CTX);
+    const lower = modelName.toLowerCase();
+    if (lower.includes('0.5b') || lower.includes('1b') || lower.includes('1.5b') || lower.includes('2b') || lower.includes('3b')) return 4096;
+    if (lower.includes('7b') || lower.includes('8b')) return 8192;
+    return 16384; // 14b, 32b, 70b etc
+}
+
+// Trim: keep total tokens under this so model has room to generate output
+// Rule: trim_target + num_predict < num_ctx
+const OLLAMA_TRIM_TARGET_TOKENS = 2800;  // safe for 4096 ctx (2800+1024 predict = 3824 < 4096)
 
 // ── Global prompt cache ───────────────────────────────────────────────────────
 // System prompt is built ONCE and reused. This ensures Ollama's KV cache is
@@ -96,11 +108,46 @@ export class OllamaApiAdapter implements AgentProvider {
     }
 
     private trimContext(): void {
-        while (this.estimateTokens(this.messages) > OLLAMA_TRIM_TARGET_TOKENS && this.messages.length > 3) {
-            const removableIndex = this.messages.findIndex((message, index) => index > 0 && message.role !== 'system');
-            if (removableIndex === -1) break;
-            this.messages.splice(removableIndex, 1);
+        const numCtx = getNumCtx(this.modelName);
+        const trimTarget = Math.floor(numCtx * 0.65); // keep 65% for conversation, 35% for output
+
+        if (this.estimateTokens(this.messages) <= trimTarget) return;
+
+        // Smart compression: compress old user+assistant turns into a summary
+        // instead of blindly deleting (which loses project context)
+        const systemMsg = this.messages.find(m => m.role === 'system');
+        const nonSystemMsgs = this.messages.filter(m => m.role !== 'system');
+
+        if (nonSystemMsgs.length <= 4) {
+            // Fewer than 4 messages: can't compress further, hard-trim last resort
+            if (systemMsg) this.messages = [systemMsg, ...nonSystemMsgs.slice(-2)];
+            return;
         }
+
+        // Keep last 4 messages (most recent context) + summarize the rest
+        const toCompress = nonSystemMsgs.slice(0, -4);
+        const toKeep = nonSystemMsgs.slice(-4);
+
+        // Build summary from compressed messages (max 400 chars)
+        const summaryLines: string[] = [];
+        let charBudget = 400;
+        for (let i = toCompress.length - 1; i >= 0 && charBudget > 0; i--) {
+            const snippet = toCompress[i].content.substring(0, 120).replace(/\n/g, ' ');
+            summaryLines.unshift(`- [${toCompress[i].role}]: ${snippet}`);
+            charBudget -= snippet.length;
+        }
+        const summaryMsg: OllamaMessage = {
+            role: 'user',
+            content: `[CONTEXT SUMMARY — earlier turns compressed to save memory]\n${summaryLines.join('\n')}\n[Resume from current task below]`
+        };
+
+        this.messages = [
+            ...(systemMsg ? [systemMsg] : []),
+            summaryMsg,
+            ...toKeep
+        ];
+
+        console.log(`\x1b[90m[OLLAMA] 📦 Context compressed: ${toCompress.length} old turns summarized. Continuity maintained.\x1b[0m`);
     }
 
     private loadConversation(): void {
@@ -226,8 +273,8 @@ export class OllamaApiAdapter implements AgentProvider {
                 stream: true,
                 keep_alive: -1,   // keep model hot in RAM between calls
                 options: {
-                    num_ctx: OLLAMA_MAX_CONTEXT_TOKENS,
-                    num_predict: 3072,       // safe: leaves 13k for prompt+history in 16k ctx
+                    num_ctx: getNumCtx(this.modelName),
+                    num_predict: Math.min(2048, Math.floor(getNumCtx(this.modelName) * 0.5)),
                     temperature: 0.1,
                     repeat_penalty: 1.1
                 }
