@@ -720,9 +720,21 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
             }
 
             if (!toolCall) {
-                // [INTELLIGENT FALLBACK]: If AI hallucinates and outputs plain markdown code blocks with filenames,
-                // instead of ignoring them and exiting, we auto-extract and apply them!
-                const extractedFiles = this.extractImplicitMarkdownFiles(aiText);
+                // [INTELLIGENT FALLBACK]: Auto-extract markdown files ONLY when:
+                // 1. NOT a local model (local models should use tool calls, not markdown)
+                // 2. Response looks like a task completion (has real file paths with dirs)
+                // 3. NOT a conversational response (greetings, explanations, questions)
+                const isLocalProvider = ['ollama', 'local', 'qwen-local'].includes(this.provider.id);
+                const looksConversational = aiText.length < 2000 ||
+                    aiText.toLowerCase().includes('hello!') ||
+                    aiText.toLowerCase().includes('hi there') ||
+                    aiText.toLowerCase().includes('sure, i can') ||
+                    !aiText.includes('/') ||
+                    (aiText.split('```').length - 1) < 2; // fewer than 2 code blocks
+                
+                const extractedFiles = (!isLocalProvider && !looksConversational)
+                    ? this.extractImplicitMarkdownFiles(aiText)
+                    : [];
                 let fallbackApplied = false;
                 if (extractedFiles.length > 0) {
                     console.log(`\n⚡ [Smart Fallback] Detected ${extractedFiles.length} hallucinated markdown files. Auto-applying...`);
@@ -734,7 +746,15 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     fallbackApplied = true;
                 }
 
-                // No tool call found, meaning the AI has finished its task
+                // No tool call found — AI has finished responding
+                // ⚡ Skip heavy finalization checks for conversational responses (local models)
+                // Only run workspace_analyze/AECL if files were actually written this session
+                const filesWrittenThisSession = (this.fileRegistry?.size ?? 0) > 0 || fallbackApplied;
+
+                if (!filesWrittenThisSession) {
+                    // Pure conversation — no files changed, skip all finalization checks
+                    break;
+                }
 
                 console.log(`\n🔎 [Workspace Analyze] Forcing full workspace terminal diagnostics before finalization...`);
                 const workspaceAnalyzeResult = await this.skillManager.executeSkill('workspace_analyze', {

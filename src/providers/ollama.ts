@@ -274,9 +274,13 @@ export class OllamaApiAdapter implements AgentProvider {
                 keep_alive: -1,   // keep model hot in RAM between calls
                 options: {
                     num_ctx: getNumCtx(this.modelName),
-                    num_predict: Math.min(2048, Math.floor(getNumCtx(this.modelName) * 0.5)),
+                    // Cap output: 3b models → 512 tokens (focused tool calls), 7b+ → 1024
+                    // 512 tokens = ~400 words, enough for any single tool call or short reply
+                    num_predict: getNumCtx(this.modelName) <= 4096 ? 512 : 1024,
                     temperature: 0.1,
-                    repeat_penalty: 1.1
+                    repeat_penalty: 1.1,
+                    // Stop generation when tool call closes — prevents runaway markdown dumps
+                    stop: ['</tool_call>', '[/INST]', '\n\n\n\n']
                 }
             })
         });
