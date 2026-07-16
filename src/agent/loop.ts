@@ -617,6 +617,7 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
 
             console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);
             
+            const turnInputTokens = Math.round(currentMessage.length / 4); // fast estimate
             this.totalTokensProcessed += this.tokenizer.encode(currentMessage).length;
             (global as any).atcli_current_tokens = this.totalTokensProcessed;
             
@@ -689,10 +690,11 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
             }
 
             const aiText = response.text;
+            const turnOutputTokens = Math.round(aiText.length / 4); // fast estimate
             this.totalTokensProcessed += this.tokenizer.encode(aiText).length;
             (global as any).atcli_current_tokens = this.totalTokensProcessed;
             
-            console.log(`\n📊 Exact Context Usage: ${this.totalTokensProcessed.toLocaleString()} Tokens`);
+            console.log(`\n📊 This turn: ~${turnInputTokens} in / ~${turnOutputTokens} out | Session total: ${this.totalTokensProcessed.toLocaleString()} tokens`);
             console.log(`\n[AI RESPONSE]:\n${aiText}`);
 
             // ── [ESCALATE] SIGNAL HANDLER ─────────────────────────────────────
@@ -765,9 +767,9 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 }
 
                 // No tool call found — AI has finished responding
-                // ⚡ Skip heavy finalization checks for conversational responses (local models)
+                // ⚡ Skip heavy finalization checks for conversational responses
                 // Only run workspace_analyze/AECL if files were actually written this session
-                const filesWrittenThisSession = (this.fileRegistry?.size ?? 0) > 0 || fallbackApplied;
+                const filesWrittenThisSession = this.editsSinceLastAeclCheck > 0 || fallbackApplied;
 
                 if (!filesWrittenThisSession) {
                     // Pure conversation — no files changed, skip all finalization checks

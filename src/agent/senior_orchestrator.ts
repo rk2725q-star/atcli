@@ -134,32 +134,48 @@ async function initSeniorBrowser(): Promise<SeniorBrowserSession | null> {
 }
 
 async function enableDeepThink(page: any): Promise<void> {
-    // Try multiple selectors for the DeepThink button
+    try {
+        // Most reliable: Playwright's getByText — works even when CSS classes change
+        const dtByText = page.getByText('DeepThink', { exact: false });
+        const count = await dtByText.count();
+        if (count > 0) {
+            const btn = dtByText.first();
+            const isActive = await btn.evaluate((node: Element) =>
+                node.getAttribute('class')?.includes('active') ||
+                node.getAttribute('aria-pressed') === 'true' ||
+                node.closest('[aria-pressed="true"]') !== null
+            ).catch(() => false);
+            if (!isActive) {
+                await btn.click({ timeout: 3000 });
+                await page.waitForTimeout(800);
+            }
+            if (browserSession) browserSession.deepthinkEnabled = true;
+            console.log(`✅ [SENIOR] DeepThink enabled (text-match)`);
+            return;
+        }
+    } catch (_) {}
+
+    // Fallback: CSS selector list
     const deepThinkSelectors = [
         'div[class*="deepThink"]',
         'div[class*="deep-think"]',
         'div[class*="deepthink"]',
         'button[class*="deepThink"]',
         '[class*="think"]:not([class*="thinking"])',
-        'div:has-text("DeepThink")',
-        'button:has-text("DeepThink")',
-        'span:has-text("DeepThink")',
     ];
 
     for (const sel of deepThinkSelectors) {
         try {
             const el = await page.$(sel);
             if (el) {
-                // Check if already active
                 const isActive = await el.evaluate((node: Element) =>
                     node.getAttribute('class')?.includes('active') ||
-                    node.getAttribute('aria-pressed') === 'true' ||
-                    node.getAttribute('data-selected') === 'true'
-                );
+                    node.getAttribute('aria-pressed') === 'true'
+                ).catch(() => false);
                 if (!isActive) {
                     await el.click();
                     await page.waitForTimeout(800);
-                    console.log(`✅ [SENIOR] DeepThink mode enabled`);
+                    console.log(`✅ [SENIOR] DeepThink enabled (css-match)`);
                 } else {
                     console.log(`✅ [SENIOR] DeepThink already active`);
                 }
@@ -168,7 +184,7 @@ async function enableDeepThink(page: any): Promise<void> {
             }
         } catch (_) {}
     }
-    console.log(`\x1b[90m[SENIOR] DeepThink toggle not found — using default mode\x1b[0m`);
+    console.log(`\x1b[33m[SENIOR] ⚠️  DeepThink toggle not found — senior using default mode (less reasoning)\x1b[0m`);
 }
 
 async function sendMessageToBrowser(prompt: string): Promise<string | null> {
