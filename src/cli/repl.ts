@@ -582,17 +582,44 @@ export async function startRepl() {
                             }
                         }
                         const agent = new AgentLoop(adapter, isFirstForProvider);
-                        // ⚡ LOCAL MODEL FAST PATH: No cloud round-trip before responding.
-                        // (Senior planner removed — was adding 5-30s latency per message)
-                        
+
+                        // ── SENIOR-JUNIOR ORCHESTRATION ──────────────────────────────────────
+                        // For local models: Senior API generates a plan ONCE per task.
+                        // Plan is injected into the first message → local model follows steps.
+                        // No browser needed — pure API call (1-3s latency, not 30s).
+                        const isLocalProvider = ['local', 'ollama', 'qwen-local'].includes(state.currentProvider);
+                        let orchestratedInput = safeInput;
+
+                        if (isLocalProvider && isFirstForProvider) {
+                            try {
+                                const { orchestratePlan, loadCachedPlan, formatOrchestratorPlan } = await import('../agent/senior_orchestrator');
+
+                                // Try cached plan first (resume mid-project)
+                                let plan = loadCachedPlan();
+                                if (!plan) {
+                                    plan = await orchestratePlan(safeInput);
+                                }
+
+                                if (plan) {
+                                    const planText = formatOrchestratorPlan(plan);
+                                    // Inject plan into the first message — local model reads it as the task
+                                    orchestratedInput = `${safeInput}\n\n${planText}`;
+                                    console.log(`\n🎯 [ORCHESTRATOR] Plan injected — local model will execute ${plan.steps.length} steps`);
+                                }
+                            } catch (planErr: any) {
+                                // Never block on planning failure — local model continues alone
+                                console.log(`\x1b[90m[ORCHESTRATOR] Planning skipped: ${planErr.message}\x1b[0m`);
+                            }
+                        }
+
                         isExecutingTask = true;
                         savedPromptForEsc = safeInput;
                         try {
-                            await agent.run(safeInput);
+                            await agent.run(orchestratedInput);
                         } finally {
                             isExecutingTask = false;
                         }
-                        
+
                         initializedProviders.set(state.currentProvider, 'vibecoding');
                     }
                 } catch (error: any) {

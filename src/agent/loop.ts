@@ -695,6 +695,24 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
             console.log(`\n📊 Exact Context Usage: ${this.totalTokensProcessed.toLocaleString()} Tokens`);
             console.log(`\n[AI RESPONSE]:\n${aiText}`);
 
+            // ── [ESCALATE] SIGNAL HANDLER ─────────────────────────────────────
+            // When local model outputs "[ESCALATE]: <error>", auto-call senior AI for fix.
+            const isLocalProvider = this.provider.id === 'ollama' || this.provider.id === 'local' || this.provider.id === 'qwen-local';
+            if (isLocalProvider && aiText.includes('[ESCALATE]')) {
+                const escalateMatch = aiText.match(/\[ESCALATE\][:\s]*(.+?)(?:\n|$)/s);
+                const errorDesc = escalateMatch?.[1]?.trim() || 'Unknown error — local model requested senior help';
+                try {
+                    const { escalateToSenior, getCurrentStep } = await import('./senior_orchestrator');
+                    console.log(`\n🆘 [ESCALATE SIGNAL] Local model requested senior help: "${errorDesc.substring(0, 100)}"`);
+                    const fix = await escalateToSenior(errorDesc, { stepId: getCurrentStep() });
+                    if (fix) {
+                        console.log(`\n✅ [SENIOR FIX] ${fix.explanation}`);
+                        currentMessage = `<tool_result>\n[SENIOR AI RESCUE]\nProblem: ${errorDesc}\nSolution: ${fix.solution}\n${fix.code ? `\nCorrected code:\n\`\`\`\n${fix.code}\n\`\`\`` : ''}\nExplanation: ${fix.explanation}\n\nNow apply this fix and continue to the next step.\n</tool_result>`;
+                        continue;
+                    }
+                } catch (_) { /* senior not available, continue normally */ }
+            }
+
             // Parse tool call
             let toolCall;
             try {
