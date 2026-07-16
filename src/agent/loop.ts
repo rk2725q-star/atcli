@@ -1498,11 +1498,26 @@ RULES:
         text = text.replace(/\]<\]minimax\[>\[?/g, '');
 
         // Look for <tool_call> ... </tool_call>
+        let jsonStr = '';
         const match = text.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
-        if (!match) return null; // No tool call means conversational response
+        if (match) {
+            jsonStr = match[1].trim();
+        } else {
+            // Local AI Fallback: check if the entire message is just a bare JSON tool call
+            let stripped = text.trim();
+            if (stripped.startsWith('```json')) stripped = stripped.substring(7);
+            else if (stripped.startsWith('```')) stripped = stripped.substring(3);
+            if (stripped.endsWith('```')) stripped = stripped.substring(0, stripped.length - 3);
+            stripped = stripped.trim();
+            if ((stripped.startsWith('{') || stripped.startsWith('[')) && stripped.includes('"action"')) {
+                jsonStr = stripped;
+                console.log(`\n⚡ [Local AI Fallback] Recovered bare JSON without <tool_call> tags`);
+            } else {
+                return null; // No tool call means conversational response
+            }
+        }
 
-        // Remove markdown code block syntax if the AI included it (e.g., ```json ... ```)
-        let jsonStr = match[1].trim();
+        // Remove markdown code block syntax if the AI included it inside tags
         if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7);
         else if (jsonStr.startsWith('```')) jsonStr = jsonStr.substring(3);
         if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
@@ -1694,13 +1709,17 @@ RULES:
             return repaired;
         }
 
+        function unwrap(obj: any): any {
+            return (Array.isArray(obj) && obj.length > 0) ? obj[0] : obj;
+        }
+
         // Let JSON.parse throw if invalid, so the loop can catch it and feed it back to the AI.
         // However, first attempt to auto-heal common Windows path backslash errors.
         try {
-            return JSON.parse(jsonStr);
+            return unwrap(JSON.parse(jsonStr));
         } catch (e) {
             try {
-                return JSON.parse(repairJsonEscapes(jsonStr));
+                return unwrap(JSON.parse(repairJsonEscapes(jsonStr)));
             } catch (e2) {
                 try {
                     // Ultimate LLM-JSON Fallback: fixes missing commas, trailing commas, unescaped inner quotes, etc.
@@ -1708,7 +1727,7 @@ RULES:
                     const repaired = jsonrepair(repairJsonEscapes(jsonStr));
                     const parsed = JSON.parse(repaired);
                     console.log(`\n⚡ [jsonrepair Salvaged]: ${JSON.stringify(parsed).substring(0, 150)}`);
-                    return parsed;
+                    return unwrap(parsed);
                 } catch (e3) {
                     throw e2; // throw original error if jsonrepair fails too
                 }

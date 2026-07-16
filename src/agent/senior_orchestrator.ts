@@ -219,16 +219,21 @@ async function sendMessageToBrowser(prompt: string): Promise<string | null> {
             navigator.clipboard.writeText(text).catch(() => {});
         }, prompt);
 
-        // Ctrl+A to select all, then type (overwrites)
-        await input.press('Control+a');
+        // Use page.keyboard to avoid ElementHandle detachment issues during UI re-renders
+        await page.keyboard.press('Control+A');
         await page.waitForTimeout(100);
+        await page.keyboard.press('Backspace');
 
-        // Type via keyboard for reliability
-        await input.type(prompt.substring(0, 100)); // type first 100 chars
-        if (prompt.length > 100) {
-            // For long prompts, use fill for the rest
-            await input.press('Control+a');
-            await input.fill(prompt);
+        try {
+            // Type via keyboard for reliability
+            await input.type(prompt.substring(0, 100)); 
+            if (prompt.length > 100) {
+                // For long prompts, use fill for the rest
+                await input.fill(prompt);
+            }
+        } catch (e) {
+            // Fallback if the element detached from the DOM during typing
+            await page.keyboard.insertText(prompt);
         }
 
         await page.waitForTimeout(500);
