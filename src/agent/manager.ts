@@ -1,6 +1,9 @@
 import { AgentProvider } from '../providers/interface';
 import { BaseBrowserAdapter } from '../providers/baseBrowser';
 import { SkillManager } from './skillManager';
+import { interceptFullFileWrite, buildWorkspaceGateMessage, buildAeclGateMessage } from './surgical_fix';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export async function generateManagerPrompt(skillManager: SkillManager): Promise<string> {
     const basePrompt = `
@@ -161,6 +164,13 @@ export class ManagerLoop {
                 }
             }
 
+            // ⛔ SMART WRITE INTERCEPTOR — same rule as AgentLoop (all providers)
+            const writeBlockMsg = interceptFullFileWrite(toolCall, process.cwd());
+            if (writeBlockMsg) {
+                currentMessage = `<tool_result>\n${writeBlockMsg}\n</tool_result>\n[SYSTEM: Use replace with exact old/new text. IMMEDIATELY output a replace <tool_call> block.]`;
+                continue;
+            }
+
             console.log(`\n⚙️ Executing Manager Skill: ${toolCall.action}`);
             let result = await this.skillManager.executeSkill(toolCall.action, toolCall);
             
@@ -169,6 +179,38 @@ export class ManagerLoop {
             }
 
             currentMessage = `<tool_result>\n${result}\n</tool_result>\n[SYSTEM REMINDER: What is your next management step? Output next <tool_call>.]`;
+        }
+
+        // ── MANAGER TASK END: run workspace_analyze + AECL gate ──────────────
+        // Same finalization gates as AgentLoop — manager must also leave 0 errors
+        const managerEdits = (this as any)._editsSinceCheck as number || 0;
+        if (managerEdits > 0) {
+            try {
+                console.log(`\n🔎 [Manager] Running workspace_analyze before finishing...`);
+                const waResult = await this.skillManager.executeSkill('workspace_analyze', {
+                    action: 'workspace_analyze', mode: 'full'
+                });
+                const failMatch = waResult.match(/Failed:\s*(\d+)/);
+                const failures = failMatch ? parseInt(failMatch[1], 10) : 0;
+                if (failures > 0) {
+                    console.log(`\n🚫 [Manager WORKSPACE GATE] ${failures} failures — must fix before done.`);
+                    console.log(buildWorkspaceGateMessage(waResult, process.cwd()));
+                }
+
+                // AECL gate
+                const aeclPath = path.join(process.cwd(), '.aecl_memory.json');
+                if (fs.existsSync(aeclPath)) {
+                    try {
+                        const mem = JSON.parse(fs.readFileSync(aeclPath, 'utf8'));
+                        if (mem.error_count > 0) {
+                            console.log(`\n🚫 [Manager AECL GATE] ${mem.error_count} errors remain.`);
+                            console.log(buildAeclGateMessage(mem));
+                        }
+                    } catch { /* ignore */ }
+                }
+            } catch (e: any) {
+                console.log(`\n⚠️  [Manager] Finalization check skipped: ${e.message}`);
+            }
         }
     }
 

@@ -3,9 +3,9 @@ import { generateSystemPrompt } from './prompts';
 import { SkillManager } from './skillManager';
 import { get_encoding } from 'tiktoken';
 import { Gatekeeper } from './gatekeeper';
+import { interceptFullFileWrite, extractErrorContext, buildWorkspaceGateMessage, buildAeclGateMessage } from './surgical_fix';
 import * as fs from 'fs';
 import * as path from 'path';
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MECHANICAL MEMORY WRITER
@@ -295,40 +295,10 @@ export class AgentLoop {
         return match ? parseInt(match[1], 10) : 0;
     }
 
-    /** Parse build/lint error output → extract file:line → show exact broken lines with context */
+    /** Parse build/lint error output → extract file:line → show exact broken lines with context.
+     *  Delegates to shared surgical_fix module (same logic used by manager.ts). */
     private extractErrorContext(errorOutput: string): string {
-        // Matches: src/foo.ts(12,5) or src/foo.ts:12:5 or ./src/foo.ts:12
-        const errorLinePattern = /([a-zA-Z0-9_./\\-]+\.[a-zA-Z]+)[(:,](\d+)/g;
-        const seen = new Set<string>();
-        const contexts: string[] = [];
-
-        let match;
-        while ((match = errorLinePattern.exec(errorOutput)) !== null) {
-            const [, filePath, lineStr] = match;
-            const lineNum = parseInt(lineStr, 10);
-            const key = `${filePath}:${lineNum}`;
-            if (seen.has(key) || seen.size >= 5) continue; // max 5 files
-            seen.add(key);
-
-            try {
-                const absPath = path.resolve(process.cwd(), filePath);
-                if (!fs.existsSync(absPath)) continue;
-                const lines = fs.readFileSync(absPath, 'utf-8').split('\n');
-                const start = Math.max(0, lineNum - 4);
-                const end = Math.min(lines.length - 1, lineNum + 2);
-                const snippet = lines.slice(start, end + 1)
-                    .map((l, i) => {
-                        const n = start + i + 1;
-                        const marker = n === lineNum ? '>>>' : '   ';
-                        return `${marker} ${String(n).padStart(4)}: ${l}`;
-                    }).join('\n');
-                contexts.push(`\n[BROKEN LINES in ${filePath} around line ${lineNum}]\n${snippet}`);
-            } catch { /* ignore unreadable files */ }
-        }
-
-        return contexts.length > 0
-            ? `[ERROR CONTEXT — fix ONLY these lines using replace]\n${contexts.join('\n')}`
-            : '';
+        return extractErrorContext(errorOutput, process.cwd());
     }
 
     public async run(userMessage: string): Promise<void> {
@@ -819,12 +789,8 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 });
                 const workspaceFailures = this.getWorkspaceAnalyzeFailureCount(workspaceAnalyzeResult);
                 if (workspaceFailures > 0) {
-                    console.log(`\n🚫 [WORKSPACE GATE] Blocked finalization: ${workspaceFailures} terminal-level checks still failing.`);
-
-                    // Parse error output to extract file:line references for surgical fix
-                    const errorContext = this.extractErrorContext(workspaceAnalyzeResult);
-
-                    currentMessage = `<tool_result>\n[WORKSPACE GATE — SURGICAL FIX REQUIRED]\n${workspaceAnalyzeResult}\n\n${errorContext}\n\n⛔ RULE: DO NOT use write_file on existing files. You MUST:\n  1. read_file the exact file mentioned in the error\n  2. Use replace to fix ONLY the broken line(s)\n  3. Re-run workspace_analyze to confirm fixed\nNEVER rewrite the whole file. Only change what the error points to.\n</tool_result>`;
+                    console.log(`\n🚫 [WORKSPACE GATE] Blocked: ${workspaceFailures} failures. Forcing surgical fix...`);
+                    currentMessage = buildWorkspaceGateMessage(workspaceAnalyzeResult, process.cwd());
                     continue;
                 }
                 
@@ -840,18 +806,9 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     try {
                         const mem = JSON.parse(fs.readFileSync(aeclPath, 'utf8'));
                         if (mem.error_count > 0) {
-                            console.log(`\n🚫 [AECL GATE] Blocked finalization: ${mem.error_count} unresolved errors still present.`);
-
-                            // Extract specific error details from AECL memory
-                            const aeclErrors: string[] = (mem.errors || []).slice(0, 10).map((e: any) =>
-                                `  • ${e.file || '?'}:${e.line || '?'} — ${e.message || e.text || JSON.stringify(e)}`
-                            );
-                            const aeclErrorList = aeclErrors.length > 0
-                                ? `\nExact errors to fix:\n${aeclErrors.join('\n')}`
-                                : '';
-
-                            currentMessage = `<tool_result>\n[AECL GATE — SURGICAL FIX REQUIRED]\n${mem.error_count} unresolved errors. You CANNOT finish until all are fixed.${aeclErrorList}\n\n⛔ FORBIDDEN: write_file on existing files\n✅ REQUIRED protocol for each error:\n  Step 1: read_file "<exact file from error above>"\n  Step 2: replace {"old": "<exact broken line>", "new": "<fixed line>"}\n  Step 3: aecl_check to confirm fixed\n  Repeat for each error. Do NOT touch lines that are not broken.\n</tool_result>`;
-                            continue;   // force loop to keep going, don't break
+                            console.log(`\n🚫 [AECL GATE] Blocked: ${mem.error_count} errors. Forcing surgical fix...`);
+                            currentMessage = buildAeclGateMessage(mem);
+                            continue;
                         }
                     } catch { /* ignore parse error */ }
                 }
@@ -1201,44 +1158,11 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
             }
 
             // ─── SMART WRITE INTERCEPTOR ────────────────────────────────────────────
-            // ⛔ SMART WRITE INTERCEPTOR: Block write_file on existing files → force replace
-            if ((toolCall.action === 'write_file' || toolCall.action === 'create_file') && toolCall.path) {
-                const targetPath = path.resolve(cwd, toolCall.path);
-                if (fs.existsSync(targetPath)) {
-                    console.log(`\n⛔ [Smart Write] BLOCKED: write_file on existing file '${toolCall.path}' — must use replace`);
-
-                    // Read the actual file content so AI can make a precise replace
-                    let existingContent = '(could not read)';
-                    let lineCount = 0;
-                    try {
-                        const raw = fs.readFileSync(targetPath, 'utf-8');
-                        const lines = raw.split('\n');
-                        lineCount = lines.length;
-                        // Show first 25 lines with line numbers (enough to find the broken area)
-                        existingContent = lines.slice(0, 25)
-                            .map((l, i) => `${String(i + 1).padStart(3)}: ${l}`)
-                            .join('\n') + (lineCount > 25 ? `\n... (${lineCount - 25} more lines — use read_file to see all)` : '');
-                    } catch { /* ignore */ }
-
-                    const redirectMsg = [
-                        `⛔ WRITE BLOCKED: '${toolCall.path}' already exists (${lineCount} lines).`,
-                        `Full overwrite would destroy working code outside the bug.`,
-                        ``,
-                        `Current file (first 25 lines with numbers):`,
-                        existingContent,
-                        ``,
-                        `✅ CORRECT FIX PROTOCOL:`,
-                        `  1. Identify the exact broken line(s) from the error message`,
-                        `  2. Use replace: {"old": "<exact current broken text>", "new": "<corrected text>"}`,
-                        `  3. Only change what is broken — leave all working lines untouched`,
-                        `  4. If you need to see more of the file: use read_file first`,
-                        ``,
-                        `⛔ DO NOT retry write_file. Output a replace <tool_call> now.`,
-                    ].join('\n');
-
-                    currentMessage = `<tool_result>\n${redirectMsg}\n</tool_result>\n[SYSTEM: Use replace with exact old/new text. IMMEDIATELY output a replace <tool_call> block.]`;
-                    continue;
-                }
+            // ⛔ SMART WRITE INTERCEPTOR (shared with manager.ts via surgical_fix module)
+            const writeBlockMsg = interceptFullFileWrite(toolCall, cwd);
+            if (writeBlockMsg) {
+                currentMessage = `<tool_result>\n${writeBlockMsg}\n</tool_result>\n[SYSTEM: Use replace with exact old/new text. IMMEDIATELY output a replace <tool_call> block.]`;
+                continue;
             }
 
             let result = await this.skillManager.executeSkill(toolCall.action, toolCall);
