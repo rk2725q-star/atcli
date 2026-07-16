@@ -1024,7 +1024,14 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
 
             // Tier 3: SMART DELETE — delete_file allowed only within detected project root
             if (toolCall.action === 'delete_file') {
-                const pathsToCheck = toolCall.paths || (toolCall.path ? [toolCall.path] : []);
+                let rawPaths = toolCall.paths || toolCall.path;
+                let pathsToCheck: string[] = [];
+                if (typeof rawPaths === 'string') {
+                    // Quick XML tag strip if they hallucinated <path>a</path>
+                    pathsToCheck = rawPaths.replace(/<\/?paths?>/g, ',').split(',').map(s => s.trim()).filter(Boolean);
+                } else if (Array.isArray(rawPaths)) {
+                    pathsToCheck = rawPaths;
+                }
                 // Use IDE-detected project root — NOT just process.cwd()
                 // This ensures AI can never escape the folder open in VSCode/Cursor/Antigravity
                 const safeRoot = (global as any).atcli_project_root || process.cwd();
@@ -1512,6 +1519,9 @@ RULES:
             if ((stripped.startsWith('{') || stripped.startsWith('[')) && stripped.includes('"action"')) {
                 jsonStr = stripped;
                 console.log(`\n⚡ [Local AI Fallback] Recovered bare JSON without <tool_call> tags`);
+            } else if (stripped.startsWith('<') && (stripped.includes('<action>') || stripped.includes('<tool_name>') || stripped.includes('<function') || stripped.includes('<tool_call_name'))) {
+                jsonStr = stripped;
+                console.log(`\n⚡ [Local AI Fallback] Recovered bare XML without <tool_call> tags`);
             } else {
                 return null; // No tool call means conversational response
             }
@@ -1624,6 +1634,9 @@ RULES:
                     'file_write': 'write_file',
                     'task': 'manage_task',
                     'str_replace_editor': 'replace',
+                    'delete': 'delete_file',
+                    'remove': 'delete_file',
+                    'clear': 'clear_workspace',
                 };
                 if (toolAliases[action]) {
                     console.log(`\n⚡ [Tool Alias] Mapped "${action}" → "${toolAliases[action]}"`);
