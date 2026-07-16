@@ -240,26 +240,40 @@ async function sendMessageToBrowser(prompt: string): Promise<string | null> {
 
         // Click send button
         const sendSelectors = [
+            'div[role="button"]:has(svg path[d*="M2.93 17.07A10 10"])', // Highly specific to DeepSeek's SVG (if known)
+            'div[class*="send-button"]',
+            'div[aria-label*="send" i]',
             'button[aria-label*="send" i]',
-            'button[class*="send"]',
-            'button[class*="Send"]',
             'div[class*="send"]:not([class*="disabled"])',
-            '#send-button',
+            // DeepSeek often uses a div with flex and cursor-pointer for the send button next to the input
+            'div:has(> svg)[role="button"][tabindex="0"]', 
         ];
 
         let sent = false;
         for (const sel of sendSelectors) {
-            const btn = await page.$(sel);
-            if (btn) {
-                await btn.click();
-                sent = true;
-                break;
+            try {
+                // Find all matching elements, pick the last one (usually the send button at the bottom right)
+                const btns = await page.$$(sel);
+                if (btns && btns.length > 0) {
+                    const btn = btns[btns.length - 1];
+                    // Verify it's visible and clickable
+                    const isVisible = await btn.isVisible();
+                    if (isVisible) {
+                        await btn.click({ timeout: 2000 });
+                        sent = true;
+                        console.log(`\x1b[90m[SENIOR BROWSER] Clicked send button via selector: ${sel}\x1b[0m`);
+                        break;
+                    }
+                }
+            } catch (e) {
+                // Ignore timeout or click errors on bad selectors
             }
         }
 
         if (!sent) {
-            // Fallback: Enter key
-            await input.press('Enter');
+            console.log(`\x1b[90m[SENIOR BROWSER] Send button not found, falling back to Enter key\x1b[0m`);
+            // Fallback: Enter key (DeepSeek uses Enter to send, Shift+Enter for newlines)
+            await page.keyboard.press('Enter');
         }
 
         session.isFirstMessage = false;
