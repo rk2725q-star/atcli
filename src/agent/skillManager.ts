@@ -12,15 +12,21 @@ export class SkillManager {
 
         // 2. Load Custom Workspace Skills (User can drop .js files in .atcli-skills/)
         const customDir = path.resolve(process.cwd(), '.atcli-skills');
-        try { await this.loadSkillsFromDirectory(customDir); } catch (e) {}
+        try { await this.loadSkillsFromDirectory(customDir); } catch (e: any) {
+            if (e.code !== 'ENOENT') console.warn(`[SKILLS] Custom skills error: ${e.message}`);
+        }
 
         // 3. Load Global Skills from skills.sh (e.g., ~/.atcli/skills or ~/.agents/skills)
         const homeDir = require('os').homedir();
         const globalAtcliDir = path.join(homeDir, '.atcli', 'skills');
         const globalAgentsDir = path.join(process.cwd(), '.agents', 'skills');
         
-        try { await this.loadSkillsFromDirectory(globalAtcliDir); } catch (e) {}
-        try { await this.loadSkillsFromDirectory(globalAgentsDir); } catch (e) {}
+        try { await this.loadSkillsFromDirectory(globalAtcliDir); } catch (e: any) {
+            if (e.code !== 'ENOENT') console.warn(`[SKILLS] Global skills error: ${e.message}`);
+        }
+        try { await this.loadSkillsFromDirectory(globalAgentsDir); } catch (e: any) {
+            if (e.code !== 'ENOENT') console.warn(`[SKILLS] Agents skills error: ${e.message}`);
+        }
     }
 
     private async loadSkillsFromDirectory(dirPath: string) {
@@ -41,14 +47,20 @@ export class SkillManager {
                     }
                 }
             }
-        } catch (e) {
-            // Directory read error
+        } catch (err: any) {
+            // Skill directory missing = normal (e.g. no custom skills yet)
+            // But log parse/import errors so user knows if a skill file is broken
+            if (err.code !== 'ENOENT') {
+                console.warn(`[SKILLS] Failed to load from ${dirPath}: ${err.message}`);
+            }
         }
     }
 
     public registerSkill(skill: AgentSkill) {
         if (this.skills.has(skill.name)) {
-            console.warn(`\n⚠️ [SKILL REGISTRY] Collision Detected: Tool action '${skill.name}' is already registered. Overwriting with new definition.`);
+            // Silently skip duplicates — same skill loaded from multiple directories
+            // (e.g. find_external_skills exists in both built-in and global dirs)
+            return;
         }
         this.skills.set(skill.name, skill);
     }
