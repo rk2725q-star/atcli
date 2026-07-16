@@ -439,7 +439,41 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 return { handled: true };
             }
 
-            console.log(`\n  ❌ Unknown API provider: '${provider}'. Supported: nvidia, nvidia2`);
+            // ── Generic API key providers (deepseek, etc.) ────────────────
+            if (['deepseek', 'deepseek-api'].includes(provider)) {
+                if (subAction === 'clear') {
+                    ApiKeyStore.remove('deepseek');
+                    ApiKeyStore.remove('deepseek-api');
+                    console.log(`\n  ✅ DeepSeek API key removed. Restart ATCLI to switch back to browser mode.`);
+                    return { handled: true };
+                }
+                if (subAction === 'status') {
+                    const key = ApiKeyStore.get('deepseek') || ApiKeyStore.get('deepseek-api');
+                    console.log(`\n  🤖 DeepSeek Status:`);
+                    console.log(`     Key:   ${key ? '✅ Stored (****' + key.slice(-6) + ')' : '❌ Not set (using browser mode)'}`);
+                    console.log(`     Mode:  ${key ? '⚡ API (api.deepseek.com) — fast & reliable' : '🌐 Browser scraping (slow, error-prone)'}`);
+                    console.log(`     Models: deepseek-chat (V3), deepseek-reasoner (R1)`);
+                    return { handled: true };
+                }
+                if (keyValue && keyValue.length > 10) {
+                    const cleanKey = keyValue.replace(/^<|>$/g, '').replace(/^"|"$/g, '').replace(/^'|'$/g, '').trim();
+                    ApiKeyStore.set('deepseek', cleanKey);
+                    state.currentProvider = 'deepseek';
+                    console.log(`\n  ✅ DeepSeek API key saved (encrypted at ~/.atcli/api_keys.json)`);
+                    console.log(`  ✅ Provider: \x1b[36mdeepseek\x1b[0m — now using API mode (no browser needed)`);
+                    console.log(`  💡 Restart ATCLI for API adapter to activate, or type: deepseek`);
+                    console.log(`  💡 Switch to R1 reasoning: /model deepseek-reasoner`);
+                    console.log(`  💡 Get key at: \x1b[36mhttps://platform.deepseek.com/api-keys\x1b[0m`);
+                } else {
+                    console.log(`\n  ❌ Invalid key. Usage: /api deepseek sk-xxxxxxxxxxxx`);
+                    console.log(`  Get a free key at: \x1b[36mhttps://platform.deepseek.com/api-keys\x1b[0m`);
+                }
+                return { handled: true };
+            }
+
+            console.log(`\n  ❌ Unknown API provider: '${provider}'.`);
+            console.log(`  Supported: nvidia, nvidia2, deepseek`);
+
             return { handled: true };
         }
         // ── /models — list models for current API provider ──────────────────────

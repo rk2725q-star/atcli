@@ -1,6 +1,7 @@
 import { AgentProvider } from '../providers/interface';
 import { ChatGPTAdapter } from '../providers/chatgpt';
 import { DeepSeekAdapter } from '../providers/deepseek';
+import { DeepSeekApiAdapter } from '../providers/deepseek-api';
 import { GeminiAdapter } from '../providers/gemini';
 import { QwenAdapter } from '../providers/qwen';
 import { KimiAdapter } from '../providers/kimi';
@@ -15,9 +16,26 @@ export class PromptRouter {
     private nvidiaProvider: NvidiaApiProvider;
 
     constructor() {
-        // ── Browser-session providers ──────────────────────────────────────
+        // ── DeepSeek: API adapter if key set, browser scraper as fallback ──
+        const dsKey = ApiKeyStore.get('deepseek') || ApiKeyStore.get('deepseek-api');
+        if (dsKey) {
+            const dsApi = new DeepSeekApiAdapter('deepseek', 'deepseek-chat');
+            this.adapters.set('deepseek', dsApi);
+            this.adapters.set('deepseek-api', dsApi);
+            this.adapters.set('deepseek-chat', dsApi);
+            // deepseek-reasoner (R1 model)
+            const dsR1 = new DeepSeekApiAdapter('deepseek-r1', 'deepseek-reasoner');
+            this.adapters.set('deepseek-r1', dsR1);
+            this.adapters.set('deepseek-reasoner', dsR1);
+            console.log(`\x1b[90m[Router] DeepSeek: using API adapter (deepseek-chat + deepseek-reasoner)\x1b[0m`);
+        } else {
+            // No API key — fall back to browser scraper
+            this.adapters.set('deepseek', new DeepSeekAdapter());
+            console.log(`\x1b[90m[Router] DeepSeek: using browser (run /api deepseek <key> for faster API mode)\x1b[0m`);
+        }
+
+        // ── Other browser-session providers ───────────────────────────────
         this.adapters.set('chatgpt',  new ChatGPTAdapter());
-        this.adapters.set('deepseek', new DeepSeekAdapter());
         this.adapters.set('gemini',   new GeminiAdapter());
         this.adapters.set('qwen',     new QwenAdapter());
         this.adapters.set('kimi',     new KimiAdapter());
@@ -33,7 +51,6 @@ export class PromptRouter {
         this.adapters.set('qwen-local',  new OllamaApiAdapter('qwen-local',  'qwen3-vl:2b'));
 
         // ── NVIDIA NIM API ─────────────────────────────────────────────────
-        // Single shared instance so conversation memory persists across switches
         this.nvidiaProvider = new NvidiaApiProvider('nvidia');
         this.adapters.set('nvidia', this.nvidiaProvider);
     }
