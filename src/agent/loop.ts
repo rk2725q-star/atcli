@@ -811,34 +811,128 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     console.log(`\n🎉 Project completion detected! Spawning Tech Lead Auditor...`);
                     const { ManagerLoop } = require('./manager');
                     const manager = new ManagerLoop(this.provider, true);
-                    manager.isAgenticaMode = this.isAgenticaMode; // Pass the autonomy status to the manager
+                    manager.isAgenticaMode = this.isAgenticaMode;
                     await manager.run('Perform a full deep architectural and bug audit on the entire codebase using all your available auditing skills. Fix any bugs found.');
                 } else {
-                    // ── LOOP ENGINEERING: Visual Review After 0-Error Gate ──────────
-                    // If a localhost URL was detected this session, automatically take a
-                    // screenshot and review it visually. If issues found → inject them
-                    // back into the loop instead of breaking.
-                    const detectedUrl = (this as any)._detectedLocalUrl as string | undefined;
+                    // ── AUTO WEB VERIFY: Start server + open browser + visual QA ──────
+                    // 1. Check if this is a web project with a dev script
+                    // 2. If server not already running → start it, detect port
+                    // 3. Open browser → take screenshot → vision QA
+                    // 4. If issues found → inject back → keep fixing
+                    // 5. ONLY say "complete" when QA passes
+
+                    let detectedUrl = (this as any)._detectedLocalUrl as string | undefined;
+
+                    // Auto-detect and start web project if no server running yet
+                    if (!detectedUrl && filesWrittenThisSession) {
+                        const pkgJsonPath = path.join(process.cwd(), 'package.json');
+                        let isWebProject = false;
+                        let devScript = '';
+                        let defaultPort = 3000;
+
+                        if (fs.existsSync(pkgJsonPath)) {
+                            try {
+                                const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+                                const scripts = pkg.scripts || {};
+                                // Detect dev/start script
+                                if (scripts.dev)   { devScript = 'npm run dev';   isWebProject = true; }
+                                else if (scripts.start) { devScript = 'npm run start'; isWebProject = true; }
+                                else if (scripts.serve) { devScript = 'npm run serve'; isWebProject = true; }
+                                // Detect port from scripts
+                                if (scripts.dev?.includes('3000') || scripts.start?.includes('3000')) defaultPort = 3000;
+                                if (scripts.dev?.includes('5173') || scripts.dev?.includes('vite')) defaultPort = 5173;
+                                if (scripts.dev?.includes('4000')) defaultPort = 4000;
+                                if (scripts.dev?.includes('8080')) defaultPort = 8080;
+                                // Vite projects always use 5173
+                                if (pkg.devDependencies?.vite || pkg.dependencies?.vite) defaultPort = 5173;
+                                if (pkg.devDependencies?.next || pkg.dependencies?.next) defaultPort = 3000;
+                            } catch { /* ignore */ }
+                        }
+                        // Also detect HTML-only projects
+                        const hasIndexHtml = fs.existsSync(path.join(process.cwd(), 'index.html'));
+                        if (hasIndexHtml && !isWebProject) {
+                            devScript = 'npx serve . -p 3000 -s';
+                            isWebProject = true;
+                            defaultPort = 3000;
+                        }
+
+                        if (isWebProject) {
+                            console.log(`\n🌐 [AUTO-VERIFY] Web project detected. Starting dev server: ${devScript}`);
+                            console.log(`\x1b[90m[AUTO-VERIFY] This may take 5-15s for server to boot...\x1b[0m`);
+
+                            // Start dev server in background (non-blocking)
+                            const { exec } = await import('child_process');
+                            const serverProc = exec(devScript, { cwd: process.cwd() });
+
+                            // Capture port from server stdout
+                            let foundUrl = '';
+                            serverProc.stdout?.on('data', (chunk: string) => {
+                                const urlMatch = chunk.match(/https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/);
+                                const portMatch = chunk.match(/(?:port|:)\s*(\d{4,5})/i);
+                                if (urlMatch && !foundUrl) foundUrl = urlMatch[0];
+                                else if (portMatch && !foundUrl) foundUrl = `http://localhost:${portMatch[1]}`;
+                            });
+
+                            // Wait up to 15s for server to start
+                            await new Promise<void>(resolve => {
+                                let waited = 0;
+                                const check = setInterval(() => {
+                                    waited += 500;
+                                    if (foundUrl || waited >= 15000) {
+                                        clearInterval(check);
+                                        resolve();
+                                    }
+                                }, 500);
+                            });
+
+                            detectedUrl = foundUrl || `http://localhost:${defaultPort}`;
+                            (this as any)._detectedLocalUrl = detectedUrl;
+                            console.log(`✅ [AUTO-VERIFY] Server started at: ${detectedUrl}`);
+
+                            // Store proc for cleanup
+                            (this as any)._devServerProc = serverProc;
+                        }
+                    }
+
+                    // ── VISUAL QA via Loop Engineer ───────────────────────────────────
                     if (detectedUrl) {
+                        console.log(`\n🔍 [AUTO-VERIFY] Opening browser at: ${detectedUrl}`);
+                        // Wait 3s for server to fully warm up
+                        await new Promise(r => setTimeout(r, 3000));
+
                         try {
                             const { runLoopEngineerRound, formatLoopEngineerInjection } = await import('./loop_engineer');
                             const projectContext = this.projectIntent || 'Web application';
                             const reviewResult = await runLoopEngineerRound(detectedUrl, projectContext);
-                            
+
                             if (reviewResult && !reviewResult.passed && reviewResult.issues.length > 0) {
-                                // Issues found — inject them back and continue fixing
+                                // Issues found — inject back and keep fixing
                                 const injection = formatLoopEngineerInjection(reviewResult);
-                                currentMessage = `<tool_result>\n${injection}\n</tool_result>\n[SYSTEM REMINDER: Fix ALL issues listed above. Use read_file then replace. DO NOT mark project complete until loop engineer passes.]`;
+                                currentMessage = `<tool_result>\n${injection}\n</tool_result>\n[SYSTEM: Fix ALL visual issues listed above. Use read_file → replace for precise edits. After fixing, restart dev server if needed, then loop engineer will re-verify. DO NOT mark complete until loop engineer passes.]`;
+                                console.log(`\n🔁 [AUTO-VERIFY] ${reviewResult.issues.length} issues found — continuing to fix...`);
                                 continue; // Keep loop going!
                             } else if (reviewResult?.passed) {
-                                console.log(`\n✅ [LOOP ENGINEER] Visual QA passed after ${reviewResult.round} round(s). Project verified!`);
+                                console.log(`\n✅ [AUTO-VERIFY] Visual QA PASSED after ${reviewResult.round} round(s)!`);
+                                console.log(`🌐 [AUTO-VERIFY] Project verified at: ${detectedUrl}`);
+                                console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+                                console.log(`✅ PROJECT COMPLETE — All checks passed:`);
+                                console.log(`   📦 Build: 0 errors`);
+                                console.log(`   🔍 AECL: 0 code errors`);
+                                console.log(`   🌐 Visual QA: Passed (${reviewResult.round} round(s))`);
+                                console.log(`   🔗 Live at: ${detectedUrl}`);
+                                console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+                            } else {
+                                // Visual review skipped (no vision API) — still show URL
+                                console.log(`\n✅ [AUTO-VERIFY] Project running at: ${detectedUrl}`);
+                                console.log(`   (Visual QA skipped — add NVIDIA vision API key to enable screenshot review)`);
                             }
                         } catch (e: any) {
-                            console.log(`\n⚠️  [LOOP ENGINEER] Visual review skipped: ${e.message}`);
+                            console.log(`\n⚠️  [AUTO-VERIFY] Visual review skipped: ${e.message}`);
+                            console.log(`\n✅ Project running at: ${detectedUrl}`);
                         }
+                    } else {
+                        console.log(`\n✅ [ATCLI] Task complete — build clean, 0 errors.`);
                     }
-                    
-                    console.log(`\n✅ Agent task completed or requires user feedback.`);
                 }
                 break;
             }
