@@ -8,6 +8,7 @@ import { SmartPlanner } from './smart_planner';
 import { ContextCompressor } from './context_compressor';
 import { SemanticCache } from './semantic_cache';
 import { ExecutionMemory } from './execution_memory';
+import { FileSystemTools } from '../tools/filesystem';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -980,6 +981,203 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     }
                 }
                 break;
+            }
+
+            // ─── NEW POWER TOOLS ─────────────────────────────────────────────
+            // str_replace_editor — surgical file edit (Claude Code parity)
+            if (toolCall.action === 'str_replace_editor') {
+                try {
+                    const res = await FileSystemTools.strReplaceEditor(
+                        toolCall.path,
+                        toolCall.old ?? toolCall.old_str ?? '',
+                        toolCall.new ?? toolCall.new_str ?? '',
+                        toolCall.line_hint ? Number(toolCall.line_hint) : undefined
+                    );
+                    console.log(`\n✏️  [str_replace_editor] ${toolCall.path}`);
+                    currentMessage = `<tool_result>\n${res}\n</tool_result>`;
+                    continue;
+                } catch (e: any) {
+                    currentMessage = `<tool_result>\n[ERROR] ${e.message}\n</tool_result>\n[SYSTEM REMINDER: str_replace_editor failed. Use read_file first to get exact text, then retry with exact match.]`;
+                    continue;
+                }
+            }
+
+            // batch_write — write multiple files in 1 call
+            if (toolCall.action === 'batch_write') {
+                const files = toolCall.files as Array<{ path: string; content: string }>;
+                if (!Array.isArray(files) || files.length === 0) {
+                    currentMessage = `<tool_result>\n[ERROR] batch_write requires a "files" array\n</tool_result>`;
+                    continue;
+                }
+                console.log(`\n📦 [batch_write] Writing ${files.length} files...`);
+                const res = await FileSystemTools.batchWrite(files);
+                // Track in file registry
+                for (const f of files) {
+                    const ts = new Date().toISOString();
+                    this.fileRegistry.set(f.path, { status: 'modified', changes: [`[${ts}] batch_write`], timestamp: ts });
+                }
+                currentMessage = `<tool_result>\n${res}\n</tool_result>`;
+                continue;
+            }
+
+            // insert_at_line — inject code at a specific line
+            if (toolCall.action === 'insert_at_line') {
+                const res = await FileSystemTools.insertAtLine(toolCall.path, Number(toolCall.line), String(toolCall.content ?? ''));
+                console.log(`\n📌 [insert_at_line] ${toolCall.path}:${toolCall.line}`);
+                currentMessage = `<tool_result>\n${res}\n</tool_result>`;
+                continue;
+            }
+
+            // make_dir — create directory
+            if (toolCall.action === 'make_dir') {
+                const res = await FileSystemTools.makeDir(toolCall.path);
+                console.log(`\n📁 [make_dir] ${toolCall.path}`);
+                currentMessage = `<tool_result>\n${res}\n</tool_result>`;
+                continue;
+            }
+
+            // file_info — file metadata
+            if (toolCall.action === 'file_info') {
+                const res = await FileSystemTools.fileInfo(toolCall.path);
+                currentMessage = `<tool_result>\n${res}\n</tool_result>`;
+                continue;
+            }
+
+            // find_replace_all — codebase-wide rename
+            if (toolCall.action === 'find_replace_all') {
+                console.log(`\n🔁 [find_replace_all] "${toolCall.old}" → "${toolCall.new}" across ${toolCall.path}`);
+                const res = await FileSystemTools.findReplaceAll(
+                    toolCall.path ?? '.',
+                    String(toolCall.old ?? ''),
+                    String(toolCall.new ?? ''),
+                    toolCall.extensions as string[] | undefined
+                );
+                currentMessage = `<tool_result>\n${res}\n</tool_result>`;
+                continue;
+            }
+
+            // diff_preview — show diff before applying
+            if (toolCall.action === 'diff_preview') {
+                const res = await FileSystemTools.diffPreview(toolCall.path, String(toolCall.content ?? toolCall.new_content ?? ''));
+                console.log(`\n👁️  [diff_preview] ${toolCall.path}`);
+                currentMessage = `<tool_result>\n${res}\n</tool_result>`;
+                continue;
+            }
+
+            // smart_patch — apply unified diff patch
+            if (toolCall.action === 'smart_patch') {
+                const res = await FileSystemTools.smartPatch(toolCall.path, String(toolCall.patch ?? ''));
+                console.log(`\n🩹 [smart_patch] ${toolCall.path}`);
+                currentMessage = `<tool_result>\n${res}\n</tool_result>`;
+                continue;
+            }
+
+            // read_url — fetch web content during task
+            if (toolCall.action === 'read_url') {
+                try {
+                    const url = String(toolCall.url ?? '');
+                    if (!url.startsWith('http')) { currentMessage = `<tool_result>\n[ERROR] read_url requires a valid http/https URL\n</tool_result>`; continue; }
+                    console.log(`\n🌐 [read_url] Fetching ${url}...`);
+                    const ctrl = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), 15000);
+                    const resp = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'ATCLI/3.0' } });
+                    clearTimeout(timer);
+                    const maxChars = Number(toolCall.max_chars ?? 8000);
+                    let text = await resp.text();
+                    // Strip HTML tags for readability
+                    text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s{3,}/g, '\n').trim();
+                    if (text.length > maxChars) text = text.substring(0, maxChars) + `\n...(truncated at ${maxChars} chars)`;
+                    currentMessage = `<tool_result>\n[read_url] ${url} (${resp.status})\n\n${text}\n</tool_result>`;
+                } catch (e: any) {
+                    currentMessage = `<tool_result>\n[ERROR] read_url failed: ${e.message}\n</tool_result>`;
+                }
+                continue;
+            }
+
+            // multi_grep — search multiple patterns in 1 call
+            if (toolCall.action === 'multi_grep') {
+                const queries = toolCall.queries as string[] ?? (toolCall.query ? [toolCall.query] : []);
+                const searchPath = String(toolCall.path ?? '.');
+                console.log(`\n🔍 [multi_grep] ${queries.length} patterns in ${searchPath}`);
+                const { ToolDAG } = await import('./tool_dag');
+                const dag = new ToolDAG();
+                queries.forEach((q, i) => dag.add(`grep_${i}`, { action: 'grep_search', path: searchPath, query: q, case_insensitive: toolCall.case_insensitive ?? true }, []));
+                const results = await dag.execute(cwd);
+                currentMessage = `<tool_result>\n${dag.toContextString(results)}\n</tool_result>`;
+                continue;
+            }
+
+            // list_processes — list running processes
+            if (toolCall.action === 'list_processes') {
+                const filter = String(toolCall.filter ?? '');
+                const isWin = process.platform === 'win32';
+                const cmd = isWin ? `tasklist /FO CSV /NH` : `ps aux`;
+                const { TerminalTools } = await import('../tools/terminal');
+                let out = await TerminalTools.runCommand(cmd);
+                if (filter) out = out.split('\n').filter(l => l.toLowerCase().includes(filter.toLowerCase())).join('\n');
+                currentMessage = `<tool_result>\n[list_processes] Filter: "${filter || 'all'}"\n${out.substring(0, 4000)}\n</tool_result>`;
+                continue;
+            }
+
+            // kill_process — terminate a process
+            if (toolCall.action === 'kill_process') {
+                const gk = this.gatekeeper.validate({ action: 'run_command', command: `kill ${toolCall.pid ?? toolCall.name}` }, 'loop');
+                if (!gk.allowed) { currentMessage = `<tool_result>\n🔒 BLOCKED: ${gk.reason}\n</tool_result>`; continue; }
+                const isWin = process.platform === 'win32';
+                const { TerminalTools } = await import('../tools/terminal');
+                let killCmd: string;
+                if (toolCall.pid) {
+                    killCmd = isWin ? `taskkill /PID ${toolCall.pid} /F` : `kill -9 ${toolCall.pid}`;
+                } else {
+                    killCmd = isWin ? `taskkill /IM ${toolCall.name} /F` : `pkill -f "${toolCall.name}"`;
+                }
+                const out = await TerminalTools.runCommand(killCmd);
+                currentMessage = `<tool_result>\n[kill_process] ${out}\n</tool_result>`;
+                continue;
+            }
+
+            // run_parallel — run multiple commands simultaneously
+            if (toolCall.action === 'run_parallel') {
+                const commands = toolCall.commands as string[] ?? [];
+                console.log(`\n⚡ [run_parallel] Running ${commands.length} commands...`);
+                const { TerminalTools } = await import('../tools/terminal');
+                const settled = await Promise.allSettled(commands.map(cmd => TerminalTools.runCommand(cmd)));
+                const outputs = settled.map((r, i) =>
+                    `--- ${commands[i]} ---\n${r.status === 'fulfilled' ? r.value : '[ERROR] ' + (r.reason as Error).message}`
+                );
+                currentMessage = `<tool_result>\n[run_parallel] Results:\n${outputs.join('\n\n').substring(0, 8000)}\n</tool_result>`;
+                continue;
+            }
+
+            // checkpoint — save task progress snapshot
+            if (toolCall.action === 'checkpoint') {
+                try {
+                    const checkpointPath = path.join(cwd, '.atcli-tmp', 'checkpoint.json');
+                    const fs2 = await import('fs');
+                    fs2.mkdirSync(path.join(cwd, '.atcli-tmp'), { recursive: true });
+                    const snap = {
+                        note: toolCall.note ?? '',
+                        timestamp: new Date().toISOString(),
+                        iteration: i,
+                        filesWritten: Array.from(this.fileRegistry.keys()),
+                    };
+                    fs2.writeFileSync(checkpointPath, JSON.stringify(snap, null, 2), 'utf-8');
+                    console.log(`\n💾 [checkpoint] Saved: ${toolCall.note ?? ''}`);
+                    currentMessage = `<tool_result>\n[checkpoint] Progress saved to .atcli-tmp/checkpoint.json\nNote: ${toolCall.note ?? ''}\nFiles tracked: ${snap.filesWritten.length}\n</tool_result>`;
+                } catch (e: any) {
+                    currentMessage = `<tool_result>\n[checkpoint] Failed: ${e.message}\n</tool_result>`;
+                }
+                continue;
+            }
+
+            // compress_context — manually trim conversation history
+            if (toolCall.action === 'compress_context') {
+                const { ContextCompressor } = await import('./context_compressor');
+                const compressor = new ContextCompressor(isLocalModel ? 4000 : 12000);
+                const before = currentMessage.length;
+                const compressed = compressor.compress({ userRequest: 'compress_context', extraContext: currentMessage });
+                currentMessage = `<tool_result>\n[compress_context] Context compressed from ${Math.round(before/1000)}k to ~${Math.round(compressed.text.length/1000)}k chars\n</tool_result>`;
+                continue;
             }
 
             // ─── SMART SAFETY GATE ───────────────────────────────────────────
