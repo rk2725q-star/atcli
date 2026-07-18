@@ -119,10 +119,10 @@ export const WorkspaceAnalyzeSkill: AgentSkill = {
 
             if (pythonFiles.length > 0) {
                 checks.push({
-                    label: 'Python compile',
+                    label: 'Python pyflakes & compile',
                     command: process.platform === 'win32'
-                        ? `py -m py_compile ${shellJoin(pythonFiles)}`
-                        : `python3 -m py_compile ${shellJoin(pythonFiles)}`,
+                        ? `python -m pyflakes ${shellJoin(pythonFiles)} 2>nul || py -m pyflakes ${shellJoin(pythonFiles)} 2>nul || py -m py_compile ${shellJoin(pythonFiles)}`
+                        : `python3 -m pyflakes ${shellJoin(pythonFiles)} 2>/dev/null || python -m pyflakes ${shellJoin(pythonFiles)} 2>/dev/null || python3 -m py_compile ${shellJoin(pythonFiles)}`,
                     cwd
                 });
             }
@@ -149,6 +149,11 @@ export const WorkspaceAnalyzeSkill: AgentSkill = {
             checks.push({
                 label: 'Node JS Syntax Check',
                 command: `node --check ${shellJoin(jsFiles)}`,
+                cwd
+            });
+            checks.push({
+                label: 'Zero-Config ESLint',
+                command: `npx eslint@8 --no-eslintrc --env node --env browser --env es2021 --parser-options=sourceType:module ${shellJoin(jsFiles)}`,
                 cwd
             });
         }

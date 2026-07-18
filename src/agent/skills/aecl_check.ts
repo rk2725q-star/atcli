@@ -335,10 +335,14 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
                     if (res.failed) checkerFailed = true;
                     combinedOutput += res.output;
                 } else {
-                    console.log(`\n[AECL] Skipping JS lint (no eslint). Falling back to node --check for syntax errors...`);
-                    const res = await runCmd(`node --check ${jsFiles.join(' ')}`);
-                    if (res.failed) checkerFailed = true;
-                    combinedOutput += res.output;
+                    console.log(`\n[AECL] Skipping local JS lint (no eslint). Falling back to node --check and npx eslint@8 for deep syntax & logic errors...`);
+                    const resNode = await runCmd(`node --check ${jsFiles.join(' ')}`);
+                    if (resNode.failed) checkerFailed = true;
+                    combinedOutput += resNode.output;
+                    
+                    const resEslint = await runCmd(`npx eslint@8 --format unix --no-eslintrc --env node --env browser --env es2021 --parser-options=sourceType:module ${jsFiles.join(' ')}`);
+                    if (resEslint.failed) checkerFailed = true;
+                    combinedOutput += resEslint.output;
                 }
             }
         }
