@@ -15,7 +15,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
         // DeepSeek throttles rapid-fire messages. We detect it in BOTH the
         // response text AND via DOM scanning for toast/popup notifications.
         const MAX_RATE_RETRIES = 6;
-        let rateLimitWait = 8000; // start at 8s, double each retry (cap 60s)
+        const rateLimitWait = 4000; // flat 4s wait per user request
 
         // Pre-send delay: prevent rapid-fire message chains from triggering rate limits
         // Ensures minimum 2s gap between consecutive messages to DeepSeek
@@ -64,7 +64,6 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             // Rate-limited — wait and retry
             console.log(`\n⏳ [DeepSeek] Rate limited. Waiting ${rateLimitWait / 1000}s before retry ${attempt}/${MAX_RATE_RETRIES}...`);
             await this.page!.waitForTimeout(rateLimitWait);
-            rateLimitWait = Math.min(rateLimitWait * 2, 60000); // cap at 60s
         }
 
         return { text: '', error: 'DeepSeek: Rate limit persists after retries. Try again in a minute.' };
