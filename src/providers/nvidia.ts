@@ -26,7 +26,72 @@ const NVIDIA_BASE_URL    = 'https://integrate.api.nvidia.com/v1';
 const CHAT_ENDPOINT      = `${NVIDIA_BASE_URL}/chat/completions`;
 const MODELS_ENDPOINT    = `${NVIDIA_BASE_URL}/models`;
 const DEFAULT_MODEL      = 'minimaxai/minimax-m3';
-const MAX_CONTEXT_TOKENS = 180_000;
+const DEFAULT_MAX_OUTPUT = 4096;   // Default max output tokens
+const CONTEXT_HEADROOM   = 0.85;   // Use 85% of context window, reserve 15% for response
+
+// ── Per-Model Context Window Registry ────────────────────────────────────────
+// NVIDIA NIM models each have different context limits.
+// Source: https://docs.api.nvidia.com + https://build.nvidia.com/explore/reasoning
+// Format: 'model-id': context_tokens
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+    // MiniMax
+    'minimaxai/minimax-m3':                         1_000_000,
+    // Meta Llama
+    'meta/llama-3.1-405b-instruct':                   128_000,
+    'meta/llama-3.3-70b-instruct':                    128_000,
+    'meta/llama-3.1-70b-instruct':                    128_000,
+    'meta/llama-3.1-8b-instruct':                     128_000,
+    'meta/llama-3.2-90b-vision-instruct':             128_000,
+    'meta/llama-3.2-11b-vision-instruct':             128_000,
+    'meta/llama-4-scout-17b-16e-instruct':          1_048_576,
+    'meta/llama-4-maverick-17b-128e-instruct':      1_048_576,
+    // DeepSeek
+    'deepseek-ai/deepseek-r1':                         64_000,
+    'deepseek-ai/deepseek-r1-distill-qwen-32b':        32_000,
+    'deepseek-ai/deepseek-r1-distill-llama-8b':         8_000,
+    'deepseek-ai/deepseek-r1-0528':                    64_000,
+    // NVIDIA
+    'nvidia/llama-3.1-nemotron-70b-instruct':          128_000,
+    'nvidia/nemotron-4-340b-instruct':                  4_096,
+    // Qwen
+    'qwen/qwen3-coder-480b-a35b-instruct':              32_000,
+    'qwen/qwen3-235b-a22b-instruct':                    32_000,
+    'qwen/qwq-32b':                                     32_000,
+    'qwen/qwen2.5-72b-instruct':                       128_000,
+    'qwen/qwen2.5-coder-32b-instruct':                 128_000,
+    // Moonshot / Kimi
+    'moonshotai/kimi-k2-instruct':                   1_000_000,
+    // Google
+    'google/gemma-3-27b-it':                           128_000,
+    'google/gemma-3-12b-it':                           128_000,
+    // Mistral
+    'mistralai/mistral-large-2-instruct':              128_000,
+    'mistralai/mixtral-8x22b-instruct-v0.1':            64_000,
+    'mistralai/mistral-7b-instruct-v0.3':               32_000,
+    // Microsoft
+    'microsoft/phi-4-multimodal-instruct':             128_000,
+    'microsoft/phi-3-medium-128k-instruct':            128_000,
+    // IBM Granite
+    'ibm/granite-3.3-8b-instruct':                     128_000,
+    'ibm/granite-3.3-2b-instruct':                     128_000,
+    // Writer
+    'writer/palmyra-x5':                               128_000,
+    // THUDM
+    'thudm/glm-4-9b-chat':                             128_000,
+    'thudm/glm-z1-rumination-32b':                     128_000,
+};
+
+/** Get context window for a model. Falls back to 128k if unknown. */
+function getModelContextWindow(modelId: string): number {
+    // Exact match first
+    if (MODEL_CONTEXT_WINDOWS[modelId]) return MODEL_CONTEXT_WINDOWS[modelId];
+    // Partial match (handles future model versions like 'meta/llama-3.1-70b-instruct-v2')
+    for (const [key, val] of Object.entries(MODEL_CONTEXT_WINDOWS)) {
+        if (modelId.startsWith(key.split(':')[0])) return val;
+    }
+    console.log(`[NVIDIA] ⚠️  Unknown model '${modelId}' — assuming 128k context window.`);
+    return 128_000; // Safe default for most NVIDIA models
+}
 const RPM_WINDOW_MS      = 60_000;   // Sliding window = 60 seconds
 const RPM_WARN_THRESHOLD = 35;       // Log warning at 35 RPM
 const RPM_HARD_LIMIT     = 40;       // Emergency swap at 40 RPM (NVIDIA free tier limit)
@@ -254,6 +319,7 @@ export class NvidiaApiProvider implements AgentProvider {
     private model: string;
     private apiKey: string | null = null;
     private messages: ConversationMessage[] = [];
+    private maxContextTokens: number;  // Set dynamically based on selected model
     private systemPrompt: string = '';
     private abortController: AbortController | null = null;
     private projectDir: string;
@@ -263,8 +329,9 @@ export class NvidiaApiProvider implements AgentProvider {
     private static reasoningEnabled: boolean = true;
 
     constructor(id = 'nvidia', model = DEFAULT_MODEL) {
-        this.id       = id;
-        this.model    = model;
+        this.id = id;
+        this.model = model || DEFAULT_MODEL;
+        this.maxContextTokens = Math.floor(getModelContextWindow(this.model) * CONTEXT_HEADROOM);
         this.projectDir = process.cwd();
         this.memoryPath = getMemoryPath(this.projectDir);
     }
@@ -272,6 +339,7 @@ export class NvidiaApiProvider implements AgentProvider {
     // ── Model Management ───────────────────────────────────────────────────
     public setModel(model: string): void {
         this.model = model;
+        this.maxContextTokens = Math.floor(getModelContextWindow(this.model) * CONTEXT_HEADROOM);
         console.log(`[NVIDIA] Model set to: ${model}`);
     }
 
@@ -319,37 +387,40 @@ export class NvidiaApiProvider implements AgentProvider {
     }
 
     // ── Context Window Management ──────────────────────────────────────────
-    // Rough token count: ~4 chars per token. Trim oldest non-system messages
-    // when approaching MAX_CONTEXT_TOKENS to stay under the limit.
+    // Token estimate: ~4 chars per token.
+    // Uses model-specific context window — 128k for most models, 1M for MiniMax/Kimi.
+    // Trims oldest non-system messages first to preserve recent context.
     private trimContext(): void {
         const estimateTokens = (msgs: ConversationMessage[]) =>
             msgs.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
 
-        while (estimateTokens(this.messages) > MAX_CONTEXT_TOKENS && this.messages.length > 2) {
-            // Find first non-system message and remove it
+        let trimmed = 0;
+        while (estimateTokens(this.messages) > this.maxContextTokens && this.messages.length > 2) {
             const firstUserIdx = this.messages.findIndex(m => m.role !== 'system');
             if (firstUserIdx === -1) break;
             this.messages.splice(firstUserIdx, 1);
+            trimmed++;
+        }
+        if (trimmed > 0) {
+            console.log(`[NVIDIA] ✂️  Trimmed ${trimmed} old messages to stay within ${Math.round(this.maxContextTokens / 1000)}k token limit (model: ${this.model})`);
         }
     }
 
     // ── Context Auto-Summarization ──────────────────────────────────────────
-    // When context is near-full (due to our aggressive 5000 token TTFT optimization), 
-    // force the AI to physically save its thoughts into long-term memory before it gets trimmed.
+    // When context is near-full (80% of model's actual limit), force the AI to
+    // write progress to ATCLI_MEMORY.md so nothing is lost on next trim.
     private injectContextRefresh(): void {
         const tokenEstimate = this.messages.reduce((s, m) => s + Math.ceil(m.content.length / 4), 0);
-        
-        // If we are over 80% of our limit AND we've done at least a few turns of real work
-        if (tokenEstimate > MAX_CONTEXT_TOKENS * 0.80 && this.messages.length > 4) {
-            
-            // Only inject if we haven't already just injected it recently to avoid spam loops
+        const usedPct = Math.round((tokenEstimate / this.maxContextTokens) * 100);
+
+        if (tokenEstimate > this.maxContextTokens * 0.80 && this.messages.length > 4) {
             const lastMsg = this.messages[this.messages.length - 1];
             if (lastMsg && lastMsg.content.includes('[MEMORY CHECKPOINT]')) return;
 
-            console.log('\n[NVIDIA] 🧠 Context limit approaching — forcing AI to update physical memory...');
+            console.log(`\n[NVIDIA] 🧠 Context at ${usedPct}% of ${Math.round(this.maxContextTokens / 1000)}k limit (${this.model}) — forcing memory save...`);
             this.messages.push({
                 role: 'system',
-                content: `[MEMORY CHECKPOINT] Context nearing limit. Save current progress to ATCLI_MEMORY.md before continuing.`
+                content: `[MEMORY CHECKPOINT] Context at ${usedPct}%. Save ALL current progress, file paths, decisions, and next steps to ATCLI_MEMORY.md NOW before trimming begins.`
             });
         }
     }
