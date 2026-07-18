@@ -31,14 +31,15 @@ export const ReplaceSkill: AgentSkill = {
                 const chunk = lines.slice(startIdx, endIdx).join('\n');
                 
                 if (!chunk.includes(args.search)) {
-                    return "Error: Search string not found within the specified line range. Check whitespace/indentation.";
+                    const actualLines = chunk.split('\n').map((l, i) => `${startIdx + i + 1}: ${l}`).join('\n');
+                    return `Error: Search string not found within lines ${args.startLine}-${args.endLine}. Check whitespace.\nActual content of these lines:\n${actualLines}`;
                 }
                 const replacedChunk = chunk.replace(args.search, args.replace);
                 lines.splice(startIdx, endIdx - startIdx, replacedChunk);
                 content = lines.join('\n');
             } else {
                 if (!content.includes(args.search)) {
-                    return "Error: Search string not found in the file. Make sure you provide the EXACT string, including whitespace.";
+                    return `Error: Search string not found in the file. Make sure you provide the EXACT string, including whitespace. Try using read_file to check exact indentation, or specify startLine and endLine.`;
                 }
                 content = content.replace(args.search, args.replace);
             }

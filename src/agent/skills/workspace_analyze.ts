@@ -128,6 +128,40 @@ export const WorkspaceAnalyzeSkill: AgentSkill = {
             }
         }
 
+        // Dynamic JS Syntax Check (Fallback for raw JS projects)
+        const jsFiles: string[] = [];
+        const tsFiles: string[] = [];
+        const walkCode = (dir: string) => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (['node_modules', 'dist', '.git', '.agents', '.next'].includes(entry.name)) continue;
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    walkCode(fullPath);
+                } else if (entry.isFile()) {
+                    if (entry.name.endsWith('.js') || entry.name.endsWith('.jsx')) jsFiles.push(path.relative(cwd, fullPath));
+                    if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) tsFiles.push(path.relative(cwd, fullPath));
+                }
+            }
+        };
+        walkCode(cwd);
+
+        if (jsFiles.length > 0) {
+            checks.push({
+                label: 'Node JS Syntax Check',
+                command: `node --check ${shellJoin(jsFiles)}`,
+                cwd
+            });
+        }
+        
+        // If there are TS files but NO tsconfig (meaning we didn't add the tsc command earlier)
+        if (tsFiles.length > 0 && !fs.existsSync(tsconfigPath)) {
+            checks.push({
+                label: 'TypeScript Syntax Check (Fallback)',
+                command: `npx tsc --noEmit ${shellJoin(tsFiles)}`,
+                cwd
+            });
+        }
+
         if (checks.length === 0) {
             return `[WORKSPACE ANALYZE COMPLETE]
 Mode: ${mode}

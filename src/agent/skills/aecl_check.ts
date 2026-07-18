@@ -335,7 +335,10 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
                     if (res.failed) checkerFailed = true;
                     combinedOutput += res.output;
                 } else {
-                    console.log(`\n[AECL] Skipping JS lint: local eslint binary not installed in this workspace.`);
+                    console.log(`\n[AECL] Skipping JS lint (no eslint). Falling back to node --check for syntax errors...`);
+                    const res = await runCmd(`node --check ${jsFiles.join(' ')}`);
+                    if (res.failed) checkerFailed = true;
+                    combinedOutput += res.output;
                 }
             }
         }
