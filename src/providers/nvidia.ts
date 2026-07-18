@@ -28,9 +28,10 @@ const MODELS_ENDPOINT    = `${NVIDIA_BASE_URL}/models`;
 const DEFAULT_MODEL      = 'minimaxai/minimax-m3';
 const MAX_CONTEXT_TOKENS = 180_000;
 const RPM_WINDOW_MS      = 60_000;   // Sliding window = 60 seconds
-const RPM_WARN_THRESHOLD = 38;       // Warm up next key at 38 RPM
-const RPM_HARD_LIMIT     = 40;       // Swap key at 40 RPM (NVIDIA free tier limit)
+const RPM_WARN_THRESHOLD = 35;       // Log warning at 35 RPM
+const RPM_HARD_LIMIT     = 40;       // Emergency swap at 40 RPM (NVIDIA free tier limit)
 const KEY_COOLDOWN_MS    = 62_000;   // After a 429, rest key for 62s (slightly over 60s for safety)
+const SWAP_AFTER_N       = 20;       // Round-robin: swap key every N completed requests
 
 // Models that support reasoning (emit reasoning_content in stream deltas)
 const REASONING_MODELS = [
@@ -96,13 +97,11 @@ export class SlidingWindowRPM {
     }
 }
 
-// ── Dual-Key Sliding-Window Scheduler ────────────────────────────────────────
-// Manages two NVIDIA API keys with per-key RPM tracking.
-// Logic:
-//   count(last60s) < 38 → use current key freely
-//   count(last60s) >= 38 → log warning, pre-warm next key  
-//   count(last60s) >= 40 → swap to next key immediately
-//   HTTP 429 received   → mark key as resting for 62s, instant swap
+// ── Dual-Key Round-Robin Scheduler ──────────────────────────────────────────
+// Primary swap mode: round-robin every SWAP_AFTER_N (20) completed requests.
+// Emergency swaps: HTTP 429 → instant swap + 62s cooldown on that key.
+//                  RPM >= 40 → emergency swap regardless of count.
+// Each key rests while the other key is active → full 60s cooldown between bursts.
 export class NvidiaKeyScheduler {
     private keyRPM: Record<string, SlidingWindowRPM> = {
         nvidia:  new SlidingWindowRPM(),
@@ -112,6 +111,8 @@ export class NvidiaKeyScheduler {
     private activeKeyId: 'nvidia' | 'nvidia2' = 'nvidia';
     private queue: Array<() => Promise<void>> = [];
     private running = false;
+    // Round-robin counter — how many requests completed on the current key
+    private requestsOnCurrentKey = 0;
 
     getActiveKeyId(): 'nvidia' | 'nvidia2' { return this.activeKeyId; }
 
@@ -181,9 +182,21 @@ export class NvidiaKeyScheduler {
         }
     }
 
-    /** Record a successful request on the active key */
+    /** Record a completed request on the active key. Swap after every SWAP_AFTER_N requests. */
     recordRequest(): void {
         this.keyRPM[this.activeKeyId].record();
+        this.requestsOnCurrentKey++;
+
+        const hasSecondKey = !!ApiKeyStore.get(this.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia');
+
+        if (hasSecondKey && this.requestsOnCurrentKey >= SWAP_AFTER_N) {
+            const next = this.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
+            console.log(`\n[NVIDIA] ⚖️  Round-robin: ${this.activeKeyId} completed ${SWAP_AFTER_N} requests → swapping to ${next} (${this.activeKeyId} now resting)`);
+            // Mark the key we just finished using as resting so it gets a full 60s break
+            this.restUntil[this.activeKeyId] = Date.now() + KEY_COOLDOWN_MS;
+            this.activeKeyId = next;
+            this.requestsOnCurrentKey = 0;
+        }
     }
 
     /** Print full key status to terminal */
@@ -206,8 +219,9 @@ export class NvidiaKeyScheduler {
             this.queue.push(async () => {
                 try {
                     await this.preflightCheck();
-                    this.recordRequest();
-                    resolve(await fn());
+                    const result = await fn();      // ← run first
+                    this.recordRequest();            // ← count AFTER success (round-robin swap happens here)
+                    resolve(result);
                 } catch (e) { reject(e); }
             });
             this.drain();
@@ -374,9 +388,11 @@ export class NvidiaApiProvider implements AgentProvider {
 
     // ── Core Request ───────────────────────────────────────────────────────
     private async callAPI(userMessage: string): Promise<string> {
-        // Key resolution is handled by nvidiaScheduler.preflightCheck() before this call.
-        // Update apiKey in case scheduler swapped to a different key.
-        this.apiKey = nvidiaScheduler.resolveApiKey() ?? this.apiKey;
+        // Sync apiKey with scheduler's active key (set by round-robin swap or 429 handler)
+        const schedulerKey = nvidiaScheduler.resolveApiKey();
+        if (schedulerKey && schedulerKey !== this.apiKey) {
+            this.apiKey = schedulerKey; // Only update if scheduler changed the key
+        }
 
         // Add user message to history
         this.messages.push({ role: 'user', content: userMessage });
