@@ -231,8 +231,22 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
                             });
                         } catch (e) { /* ignore */ }
 
+                        if (!clickedContinue) {
+                            try {
+                                console.log(`\n▶️ [${this.id.toUpperCase()}] Length limit hit. No continue button found, typing "continue" manually...`);
+                                const textareaSelector = '#chat-input, textarea, [contenteditable], [placeholder*="Message"]';
+                                const inputLocator = this.page!.locator(textareaSelector).filter({ visible: true }).last();
+                                await inputLocator.click({ force: true, timeout: 2000 });
+                                await this.page!.keyboard.type('continue');
+                                await this.page!.keyboard.press('Enter');
+                                clickedContinue = true;
+                                // Small wait to let the UI register the send
+                                await this.page!.waitForTimeout(1000);
+                            } catch (e) { /* ignore */ }
+                        }
+
                         if (clickedContinue) {
-                            console.log(`\n▶️ [${this.id.toUpperCase()}] Length limit hit. Auto-clicked 'Continue generating'...`);
+                            console.log(`\n▶️ [${this.id.toUpperCase()}] Resumed generation. Auto-waiting...`);
                             stableCount = 0;
                             continue;
                         }
