@@ -584,7 +584,8 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
             currentMessage = `${userMessage}\n\n${reminder}\n\n${bootInjection}`;
         }
         
-        let lastRefreshTokens = this.totalTokensProcessed;
+        let lastRefreshTokens = 0;
+        let lastToolResult = '';
 
         for (let i = 1; i <= this.maxIterations; i++) {
             
@@ -803,6 +804,15 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
             }
 
             if (!toolCall) {
+                // ── FAILSAFE: Auto-Fix Enforcement ──
+                // If the last tool call was a command that failed, the AI CANNOT exit.
+                // It must fix the error.
+                if (lastToolResult.includes('The command failed with exit code:')) {
+                    console.log(`\n🚫 [SYSTEM GATE] AI attempted to stop after a command failure. Forcing auto-fix...`);
+                    currentMessage = `<tool_result>\n[SYSTEM GATE] You attempted to stop working, but your last command failed with an error! You MUST fix the error. Do not give up. Use read_file to investigate the code, make edits with str_replace_editor, and re-run the command.\n</tool_result>`;
+                    continue;
+                }
+
                 // [INTELLIGENT FALLBACK]: Auto-extract markdown files ONLY when:
                 // 1. NOT a local model (local models should use tool calls, not markdown)
                 // 2. Response looks like a task completion (has real file paths with dirs)
@@ -1590,6 +1600,9 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
             }
 
 
+            // Save raw result to instance state for failsafe logic (before truncation)
+            (this as any)._lastToolResult = result;
+            lastToolResult = result; // Keep local variable sync
 
             // Global safety truncation to prevent web UI crashes from massive outputs
             if (result.length > 30000 && !result.startsWith('__ATCLI_VISION_PAYLOAD__')) {

@@ -61,7 +61,8 @@ export const WorkspaceAnalyzeSkill: AgentSkill = {
                 const scripts = pkg.scripts || {};
                 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-                for (const scriptName of ['typecheck', 'lint', 'test']) {
+                const potentialCheckScripts = ['analyze', 'check', 'validate', 'typecheck', 'lint', 'test'];
+                for (const scriptName of potentialCheckScripts) {
                     if (scripts[scriptName]) {
                         checks.push({
                             label: `npm run ${scriptName}`,

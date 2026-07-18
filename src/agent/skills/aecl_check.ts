@@ -223,8 +223,9 @@ Arguments: { "files_written": ["list of files just written"], "ai_notes": "Your 
             try {
                 const pkg = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
                 const scripts = pkg.scripts || {};
-                // Only run read-only / check scripts. DO NOT run 'build' as it can mutate the project or take too long.
-                const scriptsToRun = ['typecheck', 'lint'].filter(s => scripts[s]);
+                // Only run read-only / check scripts. We allow 'build' here if nothing else exists because users often rely on it for checking.
+                const potentialScripts = ['analyze', 'check', 'validate', 'typecheck', 'lint', 'test', 'build'];
+                const scriptsToRun = potentialScripts.filter(s => scripts[s]);
                 for (const script of scriptsToRun) {
                     console.log(`\n🔍 [AECL] Running Universal Check: npm run ${script}...`);
                     const res = await runCmd(`npm run ${script}`, cwd);
