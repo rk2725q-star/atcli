@@ -7,16 +7,18 @@ import { maskSecretsString } from '../utils/secrets';
 import { SkillManager } from '../agent/skillManager';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NVIDIA NIM Provider
+// NVIDIA NIM Provider — v2 Smart Architecture
 // API: https://integrate.api.nvidia.com/v1  (OpenAI-compatible)
 // Docs: https://docs.api.nvidia.com
 //
 // Features:
 //  - Dynamic model list from GET /v1/models
-//  - Sequential request queue (1-at-a-time, respects 40 RPM free tier)
+//  - Sliding-window RPM scheduler (true 60s rolling window per key)
+//  - Dual-key rotation: warm at 38 RPM, swap at 40 RPM, 429 → instant swap
 //  - Persistent conversation memory (messages[] never cleared between turns)
 //  - 180k token context window: auto-trims oldest messages to stay under limit
 //  - Full system prompt (same as browser providers — Gatekeeper, skills, etc.)
+//  - Secret masking before any request leaves the machine
 //  - Secret masking before any request leaves the machine
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -24,8 +26,20 @@ const NVIDIA_BASE_URL    = 'https://integrate.api.nvidia.com/v1';
 const CHAT_ENDPOINT      = `${NVIDIA_BASE_URL}/chat/completions`;
 const MODELS_ENDPOINT    = `${NVIDIA_BASE_URL}/models`;
 const DEFAULT_MODEL      = 'minimaxai/minimax-m3';
-const MAX_CONTEXT_TOKENS = 180_000;   // Increased to 180k to match architecture design
-const RPM_DELAY_MS       = 3_000;     // 3s between requests → max 20 RPM (50% of the 40 RPM limit for ultimate safety)
+const MAX_CONTEXT_TOKENS = 180_000;
+const RPM_WINDOW_MS      = 60_000;   // Sliding window = 60 seconds
+const RPM_WARN_THRESHOLD = 38;       // Warm up next key at 38 RPM
+const RPM_HARD_LIMIT     = 40;       // Swap key at 40 RPM (NVIDIA free tier limit)
+const KEY_COOLDOWN_MS    = 62_000;   // After a 429, rest key for 62s (slightly over 60s for safety)
+
+// Models that support reasoning (emit reasoning_content in stream deltas)
+const REASONING_MODELS = [
+    'deepseek-ai/deepseek-r1',
+    'deepseek-ai/deepseek-r1-distill-qwen-32b',
+    'deepseek-ai/deepseek-r1-distill-llama-8b',
+    'nvidia/llama-3.1-nemotron-70b-instruct',
+    'qwen/qwen3-coder-480b-a35b-instruct',
+];
 
 // Conversation memory file: one per project dir, per provider
 function getMemoryPath(projectDir: string): string {
@@ -39,31 +53,172 @@ interface ConversationMessage {
     content: string;
 }
 
-// ── Sequential Request Queue ──────────────────────────────────────────────────
-// All NVIDIA requests go through this queue — ensures 1-at-a-time execution
-// so we never burst past the 40 RPM free tier limit.
-class RequestQueue {
+// ── Sliding-Window RPM Tracker ────────────────────────────────────────────────
+// Tracks real timestamps in a 60-second rolling window per API key.
+// No fixed counters — counts actual requests in the last 60 seconds.
+export class SlidingWindowRPM {
+    private timestamps: number[] = [];
+
+    /** Record one request now */
+    record(): void {
+        const now = Date.now();
+        this.timestamps.push(now);
+        this.evict();
+    }
+
+    /** Count requests in the last 60s */
+    count(): number {
+        this.evict();
+        return this.timestamps.length;
+    }
+
+    /** How many ms until the oldest request leaves the 60s window (= next free slot) */
+    msUntilSlot(): number {
+        this.evict();
+        if (this.timestamps.length === 0) return 0;
+        const oldest = this.timestamps[0];
+        return Math.max(0, oldest + RPM_WINDOW_MS - Date.now());
+    }
+
+    /** Compact visual bar for terminal status display */
+    bar(): string {
+        const used = this.count();
+        const total = RPM_HARD_LIMIT;
+        const filled = Math.round((used / total) * 20);
+        return '█'.repeat(filled) + '░'.repeat(20 - filled);
+    }
+
+    private evict(): void {
+        const cutoff = Date.now() - RPM_WINDOW_MS;
+        while (this.timestamps.length > 0 && this.timestamps[0] < cutoff) {
+            this.timestamps.shift();
+        }
+    }
+}
+
+// ── Dual-Key Sliding-Window Scheduler ────────────────────────────────────────
+// Manages two NVIDIA API keys with per-key RPM tracking.
+// Logic:
+//   count(last60s) < 38 → use current key freely
+//   count(last60s) >= 38 → log warning, pre-warm next key  
+//   count(last60s) >= 40 → swap to next key immediately
+//   HTTP 429 received   → mark key as resting for 62s, instant swap
+export class NvidiaKeyScheduler {
+    private keyRPM: Record<string, SlidingWindowRPM> = {
+        nvidia:  new SlidingWindowRPM(),
+        nvidia2: new SlidingWindowRPM(),
+    };
+    private restUntil: Record<string, number> = { nvidia: 0, nvidia2: 0 };
+    private activeKeyId: 'nvidia' | 'nvidia2' = 'nvidia';
     private queue: Array<() => Promise<void>> = [];
     private running = false;
-    private lastRequestTime = 0;
 
-    public enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    getActiveKeyId(): 'nvidia' | 'nvidia2' { return this.activeKeyId; }
+
+    /** Called when a 429 is received — immediately rest this key, swap now */
+    on429(keyId: string): void {
+        this.restUntil[keyId] = Date.now() + KEY_COOLDOWN_MS;
+        console.log(`\n[NVIDIA] ⚡ ${keyId} rate-limited (429). Resting ${KEY_COOLDOWN_MS/1000}s.`);
+        this.swapKey();
+    }
+
+    /** Get the resolved API key string for the current active key */
+    resolveApiKey(): string | null {
+        return ApiKeyStore.get(this.activeKeyId);
+    }
+
+    /**
+     * Pre-flight check before every request:
+     * 1. If active key is resting → try to swap
+     * 2. If active key RPM >= 40 → swap
+     * 3. If active key RPM >= 38 → warn, continue (next request may trigger swap)
+     */
+    async preflightCheck(): Promise<void> {
+        // Check if active key is resting (from a previous 429)
+        if (Date.now() < this.restUntil[this.activeKeyId]) {
+            const ms = this.restUntil[this.activeKeyId] - Date.now();
+            const other = this.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
+            const otherKey = ApiKeyStore.get(other);
+            if (otherKey && Date.now() >= this.restUntil[other]) {
+                console.log(`\n[NVIDIA] Resting key detected. Swapping to ${other}.`);
+                this.swapKey();
+            } else {
+                // Both keys resting — wait for the one with the shortest remaining rest
+                const wait = Math.min(
+                    Math.max(0, this.restUntil['nvidia'] - Date.now()),
+                    Math.max(0, this.restUntil['nvidia2'] - Date.now())
+                );
+                console.log(`\n[NVIDIA] ⏳ Both keys resting. Waiting ${Math.ceil(wait/1000)}s for quota reset...`);
+                await new Promise(r => setTimeout(r, wait + 1000));
+                // After wait, pick whichever key is not resting
+                const nowReady = (['nvidia', 'nvidia2'] as const).find(k => Date.now() >= this.restUntil[k] && ApiKeyStore.get(k));
+                if (nowReady) this.activeKeyId = nowReady;
+            }
+        }
+
+        const rpm = this.keyRPM[this.activeKeyId].count();
+        const other = this.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
+        const otherKey = ApiKeyStore.get(other);
+
+        if (rpm >= RPM_HARD_LIMIT) {
+            // Hard limit reached — swap now
+            if (otherKey && Date.now() >= this.restUntil[other]) {
+                console.log(`\n[NVIDIA] 🔄 Key ${this.activeKeyId} at ${rpm}/${RPM_HARD_LIMIT} RPM. Swapping to ${other}.`);
+                this.swapKey();
+            } else {
+                // Other key not available — wait for the next slot
+                const wait = this.keyRPM[this.activeKeyId].msUntilSlot();
+                console.log(`\n[NVIDIA] ⏳ At ${rpm} RPM. Waiting ${Math.ceil(wait/1000)}s for slot...`);
+                await new Promise(r => setTimeout(r, wait + 500));
+            }
+        } else if (rpm >= RPM_WARN_THRESHOLD && otherKey) {
+            // Warm warning — log but continue, next request may swap
+            const bar  = this.keyRPM[this.activeKeyId].bar();
+            const bar2 = this.keyRPM[other]?.bar() ?? '░'.repeat(20);
+            console.log(`\n[NVIDIA] Key Status:`);
+            console.log(`  ${this.activeKeyId}:  ${rpm}/${RPM_HARD_LIMIT} RPM  ${bar} ACTIVE (warming ${other})`);
+            console.log(`  ${other}: ${this.keyRPM[other]?.count() ?? 0}/${RPM_HARD_LIMIT} RPM  ${bar2}`);
+        }
+    }
+
+    /** Record a successful request on the active key */
+    recordRequest(): void {
+        this.keyRPM[this.activeKeyId].record();
+    }
+
+    /** Print full key status to terminal */
+    printStatus(): void {
+        const k1 = 'nvidia', k2 = 'nvidia2';
+        const rpm1 = this.keyRPM[k1].count();
+        const rpm2 = this.keyRPM[k2].count();
+        const rest1 = Math.max(0, this.restUntil[k1] - Date.now());
+        const rest2 = Math.max(0, this.restUntil[k2] - Date.now());
+        const active = this.activeKeyId;
+        console.log(`\n[NVIDIA] Key Status:`);
+        console.log(`  Key 1 (nvidia):  ${rpm1}/${RPM_HARD_LIMIT} RPM  ${this.keyRPM[k1].bar()} ${rest1 > 0 ? `RESTING ${Math.ceil(rest1/1000)}s` : active === k1 ? 'ACTIVE' : 'STANDBY'}`);
+        console.log(`  Key 2 (nvidia2): ${rpm2}/${RPM_HARD_LIMIT} RPM  ${this.keyRPM[k2].bar()} ${rest2 > 0 ? `RESTING ${Math.ceil(rest2/1000)}s` : active === k2 ? 'ACTIVE' : 'STANDBY (ready)'}`);
+        if (!ApiKeyStore.get(k2)) console.log(`  ⚠️  nvidia2 not set. Run /api nvidia2 <key> to enable dual-key rotation.`);
+    }
+
+    /** Enqueue a request through the sequential queue (1-at-a-time) */
+    enqueue<T>(fn: () => Promise<T>): Promise<T> {
         return new Promise((resolve, reject) => {
             this.queue.push(async () => {
-                // Rate limiter: ensure RPM_DELAY_MS has passed since last request
-                const elapsed = Date.now() - this.lastRequestTime;
-                if (elapsed < RPM_DELAY_MS) {
-                    await new Promise(r => setTimeout(r, RPM_DELAY_MS - elapsed));
-                }
                 try {
-                    this.lastRequestTime = Date.now();
+                    await this.preflightCheck();
+                    this.recordRequest();
                     resolve(await fn());
-                } catch (e) {
-                    reject(e);
-                }
+                } catch (e) { reject(e); }
             });
             this.drain();
         });
+    }
+
+    private swapKey(): void {
+        const next = this.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
+        if (ApiKeyStore.get(next)) {
+            this.activeKeyId = next;
+        }
     }
 
     private async drain(): Promise<void> {
@@ -77,8 +232,8 @@ class RequestQueue {
     }
 }
 
-// Single shared queue across ALL NvidiaApiProvider instances
-const globalQueue = new RequestQueue();
+// Single shared scheduler — all NvidiaApiProvider instances share one RPM state
+export const nvidiaScheduler = new NvidiaKeyScheduler();
 
 export class NvidiaApiProvider implements AgentProvider {
     public readonly id: string;
@@ -90,9 +245,8 @@ export class NvidiaApiProvider implements AgentProvider {
     private projectDir: string;
     private memoryPath: string;
 
-    // Proactive Load Balancing State
-    private static activeKeyId: 'nvidia' | 'nvidia2' = 'nvidia';
-    private static requestCount: number = 0;
+    // Reasoning mode — when true, extracts reasoning_content from stream (R1-style models)
+    private static reasoningEnabled: boolean = true;
 
     constructor(id = 'nvidia', model = DEFAULT_MODEL) {
         this.id       = id;
@@ -188,9 +342,9 @@ export class NvidiaApiProvider implements AgentProvider {
 
     // ── Init ───────────────────────────────────────────────────────────────
     public async init(): Promise<void> {
-        this.apiKey = ApiKeyStore.get(NvidiaApiProvider.activeKeyId);
-        if (!this.apiKey && NvidiaApiProvider.activeKeyId === 'nvidia2') {
-            NvidiaApiProvider.activeKeyId = 'nvidia';
+        this.apiKey = nvidiaScheduler.resolveApiKey();
+        if (!this.apiKey) {
+            // Try fallback to plain 'nvidia' key if scheduler has none
             this.apiKey = ApiKeyStore.get('nvidia');
         }
         if (!this.apiKey) {
@@ -220,22 +374,9 @@ export class NvidiaApiProvider implements AgentProvider {
 
     // ── Core Request ───────────────────────────────────────────────────────
     private async callAPI(userMessage: string): Promise<string> {
-        if (!this.apiKey) throw new Error('API key not initialized');
-
-        // Proactive Rate Limit Balancing (Swap every 30 requests)
-        NvidiaApiProvider.requestCount++;
-        if (NvidiaApiProvider.requestCount >= 30) {
-            const nextKeyId = NvidiaApiProvider.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
-            const nextKey = ApiKeyStore.get(nextKeyId);
-            if (nextKey) {
-                console.log(`\n[NVIDIA] ⚖️ Proactive load balancing: Swapping to ${nextKeyId} key to prevent rate limits...`);
-                NvidiaApiProvider.activeKeyId = nextKeyId;
-                this.apiKey = nextKey;
-                NvidiaApiProvider.requestCount = 0;
-            } else {
-                NvidiaApiProvider.requestCount = 0; // Reset anyway if secondary not available
-            }
-        }
+        // Key resolution is handled by nvidiaScheduler.preflightCheck() before this call.
+        // Update apiKey in case scheduler swapped to a different key.
+        this.apiKey = nvidiaScheduler.resolveApiKey() ?? this.apiKey;
 
         // Add user message to history
         this.messages.push({ role: 'user', content: userMessage });
@@ -292,6 +433,9 @@ export class NvidiaApiProvider implements AgentProvider {
 
                 if (attempt === 1) console.log(); // Newline before streaming only on first attempt
                 let assistantMessage = '';
+                let reasoningMessage = '';
+                let inReasoningPhase = false;
+                const isReasoningModel = REASONING_MODELS.includes(this.model) && NvidiaApiProvider.reasoningEnabled;
                 
                 if (response.body) {
                     const reader = (response.body as any).getReader();
@@ -312,8 +456,29 @@ export class NvidiaApiProvider implements AgentProvider {
                             if (line.startsWith('data: ') && line !== 'data: [DONE]') {
                                 try {
                                     const parsed = JSON.parse(line.slice(6));
-                                    const textChunk = parsed.choices?.[0]?.delta?.content;
+                                    const delta = parsed.choices?.[0]?.delta;
+                                    
+                                    // ── Reasoning content extraction (R1-style models) ──
+                                    // NVIDIA reasoning models emit `reasoning_content` BEFORE `content`.
+                                    // We display it in a dimmed/cyan style so user sees the "thinking".
+                                    const reasoningChunk = delta?.reasoning_content;
+                                    if (reasoningChunk) {
+                                        if (!inReasoningPhase) {
+                                            inReasoningPhase = true;
+                                            console.log('\n\x1b[2m\x1b[36m[REASONING] 🧠 ');
+                                        }
+                                        process.stdout.write(reasoningChunk);
+                                        reasoningMessage += reasoningChunk;
+                                    }
+                                    
+                                    // ── Main content ──
+                                    const textChunk = delta?.content;
                                     if (textChunk) {
+                                        if (inReasoningPhase) {
+                                            // Transition from reasoning → answer
+                                            inReasoningPhase = false;
+                                            console.log('\x1b[0m\n[ANSWER] 💬\n');
+                                        }
                                         process.stdout.write(textChunk);
                                         assistantMessage += textChunk;
                                     }
@@ -323,6 +488,17 @@ export class NvidiaApiProvider implements AgentProvider {
                             }
                         }
                     }
+                }
+                
+                // If model only produced reasoning (no content yet), flush the reasoning
+                if (inReasoningPhase) {
+                    console.log('\x1b[0m');
+                }
+                
+                // For reasoning models: prepend a compact reasoning summary to the assistant message
+                // so the conversation history retains the chain-of-thought context.
+                if (isReasoningModel && reasoningMessage && assistantMessage) {
+                    assistantMessage = `[Reasoning: ${reasoningMessage.substring(0, 2000)}]\n\n${assistantMessage}`;
                 }
 
                 // Add assistant response to persistent history
@@ -335,48 +511,38 @@ export class NvidiaApiProvider implements AgentProvider {
 
             } catch (e: any) {
                 clearTimeout(timeoutId);
-                
-                // Retry if 503 (Busy), 502/504 (Gateway timeout), 429 (Rate limit), 400 (DEGRADED model), or AbortError (timeout)
-                const isRetryable = e.name === 'AbortError' || 
-                                    e.message.includes('503') || 
-                                    e.message.includes('502') || 
-                                    e.message.includes('504') || 
+                // ── Retryable errors (server-side 5xx, 429, timeout, network) ──────────
+                const is429 = e.message.includes('429');
+                const isRetryable = e.name === 'AbortError' ||
+                                    e.message.includes('503') ||
+                                    e.message.includes('502') ||
+                                    e.message.includes('504') ||
                                     e.message.includes('500') ||
-                                    e.message.includes('429') ||
+                                    is429 ||
                                     (e.message.includes('400') && e.message.includes('DEGRADED')) ||
                                     e.message.includes('terminated') ||
                                     e.message.includes('fetch failed');
 
+                // 429 → instantly hand off to scheduler for key swap (no manual backoff)
+                if (is429) {
+                    const currentKeyId = nvidiaScheduler.getActiveKeyId();
+                    nvidiaScheduler.on429(currentKeyId);
+                    // Update our local apiKey reference after scheduler swapped
+                    this.apiKey = nvidiaScheduler.resolveApiKey() ?? this.apiKey;
+                    attempt = 0; // Reset retry count for new key
+                    continue;
+                }
+
                 if (isRetryable && attempt < MAX_RETRIES) {
-                    const backoffMs = Math.pow(2, attempt) * 2000 + Math.floor(Math.random() * 2000); // True exponential backoff + jitter
+                    const backoffMs = Math.pow(2, attempt) * 2000 + Math.floor(Math.random() * 2000);
                     console.log(`\n[NVIDIA] API busy or timed out. Retrying attempt ${attempt + 1}/${MAX_RETRIES} in ${Math.round(backoffMs / 1000)} seconds...`);
                     await new Promise(resolve => setTimeout(resolve, backoffMs));
                     continue;
                 }
 
-                // Seamless Fallback Logic (Reactive)
-                if (isRetryable && attempt >= MAX_RETRIES) {
-                    const nextKeyId = NvidiaApiProvider.activeKeyId === 'nvidia' ? 'nvidia2' : 'nvidia';
-                    const nextKey = ApiKeyStore.get(nextKeyId);
-                    if (nextKey && swapsThisRequest < 2) {
-                        swapsThisRequest++;
-                        if (swapsThisRequest === 2) {
-                            console.log(`\n[NVIDIA] 🚨 Both API keys are currently exhausted. Entering 120-second hard cooldown to reset rate limits...`);
-                            await new Promise(resolve => setTimeout(resolve, 120000));
-                        } else {
-                            console.log(`\n[NVIDIA] ⚠️ Active API key exhausted. Seamlessly falling back to ${nextKeyId}...`);
-                        }
-                        NvidiaApiProvider.activeKeyId = nextKeyId;
-                        this.apiKey = nextKey;
-                        NvidiaApiProvider.requestCount = 0;
-                        attempt = 0; // Reset retries for the new key
-                        continue;
-                    }
-                }
-
                 this.messages.pop(); // Remove user message if request permanently failed
                 if (e.name === 'AbortError') {
-                    throw new Error(`NVIDIA API request timed out (120s) after ${MAX_RETRIES} attempts. The NVIDIA server might be overloaded.`);
+                    throw new Error(`NVIDIA API request timed out after ${MAX_RETRIES} attempts. The server might be overloaded.`);
                 }
                 throw e;
             }
@@ -398,11 +564,11 @@ export class NvidiaApiProvider implements AgentProvider {
 
     public async sendMessage(message: string): Promise<ProviderResponse> {
         try {
-            // Lazy init — AgentLoop skips explicit init() and calls sendMessage directly
             await this.initIfNeeded();
-            console.log(`\n[NVIDIA] 🚀 Sending to ${this.model} (queued, 1-at-a-time)...`);
-            // ALL requests go through the sequential queue — enforces 1-at-a-time
-            const text = await globalQueue.enqueue(() => this.callAPI(message));
+            const keyId = nvidiaScheduler.getActiveKeyId();
+            console.log(`\n[NVIDIA] 🚀 Sending to ${this.model} via ${keyId} (sliding-window scheduler)...`);
+            // ALL requests go through the scheduler — handles preflight RPM check + 1-at-a-time
+            const text = await nvidiaScheduler.enqueue(() => this.callAPI(message));
             return { text };
         } catch (e: any) {
             if (e.name === 'AbortError') return { text: '', error: 'Request cancelled' };

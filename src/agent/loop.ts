@@ -4,6 +4,10 @@ import { SkillManager } from './skillManager';
 import { get_encoding } from 'tiktoken';
 import { Gatekeeper } from './gatekeeper';
 import { interceptFullFileWrite, extractErrorContext, buildWorkspaceGateMessage, buildAeclGateMessage } from './surgical_fix';
+import { SmartPlanner } from './smart_planner';
+import { ContextCompressor } from './context_compressor';
+import { SemanticCache } from './semantic_cache';
+import { ExecutionMemory } from './execution_memory';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -450,6 +454,41 @@ export class AgentLoop {
                 memorySection
               ].filter(Boolean).join('\n\n');
 
+        // ── SMART PLANNER BATCH PHASE ──────────────────────────────────────────────
+        // Runs entirely locally (0 API calls). Predicts which files/greps are needed,
+        // executes them in parallel via ToolDAG, and appends results to the first message.
+        // This eliminates the initial tool-discovery loop — LLM gets full context in 1 call.
+        let smartPlannerContext = '';
+        try {
+            const planner = new SmartPlanner(cwd);
+            const plan = await planner.plan(userMessage, bootMemoryContent ? bootMemoryContent.substring(0, 1000) : undefined);
+
+            if (plan.dag.size() > 0 && plan.strategy !== 'direct_llm') {
+                console.log(`\n🧠 [SmartPlanner] ${plan.reasoning.split('\n')[0]}`);
+                console.log(`   Pre-fetching ${plan.dag.size()} tools locally (0 API calls)...`);
+                const dagResults = await plan.dag.execute(cwd);
+                plan.dag.printSummary();
+
+                if (dagResults.size > 0) {
+                    const contextStr = plan.dag.toContextString(dagResults);
+                    // Use ContextCompressor to fit within token budget
+                    const compressor = new ContextCompressor(isLocalModel ? 4000 : 12000);
+                    const compressed = compressor.compress({
+                        userRequest: userMessage,
+                        extraContext: contextStr,
+                    });
+                    smartPlannerContext = `\n\n[PRE-FETCHED CONTEXT — SmartPlanner ran ${plan.dag.size()} tools locally before this message]\n${compressed.text}`;
+                    console.log(`   Context compressed: ~${compressed.tokenEstimate} tokens added to first message`);
+                }
+            } else if (plan.strategy === 'direct_llm') {
+                console.log(`\n🧠 [SmartPlanner] Intent=${plan.intent} → direct_llm (no pre-fetch needed)`);
+            }
+        } catch (plannerErr: unknown) {
+            // Non-fatal — planner failure just means no pre-fetch; loop continues normally
+            const msg = plannerErr instanceof Error ? plannerErr.message : String(plannerErr);
+            console.log(`\n⚠️  [SmartPlanner] Skipped (${msg})`);
+        }
+
         if (this.isFirstMessage) {
             // MAX_CHUNK_LENGTH: 100k chars per chunk — safe for all providers (ChatGPT, Gemini, Claude, DeepSeek)
             const MAX_CHUNK_LENGTH = 100000;
@@ -511,11 +550,11 @@ export class AgentLoop {
                         }
                     } else {
                         console.log(`[Agent] Sending final chunk ${i + 1}/${numChunks} with actual user request...`);
-                        currentMessage = `${messageToSend}\n\nUser Request:\n${userMessage}\n\n${bootInjection}`;
+                        currentMessage = `${messageToSend}\n\nUser Request:\n${userMessage}\n\n${bootInjection}${smartPlannerContext}`;
                     }
                 }
             } else {
-                currentMessage = `${systemPrompt}\n\nUser Request:\n${userMessage}\n\n${bootInjection}`;
+                currentMessage = `${systemPrompt}\n\nUser Request:\n${userMessage}\n\n${bootInjection}${smartPlannerContext}`;
             }
 
         } else {
