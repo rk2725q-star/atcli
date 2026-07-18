@@ -217,7 +217,27 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
 
                 if (hasUnclosedTool) {
                     if (isGeneratingFn && !isActivelyGenerating) {
-                        // The UI says it's completely done. The AI just hallucinated the closing tag.
+                        // Check for 'Continue generating' button in the UI
+                        let clickedContinue = false;
+                        try {
+                            clickedContinue = await this.page!.evaluate(() => {
+                                const btns = Array.from(document.querySelectorAll('div[role="button"], button')) as HTMLElement[];
+                                const continueBtn = btns.find(b => b.innerText.toLowerCase().includes('continue') || b.innerHTML.toLowerCase().includes('continue'));
+                                if (continueBtn) {
+                                    continueBtn.click();
+                                    return true;
+                                }
+                                return false;
+                            });
+                        } catch (e) { /* ignore */ }
+
+                        if (clickedContinue) {
+                            console.log(`\n▶️ [${this.id.toUpperCase()}] Length limit hit. Auto-clicked 'Continue generating'...`);
+                            stableCount = 0;
+                            continue;
+                        }
+
+                        // The UI says it's completely done and no continue button was found.
                         console.log(`\n⚠️ [${this.id.toUpperCase()}] AI stopped generating, but tool call appears unclosed. Proceeding anyway...`);
                     } else {
                         if (stableCount % 5 === 0) console.log(`\n⏳ [${this.id.toUpperCase()}] AI is typing a tool call (Paused)... Auto-waiting.`);
