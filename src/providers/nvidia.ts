@@ -5,6 +5,15 @@ import * as path from 'path';
 import * as os from 'os';
 import { maskSecretsString } from '../utils/secrets';
 import { SkillManager } from '../agent/skillManager';
+import { Agent } from 'undici';
+
+// ── HTTP Keep-Alive Connection Pool ──────────────────────────────────────────
+// Reuses TLS connections to NVIDIA servers, saving 300-500ms TTFT per request.
+const keepAliveAgent = new Agent({
+    keepAliveTimeout: 60_000, // Keep connection alive for 60s
+    keepAliveMaxTimeout: 300_000,
+    connections: 10
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NVIDIA NIM Provider — v2 Smart Architecture
@@ -393,32 +402,33 @@ export class NvidiaApiProvider implements AgentProvider {
 
     // ── Context Window Management ──────────────────────────────────────────
     // Token estimate: ~4 chars per token.
-    // Uses model-specific context window — 128k for most models, 1M for MiniMax/Kimi.
-    // Trims oldest non-system messages first to preserve recent context.
+    // Uses model-specific context window dynamically (e.g. 128k for Llama, 1M for MiniMax)
     private trimContext(): void {
         const estimateTokens = (msgs: ConversationMessage[]) =>
             msgs.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
 
         let trimmed = 0;
-        while (estimateTokens(this.messages) > this.maxContextTokens && this.messages.length > 2) {
+        // Trim if we exceed 70% of the maximum allowed window for this specific model
+        const hardLimit = this.maxContextTokens * 0.70;
+        while (estimateTokens(this.messages) > hardLimit && this.messages.length > 2) {
             const firstUserIdx = this.messages.findIndex(m => m.role !== 'system');
             if (firstUserIdx === -1) break;
             this.messages.splice(firstUserIdx, 1);
             trimmed++;
         }
         if (trimmed > 0) {
-            console.log(`[NVIDIA] ✂️  Trimmed ${trimmed} old messages to stay within ${Math.round(this.maxContextTokens / 1000)}k token limit (model: ${this.model})`);
+            console.log(`[NVIDIA] ✂️  Trimmed ${trimmed} old messages to stay under dynamic ${Math.round(hardLimit / 1000)}k token limit (70% of ${this.model} max)`);
         }
     }
 
     // ── Context Auto-Summarization ──────────────────────────────────────────
-    // When context is near-full (80% of model's actual limit), force the AI to
-    // write progress to ATCLI_MEMORY.md so nothing is lost on next trim.
+    // When context is near-full (60% of model's limit), force the AI to compress
     private injectContextRefresh(): void {
         const tokenEstimate = this.messages.reduce((s, m) => s + Math.ceil(m.content.length / 4), 0);
         const usedPct = Math.round((tokenEstimate / this.maxContextTokens) * 100);
 
-        if (tokenEstimate > this.maxContextTokens * 0.80 && this.messages.length > 4) {
+        // Warn at 60% so they can compress before the 70% hard trim hits
+        if (usedPct > 60 && this.messages.length > 4) {
             const lastMsg = this.messages[this.messages.length - 1];
             if (lastMsg && lastMsg.content.includes('[MEMORY CHECKPOINT]')) return;
 
@@ -456,14 +466,23 @@ export class NvidiaApiProvider implements AgentProvider {
 
         // Inject system prompt if not already present
         if (this.messages.length === 0 || this.messages[0]?.role !== 'system') {
-            this.messages.unshift({ role: 'system', content: this.systemPrompt });
+            const promptParts = this.systemPrompt.split('---PROMPT_SECTION---').filter(Boolean);
+            // Reverse so we unshift in the correct order (part N, then part N-1, ... part 0)
+            for (let i = promptParts.length - 1; i >= 0; i--) {
+                this.messages.unshift({ role: 'system', content: promptParts[i].trim() });
+            }
         }
 
-        console.log(`[NVIDIA] ✅ Provider ready | Model: ${this.model} | History: ${this.messages.length - 1} messages`);
+        console.log(`[NVIDIA] ✅ Provider ready | Model: ${this.model} | History: ${this.messages.length - this.promptPartsCount(this.systemPrompt)} messages`);
+    }
+
+    // Helper to count system messages
+    private promptPartsCount(prompt: string): number {
+        return prompt.split('---PROMPT_SECTION---').filter(Boolean).length;
     }
 
     // ── Core Request ───────────────────────────────────────────────────────
-    private async callAPI(userMessage: string): Promise<string> {
+    private async callAPI(userMessage: string, onToolCall?: (toolCall: any) => Promise<string>): Promise<string> {
         // Sync apiKey with scheduler's active key (set by round-robin swap or 429 handler)
         const schedulerKey = nvidiaScheduler.resolveApiKey();
         if (schedulerKey && schedulerKey !== this.apiKey) {
@@ -514,8 +533,9 @@ export class NvidiaApiProvider implements AgentProvider {
                         'Authorization': `Bearer ${this.apiKey}`
                     },
                     body: bodyString,
-                    signal: this.abortController.signal
-                });
+                    signal: this.abortController.signal,
+                    dispatcher: keepAliveAgent
+                } as any); // cast to any because native TS fetch typings don't include dispatcher yet
                 clearTimeout(timeoutId);
 
                 if (!response.ok) {
@@ -534,6 +554,9 @@ export class NvidiaApiProvider implements AgentProvider {
                     const decoder = new TextDecoder("utf-8");
                     let buffer = '';
 
+                    let streamingToolParsed = false;
+                    let toolExecutionPromise: Promise<string> | null = null;
+
                     while (true) {
                         const { done, value } = await reader.read();
                         if (done) break;
@@ -551,8 +574,6 @@ export class NvidiaApiProvider implements AgentProvider {
                                     const delta = parsed.choices?.[0]?.delta;
                                     
                                     // ── Reasoning content extraction (R1-style models) ──
-                                    // NVIDIA reasoning models emit `reasoning_content` BEFORE `content`.
-                                    // We display it in a dimmed/cyan style so user sees the "thinking".
                                     const reasoningChunk = delta?.reasoning_content;
                                     if (reasoningChunk) {
                                         if (!inReasoningPhase) {
@@ -567,18 +588,37 @@ export class NvidiaApiProvider implements AgentProvider {
                                     const textChunk = delta?.content;
                                     if (textChunk) {
                                         if (inReasoningPhase) {
-                                            // Transition from reasoning → answer
                                             inReasoningPhase = false;
                                             console.log('\x1b[0m\n[ANSWER] 💬\n');
                                         }
                                         process.stdout.write(textChunk);
                                         assistantMessage += textChunk;
+                                        
+                                        // ── Streaming PatchEngine (Live Tool Execution) ──
+                                        if (!streamingToolParsed && onToolCall && assistantMessage.includes('</tool_call>')) {
+                                            const toolMatch = assistantMessage.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
+                                            if (toolMatch) {
+                                                streamingToolParsed = true;
+                                                try {
+                                                    const toolCallJson = JSON.parse(toolMatch[1]);
+                                                    // Fire execution asynchronously without waiting for stream to finish
+                                                    toolExecutionPromise = onToolCall(toolCallJson);
+                                                } catch (e) {
+                                                    // Malformed partial JSON, wait for full response
+                                                }
+                                            }
+                                        }
                                     }
                                 } catch (e) {
                                     // Ignore parse errors from partial JSON
                                 }
                             }
                         }
+                    }
+
+                    // Await background tool execution if it was triggered
+                    if (toolExecutionPromise) {
+                        await toolExecutionPromise;
                     }
                 }
                 
@@ -654,13 +694,13 @@ export class NvidiaApiProvider implements AgentProvider {
         }
     }
 
-    public async sendMessage(message: string): Promise<ProviderResponse> {
+    public async sendMessage(message: string, onToolCall?: (toolCall: any) => Promise<string>): Promise<ProviderResponse> {
         try {
             await this.initIfNeeded();
             const keyId = nvidiaScheduler.getActiveKeyId();
             console.log(`\n[NVIDIA] 🚀 Sending to ${this.model} via ${keyId} (sliding-window scheduler)...`);
             // ALL requests go through the scheduler — handles preflight RPM check + 1-at-a-time
-            const text = await nvidiaScheduler.enqueue(() => this.callAPI(message));
+            const text = await nvidiaScheduler.enqueue(() => this.callAPI(message, onToolCall));
             return { text };
         } catch (e: any) {
             if (e.name === 'AbortError') return { text: '', error: 'Request cancelled' };

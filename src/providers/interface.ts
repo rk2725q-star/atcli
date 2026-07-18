@@ -6,7 +6,7 @@ export interface ProviderResponse {
 export interface AgentProvider {
     readonly id: string;
     init(): Promise<void>;
-    sendMessage(message: string): Promise<ProviderResponse>;
+    sendMessage(message: string, onToolCall?: (toolCall: any) => Promise<string>): Promise<ProviderResponse>;
     sendImageAndMessage(imagePath: string, message: string): Promise<ProviderResponse>;
     reset(): void;
     abort(): void;

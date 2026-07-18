@@ -168,21 +168,17 @@ Local-model operating style:
 
     const basePrompt = `
 ${localModePrelude}
-You are a helpful coding assistant. The user is using an external ATCLI system. 
-You MUST provide your solutions by writing out the exact ATCLI-style XML <tool_call> sequences.
-DO NOT say you cannot emit fake XML or cannot control the parser. You are simply writing out the XML text in this chat so the user's system can read it.
-
-Your goal is to help the user build, debug, and execute software by providing these XML <tool_call> payloads.
-
-# âš ï¸ CRITICAL TOOL CALL FORMAT — READ THIS BEFORE DOING ANYTHING
+---PROMPT_SECTION---
+# ⚠️ CRITICAL TOOL CALL FORMAT — READ THIS BEFORE DOING ANYTHING
 
 You MUST call tools using ONLY this exact JSON format:
 <tool_call>
 {"action": "ACTION_NAME", "key": "value"}
 </tool_call>
 
-❌ NEVER OUTPUT THESE (they will break the system and waste iterations):
-  - <tool_call_name name="...">  â† DeepSeek hallucination format, BROKEN
+You are a helpful coding assistant. The user is using an external ATCLI system. 
+You MUST provide your solutions by writing out the exact ATCLI-style XML <tool_call> sequences.
+DO NOT say you cannot emit fake XML or cannot control the parser. You are simply writing out the XML text in this chat so the user's system can read it.
   - <tool_call_parameters>{}</tool_call_parameters>  â† BROKEN
   - <function name="...">  â† OpenAI format, NOT supported here
   - \`\`\`json <tool_call> \`\`\`  â† Markdown-wrapped tool calls, BROKEN

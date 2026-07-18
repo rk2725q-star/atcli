@@ -684,7 +684,24 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     response = await this.provider.sendImageAndMessage(imageData, currentMessage);
                 }
             } else {
-                response = await this.provider.sendMessage(currentMessage);
+                // Streaming Tool Execution (PatchEngine)
+                response = await this.provider.sendMessage(currentMessage, async (toolCallJson) => {
+                    console.log(`\n⚡ [Streaming Execution] Intercepted early tool call: ${toolCallJson.action}`);
+                    // Parse, Validate XML, Validate Args, Safety Check, Execute
+                    const gkResult = this.gatekeeper.validate(toolCallJson, 'ATCLI-Streaming');
+                    if (!gkResult.allowed) return `[Gatekeeper blocked]: ${gkResult.reason}`;
+                    
+                    try {
+                        // Execute while AI continues streaming
+                        const res = await this.skillManager.executeSkill(toolCallJson.action, toolCallJson);
+                        (this as any)._streamingToolResult = res;
+                        (this as any)._streamingToolAction = toolCallJson.action;
+                        console.log(`✅ [Streaming Execution] Finished early! Ready for next turn.`);
+                        return res;
+                    } catch (e: any) {
+                        return `[Error]: ${e.message}`;
+                    }
+                });
             }
             
             if ((global as any).abortRequested) {
@@ -1409,7 +1426,16 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 continue;
             }
 
-            let result = await this.skillManager.executeSkill(toolCall.action, toolCall);
+            let result = '';
+            if ((this as any)._streamingToolResult && (this as any)._streamingToolAction === toolCall.action) {
+                console.log(`\n⏭️  [PatchEngine] Skipping redundant execution (already ran during stream).`);
+                result = (this as any)._streamingToolResult;
+                // Clear state for next turn
+                (this as any)._streamingToolResult = null;
+                (this as any)._streamingToolAction = null;
+            } else {
+                result = await this.skillManager.executeSkill(toolCall.action, toolCall);
+            }
 
             // AECL MECHANICAL COUNTER: Track file-writing tools and trigger aecl_check every 5 edits
             // NOTE: actual skill names are 'replace' (edit.ts) and 'append_content' (edit.ts), 'write_file' (fs_write.ts)
