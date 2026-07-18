@@ -99,12 +99,17 @@ const KEY_COOLDOWN_MS    = 62_000;   // After a 429, rest key for 62s (slightly 
 const SWAP_AFTER_N       = 20;       // Round-robin: swap key every N completed requests
 
 // Models that support reasoning (emit reasoning_content in stream deltas)
+// We use partial matching, so 'deepseek-r1' matches all its distill versions.
 const REASONING_MODELS = [
-    'deepseek-ai/deepseek-r1',
-    'deepseek-ai/deepseek-r1-distill-qwen-32b',
-    'deepseek-ai/deepseek-r1-distill-llama-8b',
-    'nvidia/llama-3.1-nemotron-70b-instruct',
-    'qwen/qwen3-coder-480b-a35b-instruct',
+    'deepseek-r1',
+    'deepseek-v4',
+    'nemotron',
+    'qwen3',
+    'qwq',
+    'minimax-m3',
+    'kimi',
+    'glm-z1-rumination',
+    'glm-5'
 ];
 
 // Conversation memory file: one per project dir, per provider
@@ -522,7 +527,7 @@ export class NvidiaApiProvider implements AgentProvider {
                 let assistantMessage = '';
                 let reasoningMessage = '';
                 let inReasoningPhase = false;
-                const isReasoningModel = REASONING_MODELS.includes(this.model) && NvidiaApiProvider.reasoningEnabled;
+                const isReasoningModel = REASONING_MODELS.some(m => this.model.includes(m)) && NvidiaApiProvider.reasoningEnabled;
                 
                 if (response.body) {
                     const reader = (response.body as any).getReader();
