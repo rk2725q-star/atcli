@@ -1897,12 +1897,10 @@ RULES:
             .replace(/\u00ab/g, '\\"')  // guillemet « → escaped "
             .replace(/\u00bb/g, '\\"'); // guillemet » → escaped "
 
-        // Custom robust auto-fix for write_file tool which often contains unescaped quotes/newlines
-        if (jsonStr.includes('"write_file"')) {
-            const contentRegex = /"content"\s*:\s*"([\s\S]*)"\s*}/;
-            const contentMatch = jsonStr.match(contentRegex);
-            if (contentMatch) {
-                let rawContent = contentMatch[1];
+        // Custom robust auto-fix for write_file and str_replace_editor tools which often contain unescaped quotes/newlines
+        if (jsonStr.includes('"write_file"') || jsonStr.includes('"str_replace_editor"')) {
+            const contentRegex = /"(content|old|new|old_str|new_str|summary)"\s*:\s*"([\s\S]*?)"\s*(,|})/g;
+            jsonStr = jsonStr.replace(contentRegex, (match, key, rawContent, suffix) => {
                 // Unescape first to avoid double escaping if the AI partially escaped it
                 rawContent = rawContent
                     .replace(/\\"/g, '"')
@@ -1919,9 +1917,8 @@ RULES:
                     .replace(/\r/g, '\\r')
                     .replace(/\t/g, '\\t');
                 
-                // Replace the broken content with the perfectly escaped content
-                jsonStr = jsonStr.replace(contentRegex, `"content": "${safeContent}"}`);
-            }
+                return `"${key}": "${safeContent}"${suffix}`;
+            });
         }
         
         // ── [INTELLIGENT FALLBACK] Auto-XML to JSON Converter ──
