@@ -146,8 +146,9 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
     ): Promise<string> {
         console.log(`[${this.id.toUpperCase()}] Waiting for response to complete...`);
         
-        let finalResponse = "";
+        let finalResponse = previousTextToIgnore;
         let stableCount = 0;
+        let hasSeenGenerating = false;
 
         for (let i = 0; i < maxWaitSeconds; i++) {
             // Wait 1 second between polls
@@ -183,6 +184,11 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
             // Execute the provider-specific extraction logic
             let currentText = (await this.page!.evaluate(evaluateFn)) as string;
 
+            if (currentText === '__RATE_LIMIT__') {
+                console.log(`\n⏳ [${this.id.toUpperCase()}] Rate limit toast detected in UI. Aborting wait...`);
+                throw new Error('RATE_LIMIT_DETECTED');
+            }
+
             if (!currentText || currentText === "") {
                 if (i > 0 && i % 5 === 0) console.log(`\n⚠️ [${this.id.toUpperCase()}] Waiting... (No text found yet. If stuck, the website DOM may have changed).`);
                 continue;
@@ -209,6 +215,7 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
                 let isActivelyGenerating = false;
                 if (isGeneratingFn) {
                     isActivelyGenerating = await isGeneratingFn();
+                    if (isActivelyGenerating) hasSeenGenerating = true;
                 }
 
                 // 2. Unclosed Tool Call Check (Only wait if we suspect it's still generating or we lack a clear UI signal)
@@ -264,9 +271,13 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
 
                 // INSTANT BREAK OPTIMIZATION: If we see a completed tool_call, don't wait!
                 if (finalResponse.includes('</tool_call>') || finalResponse.includes('</function>') || finalResponse.includes('</tool>')) {
-                    if (!isActivelyGenerating) {
+                    if (!isActivelyGenerating && hasSeenGenerating) {
                         console.log(`\n⚡ [${this.id.toUpperCase()}] Tool execution finished. Bypassing stability wait for instant action!`);
                         break;
+                    } else if (!isActivelyGenerating && !hasSeenGenerating) {
+                        if (stableCount % 5 === 0) console.log(`\n⚠️ [${this.id.toUpperCase()}] Found a completed tool call, but never saw generation start. Ignoring (likely old history).`);
+                        stableCount = 0;
+                        continue;
                     }
                 }
                 

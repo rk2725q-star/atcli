@@ -78,19 +78,6 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             await this.waitForChatInput(inputSelector);
             console.log(`[DeepSeek] Input field found!`);
 
-            const previousBubbleCount = await this.page!.evaluate(() => {
-                const selectors = [
-                    '.ds-markdown', 
-                    '.markdown-body', 
-                    'div[class*="markdown"]',
-                    'div[class*="message"] div[class*="content"]',
-                    'div[class*="chat-bubble"]'
-                ];
-                const count = document.querySelectorAll(selectors.join(', ')).length;
-                (window as any)._previousBubbleCount = count;
-                return count;
-            });
-
             console.log(`[DeepSeek] Attempting to click input field...`);
 
             const textareaSelector = '#chat-input, textarea, [contenteditable], [placeholder*="Message"]';
@@ -109,6 +96,20 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             await this.page!.keyboard.press('Space');
             await this.page!.keyboard.press('Backspace');
             await this.page!.waitForTimeout(300);
+
+            // Calculate bubble count AFTER history has loaded and right before sending
+            const previousBubbleCount = await this.page!.evaluate(() => {
+                const selectors = [
+                    '.ds-markdown', 
+                    '.markdown-body', 
+                    'div[class*="markdown"]',
+                    'div[class*="message"] div[class*="content"]',
+                    'div[class*="chat-bubble"]'
+                ];
+                const count = document.querySelectorAll(selectors.join(', ')).length;
+                (window as any)._previousBubbleCount = count;
+                return count;
+            });
 
             console.log(`[DeepSeek] Sending message...`);
             await this.page!.keyboard.press('Enter');
@@ -129,6 +130,15 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             const responseText = await this.pollForResponse(() => {
                 // Pass previousBubbleCount into the browser context
                 const countThreshold = (window as any)._previousBubbleCount || 0;
+                
+                // Check for rate limit toasts first
+                const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="message"], [class*="error"], [class*="tip"]'));
+                const isRateLimited = toasts.some(el => {
+                    const t = (el as HTMLElement).innerText?.toLowerCase() || '';
+                    return t.includes('too frequent') || t.includes('too many') || t.includes('rate limit') || t.includes('slow down');
+                });
+                if (isRateLimited) return '__RATE_LIMIT__';
+
                 const selectors = [
                     '.ds-markdown', 
                     '.markdown-body', 
@@ -160,6 +170,14 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             if (recovered) {
                 const responseText = await this.pollForResponse(() => {
                     const countThreshold = (window as any)._previousBubbleCount || 0;
+
+                    const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="message"], [class*="error"], [class*="tip"]'));
+                    const isRateLimited = toasts.some(el => {
+                        const t = (el as HTMLElement).innerText?.toLowerCase() || '';
+                        return t.includes('too frequent') || t.includes('too many') || t.includes('rate limit') || t.includes('slow down');
+                    });
+                    if (isRateLimited) return '__RATE_LIMIT__';
+
                     const selectors = [
                         '.ds-markdown', 
                         '.markdown-body', 
