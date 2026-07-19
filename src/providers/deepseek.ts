@@ -79,7 +79,14 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             console.log(`[DeepSeek] Input field found!`);
 
             const previousTextToIgnore = await this.page!.evaluate(() => {
-                const elements = document.querySelectorAll('.ds-markdown, .markdown-body, div[class*="markdown"]');
+                const selectors = [
+                    '.ds-markdown', 
+                    '.markdown-body', 
+                    'div[class*="markdown"]',
+                    'div[class*="message"] div[class*="content"]',
+                    'div[class*="chat-bubble"]'
+                ];
+                const elements = document.querySelectorAll(selectors.join(', '));
                 if (elements.length > 0) {
                     const lastEl = elements[elements.length - 1] as HTMLElement;
                     return lastEl.innerText;
@@ -118,7 +125,14 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             await this.page!.waitForTimeout(800); // brief wait for generation to start
 
             const responseText = await this.pollForResponse(() => {
-                const elements = document.querySelectorAll('.ds-markdown, .markdown-body, div[class*="markdown"]');
+                const selectors = [
+                    '.ds-markdown', 
+                    '.markdown-body', 
+                    'div[class*="markdown"]',
+                    'div[class*="message"] div[class*="content"]',
+                    'div[class*="chat-bubble"]'
+                ];
+                const elements = document.querySelectorAll(selectors.join(', '));
                 if (elements.length > 0) {
                     const lastEl = elements[elements.length - 1] as HTMLElement;
                     return lastEl.innerText;
@@ -141,7 +155,14 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             const recovered = await this.handleDomFailure(error, message);
             if (recovered) {
                 const responseText = await this.pollForResponse(() => {
-                    const elements = document.querySelectorAll('.ds-markdown, .markdown-body, div[class*="markdown"]');
+                    const selectors = [
+                        '.ds-markdown', 
+                        '.markdown-body', 
+                        'div[class*="markdown"]',
+                        'div[class*="message"] div[class*="content"]',
+                        'div[class*="chat-bubble"]'
+                    ];
+                    const elements = document.querySelectorAll(selectors.join(', '));
                     if (elements.length > 0) {
                         const lastEl = elements[elements.length - 1] as HTMLElement;
                         return lastEl.innerText;

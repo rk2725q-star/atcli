@@ -184,6 +184,7 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
             let currentText = (await this.page!.evaluate(evaluateFn)) as string;
 
             if (!currentText || currentText === "") {
+                if (i > 0 && i % 5 === 0) console.log(`\n⚠️ [${this.id.toUpperCase()}] Waiting... (No text found yet. If stuck, the website DOM may have changed).`);
                 continue;
             }
 
