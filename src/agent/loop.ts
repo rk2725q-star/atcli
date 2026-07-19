@@ -684,6 +684,30 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 currentMessage += `\n\n<CRITICAL_SYSTEM_REMINDER>\n<TASKS_RUNNING>${taskIds}</TASKS_RUNNING>\n<ACTION_REQUIRED>Do NOT forget to use the 'manage_task' tool with sub_action="logs" or "status" to check if they crashed or finished! Context loss prevention is active.</ACTION_REQUIRED>\n</CRITICAL_SYSTEM_REMINDER>\n`;
             }
 
+            // ── Background Sub-Agent Task Completion Hook ──
+            try {
+                const bgDir = path.join(cwd, '.atcli', 'background_tasks');
+                if (fs.existsSync(bgDir)) {
+                    const files = fs.readdirSync(bgDir).filter(f => f.endsWith('.json'));
+                    if (files.length > 0) {
+                        let completedTaskLog = '';
+                        for (const file of files) {
+                            try {
+                                const fp = path.join(bgDir, file);
+                                const data = JSON.parse(fs.readFileSync(fp, 'utf8'));
+                                // Inject a small notification so as not to bloat the main context
+                                completedTaskLog += `\n[🔔 BACKGROUND TASK COMPLETED]: Sub-agent '${data.agent}' finished task ID '${data.id}'.\nResult Summary: ${data.result.substring(0, 500)}...\n(If you need the full output, ask the user or read the task state).`;
+                                // Delete the file so it only triggers once
+                                fs.unlinkSync(fp);
+                            } catch (e) { /* ignore corrupt files */ }
+                        }
+                        if (completedTaskLog) {
+                            currentMessage += `\n\n<CRITICAL_SYSTEM_UPDATE>\n${completedTaskLog}\n</CRITICAL_SYSTEM_UPDATE>\n`;
+                        }
+                    }
+                }
+            } catch (err) { /* ignore */ }
+
             console.log(`\n[Agent Iteration ${i}/${this.maxIterations}] Sending message...`);
             
             const turnInputTokens = Math.round(currentMessage.length / 4); // fast estimate

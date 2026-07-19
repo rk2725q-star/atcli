@@ -234,6 +234,52 @@ export class ApiRouter {
         return { text: '', error: `[ApiRouter] All providers failed or have no keys. Last error: ${lastError}` };
     }
 
+    // ── Core sendImageAndMessage with soft fallback ───────────────────────────
+    public async sendImageAndMessage(imagePath: string, message: string): Promise<ProviderResponse> {
+        const ordered = this.getOrderedProviders();
+        if (ordered.length === 0) {
+            return { text: '', error: 'No API providers configured. Run: /api add nvidia <key>' };
+        }
+
+        let lastError = '';
+        for (const { id, entry } of ordered) {
+            if (Date.now() < entry.cooldownUntil) continue;
+
+            const key = ApiKeyStore.get(entry.keyId) || (entry.keyId === 'nvidia' ? ApiKeyStore.get('nvidia') : null);
+            if (!key) continue;
+
+            try { await entry.provider.init(); } catch (e: any) { lastError = e.message; continue; }
+            
+            if (entry.provider.setSystemPrompt && this.sysPrompt) {
+                entry.provider.setSystemPrompt(this.sysPrompt);
+            }
+
+            if (!entry.provider.sendImageAndMessage) {
+                console.log(`[ApiRouter] ⏭  Skipping ${id} (no vision support)`);
+                continue;
+            }
+
+            console.log(`[ApiRouter] 🚀 Sending vision request via \x1b[1m${id}\x1b[0m`);
+            const result = await entry.provider.sendImageAndMessage(imagePath, message);
+
+            if (result.is429 || (result.error && result.error.includes('429'))) {
+                entry.cooldownUntil = Date.now() + KEY_COOLDOWN_MS;
+                console.log(`[ApiRouter] ⚡ ${id} rate-limited → cooling ${KEY_COOLDOWN_MS / 1000}s. Trying next...`);
+                lastError = result.error || '429';
+                continue;
+            }
+
+            if (result.error && !result.text) {
+                lastError = result.error;
+                continue;
+            }
+
+            return result; // ✅ success
+        }
+
+        return { text: '', error: `[ApiRouter] All vision providers failed or have no keys. Last error: ${lastError}` };
+    }
+
     // ── Ordering ──────────────────────────────────────────────────────────────
     private getOrderedProviders(): Array<{ id: string; entry: ProviderEntry }> {
         return Array.from(this.entries.entries())
