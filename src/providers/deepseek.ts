@@ -102,9 +102,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 const selectors = [
                     '.ds-markdown', 
                     '.markdown-body', 
-                    'div[class*="markdown"]',
-                    'div[class*="message"] div[class*="content"]',
-                    'div[class*="chat-bubble"]'
+                    'div[class*="markdown"]'
                 ];
                 const count = document.querySelectorAll(selectors.join(', ')).length;
                 (window as any)._previousBubbleCount = count;
@@ -142,9 +140,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 const selectors = [
                     '.ds-markdown', 
                     '.markdown-body', 
-                    'div[class*="markdown"]',
-                    'div[class*="message"] div[class*="content"]',
-                    'div[class*="chat-bubble"]'
+                    'div[class*="markdown"]'
                 ];
                 const elements = document.querySelectorAll(selectors.join(', '));
                 if (elements.length <= countThreshold) {
@@ -184,9 +180,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     const selectors = [
                         '.ds-markdown', 
                         '.markdown-body', 
-                        'div[class*="markdown"]',
-                        'div[class*="message"] div[class*="content"]',
-                        'div[class*="chat-bubble"]'
+                        'div[class*="markdown"]'
                     ];
                     const elements = document.querySelectorAll(selectors.join(', '));
                     if (elements.length <= countThreshold) {
