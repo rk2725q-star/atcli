@@ -31,17 +31,37 @@ export const ReplaceSkill: AgentSkill = {
                 const chunk = lines.slice(startIdx, endIdx).join('\n');
                 
                 if (!chunk.includes(args.search)) {
-                    const actualLines = chunk.split('\n').map((l, i) => `${startIdx + i + 1}: ${l}`).join('\n');
-                    return `Error: Search string not found within lines ${args.startLine}-${args.endLine}. Check whitespace.\nActual content of these lines:\n${actualLines}`;
+                    // Fuzzy fallback
+                    const escaped = args.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const fuzzyRegex = new RegExp(escaped.replace(/\s+/g, '\\s+'));
+                    const match = chunk.match(fuzzyRegex);
+                    if (match) {
+                        const replacedChunk = chunk.replace(match[0], args.replace);
+                        lines.splice(startIdx, endIdx - startIdx, replacedChunk);
+                        content = lines.join('\n');
+                    } else {
+                        const actualLines = chunk.split('\n').map((l, i) => `${startIdx + i + 1}: ${l}`).join('\n');
+                        return `Error: Search string not found within lines ${args.startLine}-${args.endLine}. (Fuzzy match also failed).\nActual content of these lines:\n${actualLines}`;
+                    }
+                } else {
+                    const replacedChunk = chunk.replace(args.search, args.replace);
+                    lines.splice(startIdx, endIdx - startIdx, replacedChunk);
+                    content = lines.join('\n');
                 }
-                const replacedChunk = chunk.replace(args.search, args.replace);
-                lines.splice(startIdx, endIdx - startIdx, replacedChunk);
-                content = lines.join('\n');
             } else {
                 if (!content.includes(args.search)) {
-                    return `Error: Search string not found in the file. Make sure you provide the EXACT string, including whitespace. Try using read_file to check exact indentation, or specify startLine and endLine.`;
+                    // Fuzzy fallback
+                    const escaped = args.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const fuzzyRegex = new RegExp(escaped.replace(/\s+/g, '\\s+'));
+                    const match = content.match(fuzzyRegex);
+                    if (match) {
+                        content = content.replace(match[0], args.replace);
+                    } else {
+                        return `Error: Search string not found in the file (even with fuzzy whitespace matching). Make sure you provide the EXACT string. Try using read_file to check exact indentation, or specify startLine and endLine.`;
+                    }
+                } else {
+                    content = content.replace(args.search, args.replace);
                 }
-                content = content.replace(args.search, args.replace);
             }
             
             await fs.writeFile(targetPath, content, 'utf8');

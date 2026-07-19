@@ -68,8 +68,13 @@ Arguments:
             const fileContent = fs.readFileSync(fullPath, 'utf-8');
             const lines = fileContent.split('\n').map((l, i) => `${i + 1}: ${l}`).join('\n');
 
-            const prompt = `You are a surgical syntax fixer.
-A file has compilation errors. You must fix it by providing EXACT string replacements.
+            const prompt = `You are a surgical syntax fixer and dependency analyzer.
+A file has compilation errors. Before fixing it, analyze the error:
+1. Is this a localized error in this file?
+2. Or is it caused by a dependency (e.g. an imported function signature changed)?
+If it's a cross-file dependency error, you MUST NOT hack a fix in this file. You should flag the dependency.
+If the error originates from another file, output {"error": "Root cause is in <other file>"} so the main agent can fix it there.
+Otherwise, provide ONE exact string replacement to fix the primary error.
 
 FILE: ${args.file}
 CONTENT:
@@ -78,11 +83,12 @@ ${lines}
 COMPILER ERRORS:
 ${compileError}
 
-Provide ONE exact string replacement to fix the primary error.
 Return your response in STRICT JSON format:
 {
-  "old": "exact string to replace (from the file content above, without line numbers)",
-  "new": "the corrected string"
+  "reasoning": "Explain WHY the error occurred and verify if it's localized or a cross-file dependency.",
+  "dependency_file": "If the error originates from another file's exported signature, put the filename here. Otherwise null.",
+  "old": "exact string to replace (from the file content above, without line numbers) (null if dependency_file is set)",
+  "new": "the corrected string (null if dependency_file is set)"
 }
 DO NOT wrap in markdown. Output ONLY valid JSON.`;
 
@@ -96,8 +102,22 @@ DO NOT wrap in markdown. Output ONLY valid JSON.`;
                 patchStr = patchStr.replace(/^```json/im, '').replace(/^```/m, '').replace(/```$/m, '').trim();
                 const patchJson = JSON.parse(patchStr);
                 
+                if (!patchJson.reasoning) {
+                    throw new Error("Missing reasoning in response.");
+                }
+
+                console.log(`   [Workshop] Reason: ${patchJson.reasoning}`);
+                finalLog += `   - Reason: ${patchJson.reasoning}\n`;
+
+                if (patchJson.dependency_file) {
+                    const msg = `ABORT: Error is a cross-file dependency. Root cause is in ${patchJson.dependency_file}. Please fix that file instead of hacking ${args.file}.`;
+                    console.log(`   [Workshop] ${msg}`);
+                    finalLog += `   - ${msg}\n`;
+                    return finalLog + `\n⚠️ WORKSHOP ABORTED: ${msg}`;
+                }
+
                 if (!patchJson.old || typeof patchJson.new !== 'string') {
-                    throw new Error("Invalid patch JSON structure.");
+                    throw new Error("Invalid patch JSON structure. Missing old/new strings.");
                 }
 
                 console.log(`   [Workshop] Applying patch...`);
