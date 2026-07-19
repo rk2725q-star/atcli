@@ -438,13 +438,22 @@ export class AgentLoop {
             memorySection = '[ATCLI PROJECT MEMORY]: No prior memory found. This is a fresh start. Create ATCLI_MEMORY.md at your first episodic checkpoint.';
         }
 
+        let jsonStateSection = '';
+        const statePath = path.join(cwd, '.atcli-state.json');
+        if (fs.existsSync(statePath)) {
+            try {
+                jsonStateSection = `[JSON TASK STATE (manage_state)]:\n${fs.readFileSync(statePath, 'utf8')}\n`;
+            } catch(e) {}
+        }
+
         // Boot injection: full context for cloud, lean context for local
         const bootInjection = isLocalModel
             ? [
                 // ⚡ LOCAL: only 3 sections — project intent + IDE + compact memory (~300 tokens total)
                 `[TASK]: ${this.projectIntent}`,
                 `[IDE]: ${detectedIDE}`,
-                memorySection
+                memorySection,
+                jsonStateSection
               ].filter(Boolean).join('\n\n')
             : [
                 // ☁️  CLOUD: full boot context (unchanged)
@@ -452,7 +461,8 @@ export class AgentLoop {
                 `[IDE CONTEXT]: User is working in ${detectedIDE}. Always generate IDE-compatible configs (e.g., .vscode/settings.json for VS Code). Do NOT write configs for other IDEs unless asked.`,
                 `[WORKSPACE STRUCTURE — 3 levels deep]:\n${workspaceTree || '(Empty workspace)'}`,
                 coldStartContext,
-                memorySection
+                memorySection,
+                jsonStateSection
               ].filter(Boolean).join('\n\n');
 
         // ── SMART PLANNER BATCH PHASE ──────────────────────────────────────────────
@@ -612,7 +622,13 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                                 .replace(/^#{1,6}\s+[^\n]*/gm, s => s) // keep headings
                                 .replace(/\n{3,}/g, '\n\n')              // collapse blank lines
                                 .substring(0, 2000);
-                            memPing = `[📋 MEMORY PING — You are mid-task. Re-read your progress below to stay on track]\n\nProject Intent: "${this.projectIntent?.substring(0, 200) || 'See memory'}"\n\n${compressedMem}\n\n${(global as any).__atcli_senior_plan ? `[ACTIVE PLAN — continue from where you left off]\n${(global as any).__atcli_senior_plan.substring(0, 800)}` : ''}`;
+                                
+                            let localStateSec = '';
+                            if (fs.existsSync(path.join(cwd, '.atcli-state.json'))) {
+                                try { localStateSec = `\n\n[JSON TASK STATE]:\n${fs.readFileSync(path.join(cwd, '.atcli-state.json'), 'utf8')}`; } catch {}
+                            }
+
+                            memPing = `[📋 MEMORY PING — You are mid-task. Re-read your progress below to stay on track]\n\nProject Intent: "${this.projectIntent?.substring(0, 200) || 'See memory'}"\n\n${compressedMem}${localStateSec}\n\n${(global as any).__atcli_senior_plan ? `[ACTIVE PLAN — continue from where you left off]\n${(global as any).__atcli_senior_plan.substring(0, 800)}` : ''}`;
                         } catch { /* ignore */ }
                     } else {
                         memPing = `[MEMORY PING]: Project intent: "${this.projectIntent?.substring(0, 200)}". No ATCLI_MEMORY.md yet — create it when you finish a logical group of steps.`;
@@ -644,7 +660,13 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     }
                     const ideSection = `\n\n[IDE CONTEXT REMINDER]: User is in ${detectedIDE}. Write IDE-appropriate configs only.`;
                     const securityReaffirm = `\n\n[24/7 SECURITY REAFFIRMATION]: Destructive commands (rm -rf, format, del /s, curl|bash, base64|eval, powershell -EncodedCommand) are PERMANENTLY BLOCKED. Your sandbox is: ${cwd}. You CANNOT write to .env, .ssh, system paths, or ATCLI source files.`;
-                    currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Token Protection): Re-injecting core state to prevent memory/skill loss.]\n\n${systemPrompt}${intentSection}${liveMemorySnapshot}${skillIndexSection}${ideSection}${securityReaffirm}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
+                    
+                    let cloudStateSec = '';
+                    if (fs.existsSync(path.join(cwd, '.atcli-state.json'))) {
+                        try { cloudStateSec = `\n\n[JSON TASK STATE (manage_state)]:\n${fs.readFileSync(path.join(cwd, '.atcli-state.json'), 'utf8')}`; } catch {}
+                    }
+                    
+                    currentMessage = `[CONTEXT REFRESH (${refreshThreshold} Token Protection): Re-injecting core state to prevent memory/skill loss.]\n\n${systemPrompt}${intentSection}${liveMemorySnapshot}${skillIndexSection}${cloudStateSec}${ideSection}${securityReaffirm}\n\n[END OF CONTEXT REFRESH]\n\n${currentMessage}`;
                 }
                 lastRefreshTokens = this.totalTokensProcessed;
             }
@@ -1447,6 +1469,26 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                 result = await this.skillManager.executeSkill(toolCall.action, toolCall);
             }
 
+            // ─── [D-MAIL] TRUNCATE CONTEXT SIGNAL ───────────────────────────────────
+            if (result.startsWith('[SYSTEM_TRUNCATE_CONTEXT_SIGNAL]::')) {
+                try {
+                    const signalData = JSON.parse(result.split('::')[1]);
+                    console.log(`\n🧠 [Context Truncation] D-Mail received. Erasing context and injecting summary...`);
+                    this.provider.reset();
+                    
+                    let stateSec = '';
+                    const statePath = path.join(cwd, '.atcli-state.json');
+                    if (fs.existsSync(statePath)) {
+                        try { stateSec = `\n\n[JSON TASK STATE]:\n${fs.readFileSync(statePath, 'utf8')}\n`; } catch {}
+                    }
+
+                    currentMessage = `[SYSTEM: D-MAIL CONTEXT RE-INITIALIZATION]\nYou have chosen to truncate your context to save tokens and prevent hallucination. The previous conversation history has been erased.\n\nHere is the summary of what you have done and what you should do next:\n\n${signalData.summary}${stateSec}\n\n[SYSTEM REMINDER: Continue your task based ONLY on the summary above. IMMEDIATELY output your next <tool_call>.]`;
+                    continue; // Skip the rest, jump to next iteration
+                } catch (e) {
+                    result = `[Error parsing D-Mail JSON]: ${e}`;
+                }
+            }
+
             // AECL MECHANICAL COUNTER: Track file-writing tools and trigger aecl_check every 5 edits
             // NOTE: actual skill names are 'replace' (edit.ts) and 'append_content' (edit.ts), 'write_file' (fs_write.ts)
             const fileWritingTools = ['write_file', 'replace', 'append_content', 'create_file'];
@@ -1535,6 +1577,34 @@ DO NOT use <tool_call_name>, <tool_call_parameters>, <function>, or ANY other XM
                     console.log(`[Workspace Analyze Result]:\n${workspaceAnalyzeResult.substring(0, 500)}`);
                     result = result + `\n\n[WORKSPACE ANALYZE AUTO-CHECK TRIGGERED]:\n${workspaceAnalyzeResult}`;
                 }
+
+                // ─── SESSION HOOKS (Auto-Linting) ────────────────────────────────────────
+                console.log(`\n🪝 [Session Hooks] Checking for post-edit hooks...`);
+                try {
+                    const hookPath = path.join(cwd, '.atcli', 'hooks', 'post_edit.sh');
+                    const pkgJsonPath = path.join(cwd, 'package.json');
+                    let hookCmd = '';
+                    if (fs.existsSync(hookPath)) {
+                        hookCmd = process.platform === 'win32' ? `bash ${hookPath}` : `sh ${hookPath}`;
+                    } else if (fs.existsSync(pkgJsonPath)) {
+                        const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+                        if (pkg.scripts && pkg.scripts.lint) {
+                            hookCmd = 'npm run lint';
+                        }
+                    }
+
+                    if (hookCmd) {
+                        console.log(`   Running hook: ${hookCmd}`);
+                        const { execSync } = require('child_process');
+                        try {
+                            const hookOut = execSync(hookCmd, { cwd, encoding: 'utf-8', stdio: 'pipe' });
+                            result += `\n\n[POST-EDIT HOOK (${hookCmd}) PASSED]:\n${hookOut.substring(0, 500)}`;
+                        } catch (hookErr: any) {
+                            const hookErrOut = (hookErr.stdout || '') + '\n' + (hookErr.stderr || '');
+                            result += `\n\n[POST-EDIT HOOK (${hookCmd}) FAILED - FIX THESE ERRORS]:\n${hookErrOut.substring(0, 1000)}`;
+                        }
+                    }
+                } catch (e) { /* ignore hook errors */ }
             }
 
             // Track deletes in file registry + MECHANICAL MEMORY WRITE
