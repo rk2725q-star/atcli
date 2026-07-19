@@ -78,7 +78,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             await this.waitForChatInput(inputSelector);
             console.log(`[DeepSeek] Input field found!`);
 
-            const previousTextToIgnore = await this.page!.evaluate(() => {
+            const previousBubbleCount = await this.page!.evaluate(() => {
                 const selectors = [
                     '.ds-markdown', 
                     '.markdown-body', 
@@ -86,12 +86,9 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     'div[class*="message"] div[class*="content"]',
                     'div[class*="chat-bubble"]'
                 ];
-                const elements = document.querySelectorAll(selectors.join(', '));
-                if (elements.length > 0) {
-                    const lastEl = elements[elements.length - 1] as HTMLElement;
-                    return lastEl.innerText;
-                }
-                return "";
+                const count = document.querySelectorAll(selectors.join(', ')).length;
+                (window as any)._previousBubbleCount = count;
+                return count;
             });
 
             console.log(`[DeepSeek] Attempting to click input field...`);
@@ -130,6 +127,8 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             await this.page!.waitForTimeout(800); // brief wait for generation to start
 
             const responseText = await this.pollForResponse(() => {
+                // Pass previousBubbleCount into the browser context
+                const countThreshold = (window as any)._previousBubbleCount || 0;
                 const selectors = [
                     '.ds-markdown', 
                     '.markdown-body', 
@@ -138,12 +137,12 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     'div[class*="chat-bubble"]'
                 ];
                 const elements = document.querySelectorAll(selectors.join(', '));
-                if (elements.length > 0) {
-                    const lastEl = elements[elements.length - 1] as HTMLElement;
-                    return lastEl.innerText;
+                if (elements.length <= countThreshold) {
+                    return ""; // Force wait until a new bubble appears!
                 }
-                return "";
-            }, 300, 3, previousTextToIgnore, async () => {
+                const lastEl = elements[elements.length - 1] as HTMLElement;
+                return lastEl.innerText;
+            }, 300, 3, "", async () => {
                 return await this.page!.evaluate(() => {
                     const buttons = Array.from(document.querySelectorAll('div[role="button"], button')) as HTMLElement[];
                     const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
@@ -160,6 +159,7 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             const recovered = await this.handleDomFailure(error, message);
             if (recovered) {
                 const responseText = await this.pollForResponse(() => {
+                    const countThreshold = (window as any)._previousBubbleCount || 0;
                     const selectors = [
                         '.ds-markdown', 
                         '.markdown-body', 
@@ -168,11 +168,11 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                         'div[class*="chat-bubble"]'
                     ];
                     const elements = document.querySelectorAll(selectors.join(', '));
-                    if (elements.length > 0) {
-                        const lastEl = elements[elements.length - 1] as HTMLElement;
-                        return lastEl.innerText;
+                    if (elements.length <= countThreshold) {
+                        return ""; // Force wait
                     }
-                    return "";
+                    const lastEl = elements[elements.length - 1] as HTMLElement;
+                    return lastEl.innerText;
                 }, 300, 3, "", async () => {
                     return await this.page!.evaluate(() => {
                         const buttons = Array.from(document.querySelectorAll('div[role="button"], button')) as HTMLElement[];
