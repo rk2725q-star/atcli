@@ -149,40 +149,31 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
         let finalResponse = previousTextToIgnore;
         let stableCount = 0;
         let hasSeenGenerating = false;
+        let emptyCount = 0;  // Track consecutive empty responses
 
         for (let i = 0; i < maxWaitSeconds; i++) {
             // Wait 1 second between polls
             await this.page!.waitForTimeout(1000);
             
-            // Intelligent GLOBAL auto-retry if message failed to send (e.g., due to image upload lag)
-            if (i > 0 && i % 8 === 0) {
+            // Execute the provider-specific extraction logic (wrapped in try-catch for safety)
+            let currentText = '';
+            try {
+                currentText = (await this.page!.evaluate(evaluateFn)) as string;
+            } catch (evalErr: any) {
+                // evaluateFn may throw if page is navigating, crashing, or detached
+                console.log(`\n⚠️ [${this.id.toUpperCase()}] evaluateFn threw: ${evalErr.message.substring(0, 100)}`);
+                
+                // TIER 0: Playwright-native text grab as emergency fallback when evaluateFn fails
                 try {
-                    await this.page!.evaluate(() => {
-                        const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => {
-                            const html = el.innerHTML.toLowerCase();
-                            const text = (el as any).innerText?.toLowerCase() || '';
-                            const aria = el.getAttribute('aria-label')?.toLowerCase() || '';
-                            const dataTestId = el.getAttribute('data-testid')?.toLowerCase() || '';
-                            
-                            // Check for typical send button indicators
-                            const isSend = html.includes('m10 21l14 3') || text.includes('send') || html.includes('send') || aria.includes('send') || dataTestId.includes('send');
-                            // Ensure it's not a stop generating button
-                            const isNotStop = !html.includes('stop') && !text.includes('stop') && !aria.includes('stop');
-                            
-                            return isSend && isNotStop;
-                        }) as HTMLButtonElement | HTMLDivElement;
-                        
-                        if (sendBtn && !(sendBtn as any).disabled) {
-                            sendBtn.click();
-                        }
-                    });
-                } catch (e) {
-                    // Ignore errors during generic retry check
+                    const bodyText = await this.page!.evaluate('document.body.innerText') as string;
+                    if (bodyText && bodyText.length > 20 && bodyText !== previousTextToIgnore) {
+                        currentText = bodyText;
+                    }
+                } catch {
+                    // Page may be detached — abort
+                    throw new Error(`Page detached or crashed. evaluateFn and body text both failed.`);
                 }
             }
-
-            // Execute the provider-specific extraction logic
-            let currentText = (await this.page!.evaluate(evaluateFn)) as string;
 
             if (currentText === '__RATE_LIMIT__') {
                 console.log(`\n⏳ [${this.id.toUpperCase()}] Rate limit toast detected in UI. Aborting wait...`);
@@ -190,9 +181,109 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
             }
 
             if (!currentText || currentText === "") {
-                if (i > 0 && i % 5 === 0) console.log(`\n⚠️ [${this.id.toUpperCase()}] Waiting... (No text found yet. If stuck, the website DOM may have changed).`);
+                emptyCount++;
+
+                // TIER -1: At 15s of emptiness, try Playwright locator-based text extraction
+                // This is a pure Playwright operation that doesn't rely on the evaluateFn's selectors
+                if (emptyCount === 15) {
+                    try {
+                        console.log(`\n⚠️ [${this.id.toUpperCase()}] 15s with no text — trying Playwright-native locator scan...`);
+                        // Try common text containers using Playwright's own selectors
+                        const locators = [
+                            'div[class*="markdown"]',
+                            'div[class*="message"]', 
+                            'div[class*="response"]',
+                            'div[class*="answer"]',
+                            'div[class*="chat"]',
+                            'div[class*="content"]',
+                            'p', 'pre', 'code'
+                        ];
+                        for (const sel of locators) {
+                            try {
+                                const elements = this.page!.locator(sel);
+                                const count = await elements.count();
+                                if (count > 0) {
+                                    const lastEl = elements.last();
+                                    const text = (await lastEl.textContent()) || '';
+                                    if (text.trim().length > 20 && text.trim() !== previousTextToIgnore) {
+                                        currentText = text.trim();
+                                        console.log(`\n✅ [${this.id.toUpperCase()}] Found text via Playwright locator: "${sel}" (${text.length} chars)`);
+                                        emptyCount = 0; // reset — we got text!
+                                        break;
+                                    }
+                                }
+                            } catch { /* try next locator */ }
+                        }
+                    } catch (e) { /* ignore */ }
+                    
+                    // If locator scan also failed, try full body text as fallback
+                    if (!currentText || currentText === '') {
+                        try {
+                            const bodyText = await this.page!.evaluate('document.body.innerText') as string;
+                            if (bodyText && bodyText.length > 20) {
+                                currentText = bodyText;
+                            }
+                        } catch { /* ignore */ }
+                    }
+                }
+                
+                // If we've been waiting more than 30s with NO text at all, try one auto-retry send
+                if (emptyCount === 30 && (!currentText || currentText === '')) {
+                    try {
+                        console.log(`\n⚠️ [${this.id.toUpperCase()}] 30s with no response — attempting auto-retry send...`);
+                        await this.page!.evaluate(() => {
+                            const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(b => {
+                                const html = b.innerHTML.toLowerCase();
+                                const text = (b as HTMLElement).innerText?.toLowerCase() || '';
+                                const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
+                                const dataTestId = b.getAttribute('data-testid')?.toLowerCase() || '';
+                                const isSend = html.includes('m10 21l14 3') || text.includes('send') || html.includes('send') || aria.includes('send') || dataTestId.includes('send');
+                                const isNotStop = !html.includes('stop') && !text.includes('stop') && !aria.includes('stop');
+                                return isSend && isNotStop;
+                            }) as HTMLButtonElement | HTMLDivElement;
+                            if (sendBtn && !(sendBtn as any).disabled) {
+                                sendBtn.click();
+                            }
+                        });
+                    } catch (e) { /* ignore */ }
+                }
+                
+                // If we've been waiting 60s with NO text, return whatever we can get from the page
+                if (emptyCount >= 60) {
+                    try {
+                        const pageDump = await this.page!.evaluate(() => {
+                            const bodyText = document.body.innerText || '';
+                            const lines = bodyText.split('\n').filter(line => {
+                                const t = line.trim();
+                                return t.length > 10 && 
+                                    !t.includes('New Chat') && 
+                                    !t.includes('DeepSeek') &&
+                                    !t.includes('Sign in') &&
+                                    !t.includes('Log in') &&
+                                    !t.includes('Settings');
+                            });
+                            return lines.join('\n');
+                        });
+                        
+                        if (pageDump.length > 50) {
+                            console.log(`\n⚠️ [${this.id.toUpperCase()}] 60s timeout — returning raw page text as last resort`);
+                            return pageDump;
+                        }
+                    } catch (e) { /* ignore */ }
+                    
+                    throw new Error(
+                        `No response text detected after 60s. The ${this.id} website DOM may have changed. ` +
+                        `Possible causes: (1) ${this.id} updated their UI selectors, (2) response container is different, ` +
+                        `(3) page needs re-login. Try restarting or updating the selectors in src/providers/${this.id}.ts`
+                    );
+                }
+                
+                if (i > 0 && i % 5 === 0 && i <= 30) console.log(`\n⚠️ [${this.id.toUpperCase()}] Waiting... (No text found yet. If stuck, the website DOM may have changed).`);
                 continue;
             }
+            
+            // Reset empty count when we get text
+            emptyCount = 0;
 
             if (currentText && currentText === previousTextToIgnore) {
                 // The AI hasn't started generating the new response yet, still seeing the old one.

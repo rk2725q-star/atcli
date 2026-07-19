@@ -97,21 +97,37 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             await this.page!.keyboard.press('Backspace');
             await this.page!.waitForTimeout(300);
 
-            // Calculate bubble count AFTER history has loaded and right before sending
-            const previousBubbleCount = await this.page!.evaluate(() => {
+            // Calculate bubble count AND capture previous text for ignore-filter
+            const previousCountAndText = await this.page!.evaluate(() => {
                 const selectors = [
                     '.ds-markdown', 
+                    '.ds-markdown--answer',
                     '.markdown-body', 
-                    'div[class*="markdown"]'
+                    '.message-content',
+                    'div[class*="markdown"]',
+                    'div[class*="response"]',
+                    'div[class*="message"]',
+                    'div[class*="answer"]'
                 ];
-                const count = document.querySelectorAll(selectors.join(', ')).length;
-                (window as any)._previousBubbleCount = count;
-                return count;
+                const elements = document.querySelectorAll(selectors.join(', '));
+                const validElements = Array.from(elements).filter(el => (el as HTMLElement).innerText.trim().length > 10);
+                
+                let lastText = '';
+                if (validElements.length > 0) {
+                    lastText = (validElements[validElements.length - 1] as HTMLElement).innerText.trim();
+                }
+                
+                (window as any)._previousBubbleCount = validElements.length;
+                (window as any)._previousLastText = lastText;
+                
+                return { count: validElements.length, lastText };
             });
+
+            const previousTextToIgnore = previousCountAndText.lastText;
 
             console.log(`[DeepSeek] Sending message...`);
             await this.page!.keyboard.press('Enter');
-            await this.page!.waitForTimeout(300); // reduced from 500ms
+            await this.page!.waitForTimeout(300);
 
             // Fallback click send button if Enter didn't work
             await this.page!.evaluate(() => {
@@ -123,11 +139,11 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 if (sendBtn) sendBtn.click();
             });
 
-            await this.page!.waitForTimeout(800); // brief wait for generation to start
+            await this.page!.waitForTimeout(800);
 
             const responseText = await this.pollForResponse(() => {
-                // Pass previousBubbleCount into the browser context
                 const countThreshold = (window as any)._previousBubbleCount || 0;
+                const previousText = (window as any)._previousLastText || '';
                 
                 // Check for rate limit toasts first
                 const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="notice"], [class*="notification"], .ant-message, .el-message'));
@@ -137,18 +153,80 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 });
                 if (isRateLimited) return '__RATE_LIMIT__';
 
-                const selectors = [
+                // ── TIER 1: Known DeepSeek selectors (primary) ─────────────────
+                const knownSelectors = [
                     '.ds-markdown', 
+                    '.ds-markdown--answer',
                     '.markdown-body', 
-                    'div[class*="markdown"]'
+                    '.message-content',
+                    'div[class*="markdown"]',
+                    'div[class*="response"]',
+                    'div[class*="message"]',
+                    'div[class*="answer"]',
+                    'div[class*="chat"]',
+                    'div[class*="conversation"]',
+                    'div[class*="bubble"]'
                 ];
-                const elements = document.querySelectorAll(selectors.join(', '));
-                if (elements.length <= countThreshold) {
-                    return ""; // Force wait until a new bubble appears!
+                let allElements = Array.from(document.querySelectorAll(knownSelectors.join(', ')));
+                let validElements = allElements.filter(el => (el as HTMLElement).innerText.trim().length > 10);
+                
+                // ── TIER 2: DOM-agnostic fallback — scan ALL divs for AI response patterns ─
+                if (validElements.length === 0) {
+                    // Get all divs on the page with substantial text content
+                    const divs = document.querySelectorAll('div');
+                    const textRichDivs = Array.from(divs).filter(div => {
+                        const t = (div as HTMLElement).innerText.trim();
+                        // AI responses are typically long, have paragraphs/code blocks, and are NOT the textarea
+                        const hasCode = div.querySelector('pre, code, .hljs, [class*="code"]') !== null;
+                        const hasParagraphs = div.querySelectorAll('p').length > 0;
+                        const length = t.length;
+                        // Heuristic: AI response divs have >100 chars OR contain code/paragraphs
+                        return length > 100 || (length > 30 && (hasCode || hasParagraphs));
+                    });
+                    // Find the LAST text-rich div — this is usually the most recent response
+                    if (textRichDivs.length > 0) {
+                        // Sort by DOM position (later elements = lower in the page)
+                        const last = textRichDivs[textRichDivs.length - 1] as HTMLElement;
+                        validElements = [last];
+                        allElements = [last];
+                    }
                 }
-                const lastEl = elements[elements.length - 1] as HTMLElement;
+                
+                // ── TIER 3: Sibling-diff approach — find new text since last capture ─
+                if (validElements.length === 0 || validElements.length <= countThreshold) {
+                    // Try getting the entire page text and diff against cached
+                    const fullText = document.body.innerText || '';
+                    const cachedFullText = (window as any)._cachedFullPageText || '';
+                    
+                    if (fullText.length > cachedFullText.length && fullText !== cachedFullText) {
+                        // New text appeared on page — extract the NEW portion only
+                        const newText = fullText.substring(cachedFullText.length).trim();
+                        (window as any)._cachedFullPageText = fullText;
+                        
+                        if (newText.length > 5 && newText !== previousText) {
+                            return newText;
+                        }
+                    }
+                    // Cache for next check
+                    if (!(window as any)._cachedFullPageText || fullText.length > (window as any)._cachedFullPageText.length) {
+                        (window as any)._cachedFullPageText = fullText;
+                    }
+                }
+                
+                if (validElements.length === 0 || validElements.length <= countThreshold) {
+                    // If countThreshold is 0 (fresh page) and we have elements, read them
+                    if (countThreshold === 0 && validElements.length > 0) {
+                        const lastEl = validElements[validElements.length - 1] as HTMLElement;
+                        const text = lastEl.innerText.trim();
+                        if (text === previousText) return '';
+                        return text;
+                    }
+                    return ''; // Force wait
+                }
+                
+                const lastEl = validElements[validElements.length - 1] as HTMLElement;
                 return lastEl.innerText;
-            }, 300, 3, "", async () => {
+            }, 300, 3, previousTextToIgnore, async () => {
                 return await this.page!.evaluate(() => {
                     const buttons = Array.from(document.querySelectorAll('div[role="button"], button')) as HTMLElement[];
                     const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
@@ -177,18 +255,28 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                     });
                     if (isRateLimited) return '__RATE_LIMIT__';
 
+                    // Extended selectors for robustness
                     const selectors = [
                         '.ds-markdown', 
+                        '.ds-markdown--answer',
                         '.markdown-body', 
-                        'div[class*="markdown"]'
+                        '.message-content',
+                        'div[class*="markdown"]',
+                        'div[class*="response"]',
+                        'div[class*="message"]',
+                        'div[class*="answer"]'
                     ];
                     const elements = document.querySelectorAll(selectors.join(', '));
-                    if (elements.length <= countThreshold) {
-                        return ""; // Force wait
+                    const validElements = Array.from(elements).filter(el => (el as HTMLElement).innerText.trim().length > 10);
+                    
+                    if (validElements.length <= countThreshold) {
+                        if (countThreshold === 0 && validElements.length > 0) {
+                            return (validElements[validElements.length - 1] as HTMLElement).innerText;
+                        }
+                        return '';
                     }
-                    const lastEl = elements[elements.length - 1] as HTMLElement;
-                    return lastEl.innerText;
-                }, 300, 3, "", async () => {
+                    return (validElements[validElements.length - 1] as HTMLElement).innerText;
+                }, 300, 3, '', async () => {
                     return await this.page!.evaluate(() => {
                         const buttons = Array.from(document.querySelectorAll('div[role="button"], button')) as HTMLElement[];
                         const stopBtn = buttons.find(b => b.innerText.toLowerCase().includes('stop') || b.innerHTML.includes('stop'));
