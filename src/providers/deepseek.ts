@@ -165,6 +165,9 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             if ((global as any).abortRequested) {
                 return { text: '', error: `Execution context was destroyed (aborted)` };
             }
+            if (error.message === 'RATE_LIMIT_DETECTED') {
+                return { text: '', error: 'RATE_LIMIT_DETECTED' };
+            }
             console.error(`[DeepSeek] 🚨 DOM error. Falling back to Dual-Layer Safety Net!`);
             const recovered = await this.handleDomFailure(error, message);
             if (recovered) {
