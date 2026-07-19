@@ -4,6 +4,7 @@ import * as os from 'os';
 import { ApiKeyStore } from '../providers/api-key-store';
 import { NvidiaApiProvider } from '../providers/nvidia';
 import { OllamaApiAdapter } from '../providers/ollama';
+import { ApiRouter } from '../providers/api-router';
 import { execSync, spawnSync } from 'child_process';
 
 export interface AppState {
@@ -299,26 +300,74 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
     const args = parts.slice(1);
 
     switch (command) {
-        // ── /api <provider> <key|action> ──────────────────────────────────────────
+        // ── /api — Unified API provider management ───────────────────────────────
         case '/api': {
-            const provider  = (args[0] || '').toLowerCase();
-            const subAction = (args[1] || '').toLowerCase();
-            const keyValue  = args[1] || '';
+            const apiRouter = ApiRouter.getInstance();
 
-            if (!provider) {
-                const stored = ApiKeyStore.list();
-                console.log(`\n  🔑 API Providers configured: ${stored.length > 0 ? stored.join(', ') : 'none'}`);
-                console.log(`  Usage:`);
-                console.log(`    /api nvidia <your-api-key>   — set primary NVIDIA key and switch`);
-                console.log(`    /api nvidia2 <your-api-key>  — set secondary fallback NVIDIA key`);
-                console.log(`    /api nvidia models           — list all available NVIDIA models`);
-                console.log(`    /api nvidia clear            — remove stored key`);
-                console.log(`    /api nvidia status           — show current model and key status`);
-                console.log(`    /local models                — list installed Ollama models`);
-                console.log(`    /local use <model>           — switch to a local Ollama model`);
-                console.log(`    /local pull <model>          — download a local Ollama model`);
+            // /api list  OR  bare /api
+            if (!args[0] || args[0].toLowerCase() === 'list') {
+                apiRouter.list();
                 return { handled: true };
             }
+
+            const sub = args[0].toLowerCase();
+
+            // /api add <provider> <key>
+            if (sub === 'add') {
+                const pId = (args[1] || '').toLowerCase();
+                const key = args.slice(2).join(' ').replace(/^[<"']|[>"']$/g, '').trim();
+                if (!pId || !key || key.length < 8) {
+                    console.log(`\n  Usage: /api add <provider> <key>`);
+                    console.log(`  Example: /api add nvidia nvapi-xxxx`);
+                    console.log(`  Run /api list to see all providers.`);
+                    return { handled: true };
+                }
+                apiRouter.add(pId, key);
+                // Also switch provider to nvidia if it was nvidia
+                if (pId === 'nvidia') {
+                    state.currentProvider = 'nvidia';
+                    console.log(`  ✅ Provider switched to: \x1b[36mnvidia\x1b[0m`);
+                }
+                return { handled: true };
+            }
+
+            // /api remove <provider>
+            if (sub === 'remove' || sub === 'delete' || sub === 'clear') {
+                const pId = (args[1] || '').toLowerCase();
+                if (!pId) { console.log(`\n  Usage: /api remove <provider>`); return { handled: true }; }
+                apiRouter.remove(pId);
+                return { handled: true };
+            }
+
+            // /api set-model <provider> <model>
+            if (sub === 'set-model' || sub === 'model') {
+                const pId = (args[1] || '').toLowerCase();
+                const model = args.slice(2).join(' ').trim();
+                if (!pId || !model) {
+                    console.log(`\n  Usage: /api set-model <provider> <model>`);
+                    console.log(`  Example: /api set-model nvidia qwen/qwq-32b`);
+                    return { handled: true };
+                }
+                apiRouter.setProviderModel(pId, model);
+                return { handled: true };
+            }
+
+            // /api priority <provider> <number>
+            if (sub === 'priority') {
+                const pId = (args[1] || '').toLowerCase();
+                const n = parseInt(args[2] || '');
+                if (!pId || isNaN(n)) {
+                    console.log(`\n  Usage: /api priority <provider> <number>  (lower = tried first)`);
+                    return { handled: true };
+                }
+                apiRouter.setPriority(pId, n);
+                return { handled: true };
+            }
+
+            // ── Legacy compatibility: /api nvidia <key>  / /api nvidia models ─────
+            const provider  = sub;
+            const subAction = (args[1] || '').toLowerCase();
+            const keyValue  = args[1] || '';
 
             if (provider === 'local' || provider === 'ollama' || provider === 'qwen-local') {
                 const sub = subAction;
@@ -471,9 +520,9 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
                 return { handled: true };
             }
 
-            console.log(`\n  ❌ Unknown API provider: '${provider}'.`);
-            console.log(`  Supported: nvidia, nvidia2, deepseek`);
-
+            // Fallback: show the new /api list
+            console.log(`\n  ❓ Unknown sub-command '${provider}'. Showing /api status:`);
+            apiRouter.list();
             return { handled: true };
         }
         // ── /models — list models for current API provider ──────────────────────
@@ -710,11 +759,14 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
             
         case '/help':
             console.log('\nAvailable commands:');
-            console.log('  /setup atcli          - Auto-install Node.js, build, link — full setup in one command');
-            console.log('  /api nvidia <key>     - Set NVIDIA NIM API key and switch to nvidia provider (free at build.nvidia.com)');
-            console.log('  /api nvidia models    - List all available NVIDIA NIM models dynamically');
-            console.log('  /api nvidia status    - Show key status, current model, rate limit info');
-            console.log('  /api nvidia clear     - Remove stored NVIDIA API key');
+            console.log('  /setup atcli               - Auto-install Node.js, build, link — full setup in one command');
+            console.log('  /api list                  - Show all API providers: status, model, RPM (run this first!)');
+            console.log('  /api add <provider> <key>  - Register a provider key (nvidia, groq, openrouter, gemini-api, mistral, deepseek-api)');
+            console.log('  /api remove <provider>     - Remove a provider key');
+            console.log('  /api set-model <p> <model> - Change default model for a provider');
+            console.log('  /api priority <p> <n>      - Set failover priority (1=first tried)');
+            console.log('  /api nvidia models         - List all available NVIDIA NIM models dynamically');
+            console.log('  /api nvidia status         - Show key status, current model, rate limit info');
             console.log('  /models               - List models for current API provider');
             console.log('  /provider <name>      - Switch AI provider: deepseek, chatgpt, gemini, qwen, kimi, zai, ollama, local, nvidia');
             console.log('  /local models         - List installed Ollama models');
