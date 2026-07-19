@@ -16,6 +16,7 @@ import { GeminiApiProvider } from './gemini-api';
 import { GroqApiProvider } from './groq';
 import { OpenRouterApiProvider } from './openrouter';
 import { MistralApiProvider } from './mistral-api';
+import { OllamaApiRouterProvider } from './ollama-router';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -121,6 +122,16 @@ const PROVIDER_CATALOGUE: Array<{
         rateLimit: 60,
         description: 'Mistral AI — 60 RPM free',
         signupUrl: 'https://console.mistral.ai',
+    },
+    {
+        id: 'ollama',
+        keyId: 'ollama',
+        defaultModel: 'qwen2.5-coder:7b',
+        defaultPriority: 7,
+        make: () => new OllamaApiRouterProvider(),
+        rateLimit: 999,
+        description: 'Ollama — local models, no API key needed',
+        signupUrl: 'https://ollama.com',
     },
 ];
 
@@ -258,7 +269,13 @@ export class ApiRouter {
             const restSecs = resting ? Math.ceil((entry.cooldownUntil - Date.now()) / 1000) : 0;
 
             let status: string;
-            if (!hasKey) {
+            let signup = cat?.signupUrl ?? '';
+
+            if (id === 'ollama') {
+                const ollamaUrl = ApiKeyStore.get('ollama') || 'http://localhost:11434';
+                signup = ollamaUrl;
+                status = `${C.green}LOCAL${C.reset}`;
+            } else if (!hasKey) {
                 status = `${C.dim}NO KEY${C.reset}`;
             } else if (resting) {
                 status = `${C.yellow}RESTING ${restSecs}s${C.reset}`;
@@ -272,7 +289,7 @@ export class ApiRouter {
                 status,
                 entry.model,
                 String(cat?.rateLimit ?? '?') + ' RPM',
-                cat?.signupUrl ?? '',
+                signup,
             ]);
         }
 
@@ -290,8 +307,8 @@ export class ApiRouter {
         console.log(`  ${C.cyan}/api set-model <provider> <model>${C.reset} — Change default model`);
         console.log(`  ${C.cyan}/api priority <provider> <number>${C.reset} — Set priority (1=first)\n`);
 
-        // Print add instructions for providers without keys
-        const missing = ordered.filter(({ entry }) => !ApiKeyStore.get(entry.keyId));
+        // Print add instructions for providers without keys (skip ollama — it's always local)
+        const missing = ordered.filter(({ id, entry }) => id !== 'ollama' && !ApiKeyStore.get(entry.keyId));
         if (missing.length > 0) {
             console.log(`${C.yellow}Add more providers for automatic failover:${C.reset}`);
             for (const { id } of missing) {
@@ -300,6 +317,8 @@ export class ApiRouter {
             }
             console.log('');
         }
+        const ollamaUrl = ApiKeyStore.get('ollama') || 'http://localhost:11434';
+        console.log(`${C.dim}Ollama (local): /api add ollama ${ollamaUrl}  then  /api set-model ollama <model>${C.reset}\n`);
     }
 
     // ── /api add <id> <key> ───────────────────────────────────────────────────
@@ -310,8 +329,22 @@ export class ApiRouter {
             console.log(`${C.red}Unknown provider "${id}". Valid: ${valid}${C.reset}`);
             return;
         }
+
+        // Ollama: the "key" is actually the base URL
+        if (id === 'ollama') {
+            const url = key.startsWith('http') ? key : `http://${key}`;
+            ApiKeyStore.set('ollama', url);
+            const entry = this.entries.get('ollama');
+            console.log(`${C.green}\u2705 [ApiRouter] Ollama registered!${C.reset}`);
+            console.log(`   Base URL: ${url}`);
+            console.log(`   Model: ${entry?.model || cat.defaultModel}`);
+            console.log(`   Run ${C.cyan}/api set-model ollama <model-name>${C.reset} to change model.`);
+            console.log(`   Run ${C.cyan}/api list models ollama${C.reset} to see installed models.`);
+            return;
+        }
+
         ApiKeyStore.set(cat.keyId, key);
-        console.log(`${C.green}✅ [ApiRouter] ${id} API key saved!${C.reset}`);
+        console.log(`${C.green}\u2705 [ApiRouter] ${id} API key saved!${C.reset}`);
         console.log(`   Model: ${cat.defaultModel}`);
         console.log(`   Run ${C.cyan}/api list${C.reset} to see status.`);
     }

@@ -312,14 +312,46 @@ export function handleSlashCommand(input: string, state: AppState, router?: any)
 
             const sub = args[0].toLowerCase();
 
+            // /api models <provider>  — list models for a provider (Ollama)
+            if (sub === 'models') {
+                const pId = (args[1] || '').toLowerCase();
+                if (pId === 'ollama') {
+                    const { OllamaApiRouterProvider } = require('../providers/ollama-router');
+                    const prov = new OllamaApiRouterProvider();
+                    prov.listModels().then((models: string[]) => {
+                        if (models.length === 0) {
+                            console.log(`\n  ⚠️  No models found. Make sure Ollama is running: ollama serve`);
+                            console.log(`  Pull a model: ollama pull qwen2.5-coder:7b`);
+                        } else {
+                            console.log(`\n  ╔══════════════════════════════════════════╗`);
+                            console.log(`  ║  Ollama Installed Models (${models.length})            ║`);
+                            console.log(`  ╚══════════════════════════════════════════╝`);
+                            models.forEach((m, i) => console.log(`    ${String(i + 1).padStart(3)}. \x1b[36m${m}\x1b[0m`));
+                            console.log(`\n  Switch: /api set-model ollama <model-name>\n`);
+                        }
+                    }).catch((e: Error) => console.log(`\n  ❌ ${e.message}`));
+                } else {
+                    console.log(`\n  /api models ollama  — list installed Ollama models`);
+                    console.log(`  /api nvidia models  — list NVIDIA NIM models`);
+                }
+                return { handled: true };
+            }
+
             // /api add <provider> <key>
             if (sub === 'add') {
                 const pId = (args[1] || '').toLowerCase();
                 const key = args.slice(2).join(' ').replace(/^[<"']|[>"']$/g, '').trim();
-                if (!pId || !key || key.length < 8) {
-                    console.log(`\n  Usage: /api add <provider> <key>`);
-                    console.log(`  Example: /api add nvidia nvapi-xxxx`);
-                    console.log(`  Run /api list to see all providers.`);
+                // Ollama: URL can be as short as "localhost:11434" (15 chars) but relax for http://
+                const minLen = pId === 'ollama' ? 4 : 8;
+                if (!pId || !key || key.length < minLen) {
+                    console.log(`\n  Usage: /api add <provider> <key-or-url>`);
+                    if (pId === 'ollama') {
+                        console.log(`  Example: /api add ollama http://localhost:11434`);
+                        console.log(`  Then:    /api set-model ollama qwen2.5-coder:7b`);
+                    } else {
+                        console.log(`  Example: /api add nvidia nvapi-xxxx`);
+                        console.log(`  Run /api list to see all providers.`);
+                    }
                     return { handled: true };
                 }
                 apiRouter.add(pId, key);
