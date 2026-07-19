@@ -275,6 +275,13 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
                         console.log(`\n⚡ [${this.id.toUpperCase()}] Tool execution finished. Bypassing stability wait for instant action!`);
                         break;
                     } else if (!isActivelyGenerating && !hasSeenGenerating) {
+                        // If the text is different from previousTextToIgnore, it's new content (not old history)
+                        // This handles the case where the page already had a response with tool calls visible
+                        // from a prior conversation, and we never saw a "stop" button appear.
+                        if (finalResponse !== previousTextToIgnore) {
+                            console.log(`\n⚡ [${this.id.toUpperCase()}] Completed tool call found (new content, no generation signal). Breaking immediately.`);
+                            break;
+                        }
                         if (stableCount % 5 === 0) console.log(`\n⚠️ [${this.id.toUpperCase()}] Found a completed tool call, but never saw generation start. Ignoring (likely old history).`);
                         stableCount = 0;
                         continue;
