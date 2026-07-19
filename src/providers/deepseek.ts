@@ -50,10 +50,10 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             if (this.page && !isRateLimit) {
                 try {
                     domRateLimit = await this.page.evaluate(() => {
-                        const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="message"], [class*="error"], [class*="tip"]'));
+                        const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="notice"], [class*="notification"], .ant-message, .el-message'));
                         return toasts.some(el => {
                             const t = (el as HTMLElement).innerText?.toLowerCase() || '';
-                            return t.includes('too frequent') || t.includes('too many') || t.includes('rate limit') || t.includes('slow down');
+                            return t.includes('too frequent') || t.includes('too many requests') || t.includes('rate limit') || t.includes('slow down');
                         });
                     });
                 } catch { /* ignore */ }
@@ -132,10 +132,10 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 const countThreshold = (window as any)._previousBubbleCount || 0;
                 
                 // Check for rate limit toasts first
-                const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="message"], [class*="error"], [class*="tip"]'));
+                const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="notice"], [class*="notification"], .ant-message, .el-message'));
                 const isRateLimited = toasts.some(el => {
                     const t = (el as HTMLElement).innerText?.toLowerCase() || '';
-                    return t.includes('too frequent') || t.includes('too many') || t.includes('rate limit') || t.includes('slow down');
+                    return t.includes('too frequent') || t.includes('too many requests') || t.includes('rate limit') || t.includes('slow down');
                 });
                 if (isRateLimited) return '__RATE_LIMIT__';
 
@@ -174,10 +174,10 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
                 const responseText = await this.pollForResponse(() => {
                     const countThreshold = (window as any)._previousBubbleCount || 0;
 
-                    const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="message"], [class*="error"], [class*="tip"]'));
+                    const toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="alert"], [class*="notice"], [class*="notification"], .ant-message, .el-message'));
                     const isRateLimited = toasts.some(el => {
                         const t = (el as HTMLElement).innerText?.toLowerCase() || '';
-                        return t.includes('too frequent') || t.includes('too many') || t.includes('rate limit') || t.includes('slow down');
+                        return t.includes('too frequent') || t.includes('too many requests') || t.includes('rate limit') || t.includes('slow down');
                     });
                     if (isRateLimited) return '__RATE_LIMIT__';
 
