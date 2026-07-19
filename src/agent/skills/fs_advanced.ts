@@ -331,3 +331,74 @@ Arguments:
         }
     }
 };
+
+// ─── str_replace_editor ───────────────────────────────────────────────────────
+export const StrReplaceEditorSkill: AgentSkill = {
+    name: 'str_replace_editor',
+    description: `Kimi/Claude-style exact match string replacer. Replaces EXACT substrings in a file and returns a unified diff. 
+You must provide the exact string including all original whitespace and indentation. Use grep_search or read_lines first to see exact whitespace.
+
+Arguments:
+  path       (required) — file path to edit
+  old_str    (required) — the EXACT string to replace
+  new_str    (required) — the new string to replace it with`,
+    example: `<tool_call>\n{"action": "str_replace_editor", "path": "src/app.py", "old_str": "    def test():\\n        pass", "new_str": "    def test():\\n        return True"}\n</tool_call>`,
+    execute: async (args: any) => {
+        if (!args.path || args.old_str === undefined || args.new_str === undefined) {
+            return 'Error: path, old_str, and new_str are required';
+        }
+        const cwd = (global as any).atcli_project_root || process.cwd();
+        const targetPath = path.resolve(cwd, args.path);
+        const secErr = assertSafe(targetPath);
+        if (secErr) return secErr;
+
+        const lowerPath = targetPath.toLowerCase();
+        if (lowerPath.endsWith('prompts.ts') || lowerPath.endsWith('prompts.js')) {
+            return '❌ [HARD STOP] Cannot modify the ATCLI security prompt engine.';
+        }
+
+        try {
+            const oldContent = await fs.readFile(targetPath, 'utf8');
+            
+            // Check if old_str exists
+            const occurrences = oldContent.split(args.old_str).length - 1;
+            
+            if (occurrences === 0) {
+                return `Error: 'old_str' not found in ${args.path}. You must match the EXACT text including spaces and newlines. Try using grep_search first to copy the exact text.`;
+            }
+            if (occurrences > 1) {
+                return `Error: 'old_str' matches ${occurrences} places in ${args.path}. Please provide a larger block of text in 'old_str' so it uniquely matches only the section you want to change.`;
+            }
+
+            // Exactly 1 match, safe to replace
+            const newContent = oldContent.replace(args.old_str, args.new_str);
+            
+            // Save backup and write new file
+            await fs.writeFile(targetPath + '.bak', oldContent, 'utf8');
+            await fs.writeFile(targetPath, newContent, 'utf8');
+
+            // Diff generation
+            const oldLines = args.old_str.split('\n');
+            const newLines = args.new_str.split('\n');
+            
+            const diffLines: string[] = [];
+            let added = 0, removed = 0;
+            const maxLen = Math.max(oldLines.length, newLines.length);
+
+            for (let i = 0; i < maxLen && diffLines.length < 50; i++) {
+                const o = oldLines[i];
+                const n = newLines[i];
+                if (o === undefined) { diffLines.push(`+ ${n}`); added++; }
+                else if (n === undefined) { diffLines.push(`- ${o}`); removed++; }
+                else if (o !== n) { diffLines.push(`- ${o}`); diffLines.push(`+ ${n}`); removed++; added++; }
+            }
+
+            const summary = `+${added} lines, -${removed} lines`;
+            const diffPreview = diffLines.slice(0, 30).join('\n');
+            const truncated = diffLines.length > 30 ? `\n... (${diffLines.length - 30} more diff lines)` : '';
+            return `Success: 1 occurrence replaced in ${args.path} (${summary})\nBackup: ${args.path}.bak\n\nDiff:\n${diffPreview}${truncated}`;
+        } catch (e: any) {
+            return `Error: ${e.message}`;
+        }
+    }
+};
