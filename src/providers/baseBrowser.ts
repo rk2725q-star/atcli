@@ -190,6 +190,7 @@ export abstract class BaseBrowserAdapter implements AgentProvider {
 
             if (currentText && currentText === previousTextToIgnore) {
                 // The AI hasn't started generating the new response yet, still seeing the old one.
+                if (i > 0 && i % 5 === 0) console.log(`\n⏳ [${this.id.toUpperCase()}] Still waiting for AI to start generating... (Seeing old response. Did the message send?)`);
                 stableCount = 0;
                 continue;
             }

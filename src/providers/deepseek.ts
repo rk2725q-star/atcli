@@ -108,7 +108,10 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
             console.log(`[DeepSeek] Typing message...`);
             await this.page!.keyboard.press('Control+A');
             await this.page!.keyboard.insertText(message);
-            await this.page!.waitForTimeout(300); // reduced from 500ms
+            // Trigger React onChange state
+            await this.page!.keyboard.press('Space');
+            await this.page!.keyboard.press('Backspace');
+            await this.page!.waitForTimeout(300);
 
             console.log(`[DeepSeek] Sending message...`);
             await this.page!.keyboard.press('Enter');
@@ -116,9 +119,11 @@ export class DeepSeekAdapter extends BaseBrowserAdapter {
 
             // Fallback click send button if Enter didn't work
             await this.page!.evaluate(() => {
-                const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el =>
-                    el.innerHTML.includes('M10 21L14 3') || el.innerHTML.includes('send') || (el as any).innerText.includes('Send')
-                ) as HTMLElement;
+                const sendBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(el => {
+                    const html = el.innerHTML.toLowerCase();
+                    const aria = el.getAttribute('aria-label')?.toLowerCase() || '';
+                    return (html.includes('send') || aria.includes('send') || html.includes('m10 21l14 3') || html.includes('circle') || html.includes('arrow')) && !html.includes('stop');
+                }) as HTMLElement;
                 if (sendBtn) sendBtn.click();
             });
 
